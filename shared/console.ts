@@ -1,0 +1,124 @@
+export type Measure = "requests" | "errors" | "latency" | "logs" | "metric";
+export type Identifier =
+  | "source"
+  | "slot"
+  | "revision"
+  | "workload"
+  | "instance";
+export interface Filter {
+  source: string;
+  instance: string;
+  workload: string;
+  slot: string;
+  revision: string;
+  text: string;
+  minutes: number;
+}
+export interface Panel extends Filter {
+  id?: string;
+  title: string;
+  measure: Measure;
+  metric: string;
+  aggregation: "avg" | "max" | "min" | "sum";
+  group: "all" | Identifier;
+  display: "chart" | "value" | "table";
+}
+export interface Monitor {
+  id: string;
+  title: string;
+  panel: Panel;
+  threshold: number;
+  operator: "above" | "below";
+  minimum: number;
+  missing: "no_data" | "alert";
+  notify: boolean;
+}
+export interface Dashboard {
+  id: string;
+  title: string;
+  panels: Panel[];
+}
+export interface Point {
+  bucket: string;
+  series: string;
+  value: number;
+  samples: number;
+}
+export interface EventRow {
+  id: string;
+  at: string;
+  source: string;
+  instance: string;
+  workload: string;
+  slot: string;
+  revision: string;
+  kind: string;
+  name: string;
+  body: string;
+  trace: string;
+  span: string;
+  parent: string;
+  value: number | null;
+  unit: string;
+  failed: boolean;
+  attrs: Record<string, unknown>;
+}
+export interface Overview {
+  services: {
+    source: string;
+    last: string | null;
+    requests: number;
+    errors: number;
+    latency: number | null;
+  }[];
+  metrics: string[];
+  slots: string[];
+  revisions: string[];
+}
+export interface RouteRow {
+  source: string;
+  name: string;
+  requests: number;
+  errors: number;
+  p95: number | null;
+  trace: string;
+}
+export interface MonitorRow {
+  definition: Monitor;
+  state: string;
+  evaluated: string | null;
+  value: number | null;
+}
+export interface Transition {
+  id: string;
+  title: string;
+  state: string;
+  at: string;
+  value: number | null;
+  delivery: string;
+}
+export const defaults: Filter = {
+  source: "",
+  instance: "",
+  workload: "",
+  slot: "",
+  revision: "",
+  text: "",
+  minutes: 60,
+};
+export const blankPanel: Panel = {
+  ...defaults,
+  title: "リクエスト数",
+  measure: "requests",
+  metric: "",
+  aggregation: "avg",
+  group: "source",
+  display: "chart",
+};
+export const measures: Record<Measure, string> = {
+  requests: "リクエスト数",
+  errors: "失敗率 (%)",
+  latency: "p95 応答時間 (ms)",
+  logs: "ログ件数",
+  metric: "メトリクス",
+};

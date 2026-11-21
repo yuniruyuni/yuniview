@@ -19,6 +19,7 @@ for _ in {1..60}; do docker exec "$pg" pg_isready -h 127.0.0.1 -U postgres >/dev
 sql < bin/init-dev.sql
 sql < schema/tables/sources.sql
 sql < schema/tables/agent.sql
+sql < schema/tables/console.sql
 token=$(openssl rand -hex 32)
 printf '%s' "$token" > "$tmp/token"
 digest=$(sha256sum "$tmp/token" | cut -d' ' -f1)

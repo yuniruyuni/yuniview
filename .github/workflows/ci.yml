@@ -58,6 +58,9 @@ jobs:
         working-directory: e2e
         run: bun run check:e2e
 
+      - name: Verify console with PostgreSQL and Chromium
+        run: bin/test-console.sh
+
       - name: Upload test results
         uses: actions/upload-artifact@v7
         if: always()

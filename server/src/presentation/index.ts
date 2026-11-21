@@ -29,7 +29,7 @@ export function createApp(ctx: Context) {
         scriptSrc: ["'self'", "'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:", "https:"],
-        connectSrc: ["'self'", "https://api.twitch.tv"],
+        connectSrc: ["'self'"],
         frameAncestors: ["'none'"],
       },
     }),

@@ -1,5 +1,5 @@
-export type Repos = Record<never, never>;
-
-export function createRawRepos(): Repos {
-  return {};
+import { dashboards, monitorHistory, monitors } from "./console/library";
+export function createRawRepos() {
+  return { dashboards, monitors, monitorHistory };
 }
+export type Repos = ReturnType<typeof createRawRepos>;

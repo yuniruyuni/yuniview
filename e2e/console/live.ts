@@ -1,0 +1,168 @@
+import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
+import { expect, test } from "@playwright/test";
+
+test("agent records → trace and logs → saved panel → monitor and notification", async ({
+  page,
+  request,
+}) => {
+  const notices: string[] = [];
+  const hook = createServer((req, res) => {
+    let data = "";
+    req.on("data", (c) => (data += c));
+    req.on("end", () => {
+      notices.push(JSON.parse(data).state);
+      res.writeHead(204).end();
+    });
+  });
+  await new Promise<void>((resolve) =>
+    hook.listen(Number(process.env.HOOK_PORT), "127.0.0.1", resolve),
+  );
+  try {
+    const trace = Buffer.from("0123456789abcdef").toString("base64");
+    const span = Buffer.from("12345678").toString("base64");
+    const time = new Date(Date.now() - 90000);
+    const start = BigInt(+time) * 1000000n;
+    const source = {
+      service: "checkout",
+      instance: "pod1",
+      workload: "app",
+      slot: "blue",
+      revision: "abc",
+    };
+    const ingest = async (signal: string, payload: unknown) => {
+      const res = await request.post("/api/agent/v1/batches", {
+        headers: { Authorization: `Bearer ${process.env.CONSOLE_TOKEN}` },
+        data: {
+          id: randomUUID().replaceAll("-", ""),
+          time: time.toISOString(),
+          source,
+          signal,
+          payload,
+        },
+      });
+      expect(res.status(), await res.text()).toBe(204);
+    };
+    await ingest("traces", {
+      resourceSpans: [
+        {
+          scopeSpans: [
+            {
+              spans: [
+                {
+                  name: "POST /pay",
+                  kind: "SPAN_KIND_SERVER",
+                  traceId: trace,
+                  spanId: span,
+                  startTimeUnixNano: String(start),
+                  endTimeUnixNano: String(start + 240000000n),
+                  attributes: [
+                    { key: "http.route", value: { stringValue: "/pay" } },
+                    {
+                      key: "http.response.status_code",
+                      value: { intValue: "503" },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    await ingest("logs", {
+      resourceLogs: [
+        {
+          scopeLogs: [
+            {
+              logRecords: [
+                {
+                  body: { stringValue: "upstream timeout" },
+                  traceId: trace,
+                  timeUnixNano: String(start),
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    await ingest("resources", { cpuUsageUsec: 100, memoryBytes: 2048 });
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.goto("/");
+    await expect(page.getByRole("row", { name: /checkout/ })).toContainText(
+      "240",
+    );
+    await page
+      .getByRole("navigation")
+      .getByRole("button", { name: "ログ", exact: true })
+      .click();
+    await expect(
+      page.getByRole("cell", { name: "upstream timeout" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "トレース", exact: true }).click();
+    await expect(page.getByText("checkout · POST /pay")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "関連ログ (1)" }),
+    ).toBeVisible();
+    await page
+      .getByRole("navigation")
+      .getByRole("button", { name: "メトリクス" })
+      .click();
+    await expect(
+      page.getByRole("cell", { name: "memory.current", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("navigation")
+      .getByRole("button", { name: "ダッシュボード" })
+      .click();
+    await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
+    const form = page.locator("form.editor");
+    await form.getByLabel("名前", { exact: true }).fill("Checkout SLO");
+    await form.getByLabel("パネル名").fill("失敗率");
+    await form
+      .getByRole("combobox", { name: "指標", exact: true })
+      .selectOption("errors");
+    await form
+      .getByRole("combobox", { name: "表示", exact: true })
+      .selectOption("value");
+    await form.getByRole("button", { name: "保存" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Checkout SLO" }),
+    ).toBeVisible();
+    await expect(page.locator(".values strong")).toHaveText("100");
+    await page.reload();
+    await page.getByRole("button", { name: "モニター化" }).click();
+    await form.getByLabel("名前", { exact: true }).fill("Checkout failures");
+    await form.getByLabel("閾値").fill("50");
+    await form.getByLabel("Webhook 通知").check();
+    await form.getByRole("button", { name: "保存" }).click();
+    await expect
+      .poll(() => notices.includes("alert"), { timeout: 18000 })
+      .toBe(true);
+    await page
+      .getByRole("navigation")
+      .getByRole("button", { name: "モニター", exact: true })
+      .click();
+    await expect(page.locator(".state")).toHaveText("発報");
+    await page.getByRole("button", { name: "編集", exact: true }).click();
+    await form.getByLabel("閾値").fill("101");
+    await form.getByRole("button", { name: "保存" }).click();
+    await expect
+      .poll(() => notices.includes("ok"), { timeout: 18000 })
+      .toBe(true);
+    await page.getByRole("button", { name: "更新", exact: true }).click();
+    await expect(page.locator(".state")).toHaveText("正常");
+    await page.getByRole("button", { name: "編集", exact: true }).click();
+    await form.getByLabel("最低サンプル数").fill("100");
+    await form.getByRole("button", { name: "保存" }).click();
+    await expect
+      .poll(() => notices.includes("no_data"), { timeout: 18000 })
+      .toBe(true);
+    expect(errors).toEqual([]);
+  } finally {
+    hook.closeAllConnections();
+    hook.close();
+  }
+});

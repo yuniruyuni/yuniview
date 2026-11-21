@@ -17,6 +17,7 @@ CREATE TABLE telemetry_batches (
     observed_at timestamptz NOT NULL,
     received_at timestamptz NOT NULL DEFAULT now(),
     payload json NOT NULL,
+    indexed boolean NOT NULL DEFAULT false,
     PRIMARY KEY (source_id, batch_id)
 );
 CREATE INDEX telemetry_batches_source_time ON telemetry_batches (source_id, observed_at);

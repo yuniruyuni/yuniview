@@ -8,10 +8,15 @@ export async function credential(db: Database, digest: string) {
   );
 }
 
+import { indexBatch } from "../console";
+
 export async function storeBatch(db: Database, batch: Batch) {
   const s = batch.source;
-  await db.queryRun(sql`INSERT INTO telemetry_batches
+  await db.transaction(async (tx) => {
+    const inserted = await tx.queryRun(sql`INSERT INTO telemetry_batches
     (source_id, batch_id, workload, instance, slot, revision, signal, observed_at, payload)
     VALUES (${s.service}, ${batch.id}, ${s.workload}, ${s.instance}, ${s.slot ?? ""}, ${s.revision ?? ""}, ${batch.signal}, ${batch.time}, ${JSON.stringify(batch.payload)}::json)
     ON CONFLICT (source_id, batch_id) DO NOTHING`);
+    if (inserted.rowCount) await indexBatch(tx, batch);
+  });
 }
