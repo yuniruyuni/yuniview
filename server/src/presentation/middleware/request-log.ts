@@ -21,6 +21,7 @@
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import type { Context, MiddlewareHandler } from "hono";
 import type { ILogger } from "../../infra/logger/types";
+import { ingestPath } from "../agent";
 
 /**
  * 記録しない経路。
@@ -28,7 +29,7 @@ import type { ILogger } from "../../infra/logger/types";
  * 健康確認は 3 秒ごとに 2 系へ来る。1 日 5 万行を超え、本物の記録がこの中に
  * 埋もれる。落ちていれば経路側の指標に出るので、ここで残す必要が無い。
  */
-const SKIP = new Set(["/health"]);
+const SKIP = new Set(["/health", ingestPath]);
 
 /**
  * 型ではなく実際のパスを残してよい接頭辞。

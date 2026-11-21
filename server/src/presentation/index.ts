@@ -4,6 +4,7 @@ import { serveStatic } from "hono/bun";
 import { compress } from "hono/compress";
 import { secureHeaders } from "hono/secure-headers";
 import type { Context } from "../usecases/context";
+import { agentRoutes } from "./agent";
 import { requestLog } from "./middleware/request-log";
 import { appRouter } from "./trpc/routers";
 
@@ -33,6 +34,8 @@ export function createApp(ctx: Context) {
       },
     }),
   );
+
+  app.route("/", agentRoutes(ctx.db));
 
   app.get("/health", (c) => c.json({ status: "ok" }));
 
