@@ -1,0 +1,63 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      - PORT=3000
+      - PGHOST=postgres
+      - DB_USER=yuniview_app
+      - DB_PASSWORD=yuniview_dev
+      - DB_NAME=yuniview
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+    develop:
+      watch:
+        - action: rebuild
+          path: ./client/src
+        - action: rebuild
+          path: ./server/src
+        - action: rebuild
+          path: ./client/package.json
+        - action: rebuild
+          path: ./server/package.json
+
+  migration:
+    build:
+      context: .
+      dockerfile: Dockerfile.migration
+    environment:
+      - DB_USER=yuniview
+      - DB_NAME=yuniview
+      - DB_PASSWORD=yuniview
+      - PGHOST=postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: rebuild
+          path: ./schema
+
+  postgres:
+    image: postgres:18
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: yuniview
+      POSTGRES_PASSWORD: yuniview
+      POSTGRES_DB: yuniview
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yuniview"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./bin/init-dev.sql:/docker-entrypoint-initdb.d/01-role.sql:ro
+
+volumes:
+  pgdata:

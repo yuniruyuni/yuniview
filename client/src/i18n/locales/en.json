@@ -1,0 +1,16 @@
+{
+  "language": "English",
+  "common": {
+    "loading": "Loading...",
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "search": "Search"
+  },
+  "app": {
+    "title": "Template"
+  }
+}
