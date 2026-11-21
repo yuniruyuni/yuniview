@@ -19,7 +19,7 @@ VALUES (:'digest', 'demo', 'app', 'blue');
 SQL
 (cd agent && go build -o "$state_dir/yuniview-agent" .)
 "$state_dir/yuniview-agent" -service demo -workload app -slot blue \
-  -instance local-1 -endpoint http://127.0.0.1:3000/api/agent/v1/batches \
+  -instance local-1 -endpoint http://127.0.0.1:3001/api/agent/v1/batches \
   -token-file "$state_dir/token" -state "$state_dir/queue"
 ```
 

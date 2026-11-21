@@ -14,12 +14,14 @@ export CONSOLE_TOKEN=$(openssl rand -hex 32)
 digest=$(printf '%s' "$CONSOLE_TOKEN" | sha256sum | cut -d' ' -f1)
 psql -c "INSERT INTO sources(id) VALUES ('checkout'); INSERT INTO agent_credentials VALUES ('$digest','checkout','app','blue');"
 psql -c "INSERT INTO telemetry_batches(source_id,batch_id,workload,instance,slot,revision,signal,observed_at,payload) VALUES ('checkout','old','app','prior','green','v0','stdout',now(),'[\"previous deployment\"]');"
-ports=$(python3 -c 'import socket; a,b=socket.socket(),socket.socket();a.bind(("127.0.0.1",0));b.bind(("127.0.0.1",0));print(a.getsockname()[1],b.getsockname()[1])')
-read -r PORT HOOK_PORT <<< "$ports"
-export PORT HOOK_PORT CONSOLE_URL="http://127.0.0.1:$PORT" MONITOR_WEBHOOK_URL="http://127.0.0.1:$HOOK_PORT/"
+ports=$(python3 -c 'import socket; ss=[socket.socket() for _ in range(3)];[s.bind(("127.0.0.1",0)) for s in ss];print(*(s.getsockname()[1] for s in ss))')
+read -r PORT HOOK_PORT INGEST_PORT <<< "$ports"
+export PORT HOOK_PORT INGEST_PORT YUNIVIEW_ADMIN_AUTH=local CONSOLE_URL="http://127.0.0.1:$PORT" MONITOR_WEBHOOK_URL="http://127.0.0.1:$HOOK_PORT/"
 export PGHOST=127.0.0.1 PGPORT=$(docker port "$pg" 5432/tcp | cut -d: -f2) DB_NAME=postgres DB_USER=yuniview_app DB_PASSWORD=yuniview_dev STATIC_DIR=client/static
 bun run build
 ./server/dist/server & app=$!
 for _ in {1..40};do curl -fsS "$CONSOLE_URL/health" >/dev/null 2>&1 && break;sleep .25;done
+[[ $(curl -s -o /dev/null -w '%{http_code}' -X POST "$CONSOLE_URL/api/agent/v1/batches") == 404 ]]
+[[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$INGEST_PORT/api/trpc/library") == 404 ]]
 (cd e2e && bun x playwright test --config console.config.ts)
 [[ $(psql -Atc "SELECT count(*) FROM telemetry_events WHERE body='previous deployment'") == 1 ]]

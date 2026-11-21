@@ -31,16 +31,19 @@ test("agent records → trace and logs → saved panel → monitor and notificat
       revision: "abc",
     };
     const ingest = async (signal: string, payload: unknown) => {
-      const res = await request.post("/api/agent/v1/batches", {
-        headers: { Authorization: `Bearer ${process.env.CONSOLE_TOKEN}` },
-        data: {
-          id: randomUUID().replaceAll("-", ""),
-          time: time.toISOString(),
-          source,
-          signal,
-          payload,
+      const res = await request.post(
+        `http://127.0.0.1:${process.env.INGEST_PORT}/api/agent/v1/batches`,
+        {
+          headers: { Authorization: `Bearer ${process.env.CONSOLE_TOKEN}` },
+          data: {
+            id: randomUUID().replaceAll("-", ""),
+            time: time.toISOString(),
+            source,
+            signal,
+            payload,
+          },
         },
-      });
+      );
       expect(res.status(), await res.text()).toBe(204);
     };
     await ingest("traces", {

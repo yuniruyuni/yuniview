@@ -10,7 +10,9 @@ docker compose up -d --build
 
 http://localhost:3000 を開きます。初回はサービスが空なので、[agent の手順](agent/README.md) に沿って送信元を登録し、計測対象からデータを送ります。既存の Compose 環境では起動時の migration がスキーマを適用し、中央サーバーが過去のバッチを順次索引化します。PostgreSQL のデータは named volume に残ります。
 
-UI と操作 API は同じ運用者向けの権限で動きます。Compose の公開先は loopback です。別ホストからは SSH 転送、または運用者認証を設定したリバースプロキシを通してアクセスしてください。agent の取り込み口は独立した送信資格を検証します。
+本番の管理画面 https://yuniview.yuniruyuni.net は Cloudflare Tunnel 経由で公開し、Cloudflare Access の Owner ポリシーで指定した Google アカウントに許可します。アプリは画面と操作 API の両方で Access の署名、発行元、有効期限、アプリ固有の Audience を検証します。本番の環境変数は yunirun.jsonc にあります。手元の Compose は loopback 上で開発用の `YUNIVIEW_ADMIN_AUTH=local` を使います。
+
+agent の送信先は、手元ではポート 3001、本番の同一ホストでは `/run/yuniview-ingest/http.sock` です。取り込みには送信元ごとの資格が必要です。
 
 ## 画面
 

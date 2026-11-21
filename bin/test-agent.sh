@@ -27,7 +27,8 @@ sql -c "INSERT INTO sources(id) VALUES ('demo'); INSERT INTO agent_credentials V
 free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])'; }
 port=$(free_port)
 grpc=$(free_port)
-url="http://127.0.0.1:$port/api/agent/v1/batches"
+export INGEST_PORT=$(free_port)
+url="http://127.0.0.1:$INGEST_PORT/api/agent/v1/batches"
 export PGPORT=$(docker port "$pg" 5432/tcp | cut -d: -f2)
 export PGHOST=127.0.0.1 DB_NAME=postgres DB_USER=yuniview_app DB_PASSWORD=yuniview_dev PORT="$port"
 (cd agent && go build -o "$tmp/agent" .)

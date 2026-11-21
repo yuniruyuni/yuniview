@@ -1,0 +1,12 @@
+{
+  "app": {
+    "database": true,
+    "env": {
+      "YUNIVIEW_ADMIN_AUTH": "cloudflare",
+      "CF_ACCESS_TEAM": "yuniruyuni",
+      "CF_ACCESS_AUD": "95ff5311ec7b003f91ae45d1527b7b8e291567746ab6c9615d8ef7e444a28ac4",
+      "INGEST_BIND": "0.0.0.0"
+    }
+  },
+  "workloads": { "migration": { "image": "yuniview-migration" } }
+}

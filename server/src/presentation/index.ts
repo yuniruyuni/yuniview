@@ -4,7 +4,7 @@ import { serveStatic } from "hono/bun";
 import { compress } from "hono/compress";
 import { secureHeaders } from "hono/secure-headers";
 import type { Context } from "../usecases/context";
-import { agentRoutes } from "./agent";
+import { adminAccess } from "./middleware/admin-access";
 import { requestLog } from "./middleware/request-log";
 import { appRouter } from "./trpc/routers";
 
@@ -35,9 +35,9 @@ export function createApp(ctx: Context) {
     }),
   );
 
-  app.route("/", agentRoutes(ctx.db));
-
   app.get("/health", (c) => c.json({ status: "ok" }));
+  app.use("*", adminAccess());
+  app.all("/api/agent/*", (c) => c.notFound());
 
   app.use(
     "/api/trpc/*",
@@ -46,16 +46,6 @@ export function createApp(ctx: Context) {
       createContext: () => ctx as unknown as Record<string, unknown>,
     }),
   );
-
-  app.use("/*", async (c, next) => {
-    await next();
-    if (c.res.status < 400) {
-      c.res.headers.set(
-        "Cache-Control",
-        "public, max-age=0, stale-while-revalidate=86400",
-      );
-    }
-  });
 
   app.use("/*", serveStatic({ root: STATIC_DIR }));
   app.get("*", serveStatic({ root: STATIC_DIR, path: "index.html" }));

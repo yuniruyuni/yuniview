@@ -5,8 +5,13 @@ services:
       dockerfile: Dockerfile
     ports:
       - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3001:3001"
     environment:
       - PORT=3000
+      - INGEST_BIND=0.0.0.0
+      - YUNIVIEW_ADMIN_AUTH=${YUNIVIEW_ADMIN_AUTH:-local}
+      - CF_ACCESS_TEAM
+      - CF_ACCESS_AUD
       - MONITOR_WEBHOOK_URL
       - TELEMETRY_RETENTION_DAYS
       - PGHOST=postgres

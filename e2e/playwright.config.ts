@@ -57,6 +57,8 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     env: {
       E2E_TEST: "true",
+      YUNIVIEW_ADMIN_AUTH: "local",
+      INGEST_PORT: "0",
       // e2e は DB を要求しないシナリオなので、起動時の SELECT 1 検証で
       // fail-early させない。production では常に未設定にする。
       SKIP_DB_VERIFY: "1",
