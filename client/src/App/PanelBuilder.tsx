@@ -71,7 +71,9 @@ function intervalName(field: TimeField | "day") {
 }
 
 type Props = {
-  back: () => void;
+  savePanel: () => void;
+  cancelPanel: () => void;
+  directSave: boolean;
   actions: React.ReactNode;
   p: Panel;
   set: (p: Panel) => void;
@@ -110,7 +112,9 @@ export function PanelBuilder({
   minutes,
   timeControl,
   actions,
-  back,
+  savePanel,
+  cancelPanel,
+  directSave,
 }: Props) {
   const [settingsOpen, showSettings] = useState(false);
   const [picker, openPicker] = useState<
@@ -888,10 +892,18 @@ export function PanelBuilder({
           <button
             className="primary"
             type="button"
-            title="変更を下書きに反映して配置に戻る"
-            onClick={back}
+            title={
+              directSave
+                ? "パネルを保存してダッシュボードに戻る"
+                : "パネルの編集を確定して配置に戻る"
+            }
+            disabled={!p.title.trim()}
+            onClick={savePanel}
           >
-            配置に戻る
+            セーブ
+          </button>
+          <button type="button" onClick={cancelPanel}>
+            キャンセル
           </button>
           <button
             type="button"

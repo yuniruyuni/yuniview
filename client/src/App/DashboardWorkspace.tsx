@@ -6,7 +6,12 @@ import { PanelLayout } from "./PanelLayout";
 import { investigatePanel, Select } from "./Panels";
 
 type Saved = { definition: Dashboard; version: string };
-type Draft = { board: Dashboard; version: string | null; index: number };
+type Draft = {
+  board: Dashboard;
+  version: string | null;
+  index: number;
+  session?: { original: Panel | null; direct: boolean };
+};
 export function DashboardWorkspace({
   timeControl,
   end,
@@ -45,7 +50,8 @@ export function DashboardWorkspace({
   function sheetRoute(boardId: string, key: string | null, replace = false) {
     const params = new URLSearchParams(location.hash.slice(1));
     params.set("page", "dashboards");
-    params.set("dashboard", boardId);
+    if (boardId) params.set("dashboard", boardId);
+    else params.delete("dashboard");
     if (key === null) params.delete("sheet");
     else params.set("sheet", key);
     const hash = "#" + params.toString();
@@ -66,7 +72,13 @@ export function DashboardWorkspace({
   const active = data?.find((d) => d.definition.id === selected) ?? data?.[0];
   const board = active?.definition;
   useEffect(() => {
-    if (sheet === null || !data) return;
+    if (!data) return;
+    if (sheet === null) {
+      if (draft?.board.id === route.get("dashboard"))
+        history.replaceState({ worksheetDraft: draft }, "");
+      else if (history.state?.worksheetDraft) history.replaceState(null, "");
+      return;
+    }
     const boardId = route.get("dashboard");
     const saved = data.find((d) => d.definition.id === boardId);
     const current =
@@ -89,10 +101,24 @@ export function DashboardWorkspace({
       setRoute(next);
       return;
     }
-    if (current !== draft || draft.index !== index) {
+    if (current !== draft || draft.index !== index || !draft.session) {
       for (const panel of current.board.panels)
         panel.id ??= crypto.randomUUID();
-      edit({ ...current, index });
+      const original =
+        saved?.definition.panels.find(
+          (panel) => panel.id === current.board.panels[index].id,
+        ) ?? saved?.definition.panels[index];
+      edit({
+        ...current,
+        index,
+        session: {
+          original:
+            current === draft
+              ? (original ?? null)
+              : current.board.panels[index],
+          direct: current !== draft && !!saved,
+        },
+      });
       select(current.board.id);
     } else history.replaceState({ worksheetDraft: draft }, "");
   }, [data, draft, route, sheet]);
@@ -129,7 +155,14 @@ export function DashboardWorkspace({
           : (board.panels[index].id ?? String(index))
         : null,
     );
-    edit({ board, version: saved?.version ?? null, index });
+    edit({
+      board,
+      version: saved?.version ?? null,
+      index,
+      session: configure
+        ? { original: extra ? null : board.panels[index], direct: !!saved }
+        : undefined,
+    });
     fail("");
     if (saved) select(board.id);
   }
@@ -145,6 +178,7 @@ export function DashboardWorkspace({
       ...draft,
       board: { ...draft.board, panels },
       index: panels.length - 1,
+      session: { original: null, direct: false },
     });
   }
   async function save() {
@@ -237,15 +271,54 @@ export function DashboardWorkspace({
       0,
       panels.findIndex((panel) => panel.id === selected?.id),
     );
-    edit({ ...draft, index, board: { ...draft.board, panels } });
+    edit({
+      ...draft,
+      index,
+      board: { ...draft.board, panels },
+      session: configure
+        ? {
+            original:
+              draft.board.panels.find((panel) => panel.id === configure.id) ??
+              null,
+            direct: false,
+          }
+        : draft.session,
+    });
     if (configure) sheetRoute(draft.board.id, configure.id ?? String(index));
+  }
+  function finishPanel(commit: boolean) {
+    if (!draft || !p || !draft.session) return;
+    if (commit && draft.session.direct) {
+      void save();
+      return;
+    }
+    const { original, direct } = draft.session;
+    const panels = commit
+      ? draft.board.panels
+      : draft.board.panels.flatMap((panel, i) =>
+          i !== draft.index ? [panel] : original ? [original] : [],
+        );
+    edit(
+      !commit && (direct || !panels.length)
+        ? null
+        : {
+            ...draft,
+            board: { ...draft.board, panels },
+            index: Math.min(draft.index, panels.length - 1),
+            session: undefined,
+          },
+    );
+    sheetRoute(!panels.length ? (board?.id ?? "") : draft.board.id, null, true);
+    fail("");
   }
   const worksheet = draft && settings && p && (
     <section className="worksheet" aria-label="ワークシート">
       <PanelBuilder
         minutes={seed.minutes}
         timeControl={timeControl}
-        back={() => sheetRoute(draft.board.id, null, true)}
+        savePanel={() => finishPanel(true)}
+        cancelPanel={() => finishPanel(false)}
+        directSave={!!draft.session?.direct}
         actions={
           <>
             <button
@@ -370,7 +443,14 @@ export function DashboardWorkspace({
                   apply,
 
                   configure: (i) => {
-                    edit({ ...draft, index: i });
+                    edit({
+                      ...draft,
+                      index: i,
+                      session: {
+                        original: draft.board.panels[i],
+                        direct: false,
+                      },
+                    });
                     sheetRoute(
                       draft.board.id,
                       draft.board.panels[i].id ?? String(i),

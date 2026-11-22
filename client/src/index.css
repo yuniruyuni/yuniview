@@ -997,6 +997,20 @@ main:has(.worksheet) {
   }
   .worksheet-heading-actions {
     grid-column: 1 / -1;
+    max-width: 100%;
+    gap: 4px;
+  }
+  .worksheet-heading-actions > button {
+    flex: none;
+  }
+  .worksheet-heading-actions .dashboard-time {
+    min-width: 0;
+  }
+  .worksheet-heading-actions .dashboard-time > button {
+    max-width: 100%;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
   }
   .worksheet-heading h2 {
     font-size: 15px;

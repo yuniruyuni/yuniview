@@ -116,7 +116,7 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
   await form
     .getByRole("combobox", { name: "表示形式", exact: true })
     .selectOption("table");
-  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByRole("button", { name: "セーブ" }).click();
   await form.getByLabel("名前", { exact: true }).fill("Resource pivot");
   await form.getByRole("button", { name: "保存", exact: true }).click();
   await expect(

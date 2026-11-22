@@ -227,7 +227,7 @@ test("agent records → trace and logs → saved panel → monitor and notificat
     await form
       .getByRole("combobox", { name: "表示形式", exact: true })
       .selectOption("value");
-    await form.getByRole("button", { name: "配置に戻る" }).click();
+    await form.getByRole("button", { name: "セーブ" }).click();
     await form.getByLabel("名前", { exact: true }).fill("Checkout SLO");
     await form.getByRole("button", { name: "保存" }).click();
     await expect(
@@ -414,7 +414,7 @@ test("slot totals align gauge samples and exclude incomplete minutes", async ({
     area.locator("title").filter({ hasText: "観測合計 60 MiB" }),
   ).toHaveCount(2);
   await format.selectOption("stacked_area");
-  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByRole("button", { name: "セーブ" }).click();
   await form.getByLabel("名前", { exact: true }).fill("Stacked memory");
   await form.getByRole("button", { name: "保存", exact: true }).click();
   await expect(
@@ -435,11 +435,20 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
   const form = page.locator("form.editor");
   await form.getByLabel("パネル名").fill("First");
-  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByRole("button", { name: "セーブ" }).click();
   await form.getByRole("button", { name: "＋ パネル追加" }).click();
   await form.getByLabel("パネル名").fill("Second");
-  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByRole("button", { name: "セーブ" }).click();
   const titles = form.locator(".canvas-grid article h3 .handle-text");
+  await form.getByRole("button", { name: "First の設定" }).click();
+  await form.getByLabel("パネル名").fill("discard me");
+  await page.reload();
+  await form.getByRole("button", { name: "キャンセル", exact: true }).click();
+  await expect(titles).toHaveText(["First", "Second"]);
+  await form.getByRole("button", { name: "＋ パネル追加" }).click();
+  await form.getByRole("button", { name: "キャンセル", exact: true }).click();
+  await page.reload();
+  await expect(titles).toHaveText(["First", "Second"]);
   const tiles = form.locator(".canvas-grid .panel-handle");
   await tiles
     .first()
@@ -512,7 +521,7 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await expect(
     form.getByRole("rowheader", { name: "memory.current" }),
   ).toBeVisible();
-  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByRole("button", { name: "セーブ" }).click();
   await form
     .getByRole("button", { name: "＋ パネル追加" })
     .dragTo(tiles.first());
@@ -596,8 +605,7 @@ test("compound row and column shelves preserve their hierarchy on save", async (
     .locator(".field-catalog")
     .getByRole("button", { name: "リビジョン", exact: true })
     .dragTo(page.locator('.worksheet-shelves [data-drop="column"]'));
-  await page.getByRole("button", { name: "配置に戻る" }).click();
-  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await page.getByRole("button", { name: "セーブ" }).click();
   await expect(page.getByRole("heading", { name: "Hierarchy" })).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "Nested memory を編集" }).click();
@@ -607,6 +615,15 @@ test("compound row and column shelves preserve their hierarchy on save", async (
       '.worksheet-shelves [data-drop="column"] .shelf-chip .drag-source',
     ),
   ).toHaveText(["メモリ使用量", "リビジョン"]);
+  await page.getByLabel("パネル名").fill("cancelled name");
+  await page.getByRole("button", { name: "キャンセル", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Nested memory を編集" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Nested memory を編集" }),
+  ).toBeVisible();
 });
 
 test("worksheet encodes time or categories on either axis and splits observed series tuples", async ({
@@ -905,7 +922,7 @@ test("worksheet encodes time or categories on either axis and splits observed se
     .dragTo(form.locator('.worksheet-shelves [data-drop="column"]'));
   await expect(plot).toContainText("横軸 指標");
   await expect(plot.getByRole("img").locator("rect")).toHaveCount(4);
-  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByRole("button", { name: "セーブ" }).click();
   await form.getByLabel("名前", { exact: true }).fill("Axis chart");
   await form.getByRole("button", { name: "保存", exact: true }).click();
   await expect(
@@ -952,11 +969,12 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
         header.getByRole("heading", { name: "パネル編集" }),
         header.getByRole("textbox", { name: "パネル名" }),
         header.getByRole("button", { name: "ダッシュボードの期間" }),
-        header.getByRole("button", { name: "配置に戻る" }),
+        header.getByRole("button", { name: "セーブ" }),
+        header.getByRole("button", { name: "キャンセル" }),
         header.getByRole("button", { name: "パネル操作" }),
       ].map((control) => control.boundingBox()),
     );
-    for (const i of [0, 2, 3]) {
+    for (const i of [0, 2, 3, 4]) {
       const left = controls[i],
         right = controls[i + 1];
       if (!left || !right) throw Error("Missing worksheet header control");
@@ -997,7 +1015,7 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
       expect(zone.top).toBeGreaterThanOrEqual(zones[i].bottom);
     });
     for (const element of [
-      form.getByRole("button", { name: "配置に戻る", exact: true }),
+      form.getByRole("button", { name: "セーブ", exact: true }),
       form.locator(".field-catalog"),
       form.locator(".assignment-pane"),
       form.locator(".builder-main > .card"),
@@ -1026,9 +1044,9 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
   await page.getByLabel("終了日", { exact: true }).fill("2026-03-02");
   await page.getByRole("button", { name: "範囲を適用" }).click();
   await expect(page).toHaveURL(/minutes=2880/);
-  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByRole("button", { name: "セーブ" }).click();
   await form.getByRole("button", { name: "＋ パネル追加" }).click();
-  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByRole("button", { name: "セーブ" }).click();
   await expect(
     form.locator(".canvas-grid article small").filter({ hasText: "2880分" }),
   ).toHaveCount(2);
@@ -1091,7 +1109,7 @@ test("filter shelf combines observed choices with numeric and time ranges before
   await expect(form.locator(".builder-main .empty")).toBeVisible();
   await form.getByRole("button", { name: "時刻 のフィルターを外す" }).click();
   await expect(form.locator(".values strong")).toHaveText("1");
-  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByRole("button", { name: "セーブ" }).click();
   await form.getByLabel("名前", { exact: true }).fill("Filtered requests");
   await form.getByRole("button", { name: "保存", exact: true }).click();
   await expect(
@@ -1191,7 +1209,7 @@ test("log body is a literal free-text filter, independent of grouping", async ({
     picker.getByRole("button", { name: "ログ", exact: true }),
   ).toHaveCount(0);
   await picker.getByRole("button", { name: "閉じる" }).click();
-  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByRole("button", { name: "セーブ" }).click();
   await form.getByLabel("名前", { exact: true }).fill("Literal log filter");
   await form.getByRole("button", { name: "保存", exact: true }).click();
   await expect(
