@@ -20,6 +20,24 @@ export const axes: Record<Axis, string> = {
   workload: "ワークロード",
   day: "日付（JST）",
 };
+export type Attribute = `attr:${string}`;
+export const isAttribute = (key: string): key is Attribute =>
+  key.startsWith("attr:");
+export type Dimension = Axis | Attribute;
+export type ShelfAxis = Dimension | "measure";
+export function shelfName(key: ShelfAxis) {
+  return key === "measure"
+    ? "指標"
+    : isAttribute(key)
+      ? key.slice(5)
+      : axes[key];
+}
+export type Pivot = {
+  row: ShelfAxis;
+  column: ShelfAxis;
+  series?: ShelfAxis;
+  metrics?: string[];
+};
 export type Distinct = { dataset: "daily" | "log" | "span"; field: string };
 export interface Filter {
   source: string;
@@ -39,9 +57,9 @@ export interface Panel extends Filter {
   metric: string;
   totalSlots?: string[];
   aggregation: "avg" | "max" | "min" | "sum";
-  group: "all" | "slot_total" | Identifier;
+  group: "all" | "slot_total" | Identifier | Attribute;
   display: "chart" | "value" | "table" | "pivot";
-  pivot?: { row: Axis; column: Axis };
+  pivot?: Pivot;
   unit?: "MiB";
 }
 export const defaultTotalSlots = ["blue", "green"];
@@ -76,6 +94,8 @@ export interface Dashboard {
 }
 export interface Point {
   column?: string;
+  facet?: string;
+  metricUnit?: string;
   bucket: string;
   series: string;
   value: number;

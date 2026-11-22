@@ -13,14 +13,12 @@ export const filter = z.object({
   text: label,
   minutes: z.number().int().min(1).max(43200),
 });
-const axis = z.enum([
-  "source",
-  "slot",
-  "revision",
-  "workload",
-  "instance",
-  "day",
-]);
+const attribute = z
+  .templateLiteral(["attr:", z.string().min(1)])
+  .refine((k) => k.length > 5 && k.length <= 261 && !k.includes("\0"));
+const axis = z
+  .enum(["source", "slot", "revision", "workload", "instance", "day"])
+  .or(attribute);
 export const panel = filter
   .extend({
     id: z.uuid().optional(),
@@ -48,17 +46,30 @@ export const panel = filter
       .refine((slots) => new Set(slots).size === slots.length)
       .optional(),
     aggregation: z.enum(["avg", "max", "min", "sum"]),
-    group: z.enum([
-      "slot_total",
-      "all",
-      "source",
-      "slot",
-      "revision",
-      "instance",
-      "workload",
-    ]),
+    group: z
+      .enum([
+        "slot_total",
+        "all",
+        "source",
+        "slot",
+        "revision",
+        "instance",
+        "workload",
+      ])
+      .or(attribute),
     display: z.enum(["chart", "value", "table", "pivot"]),
-    pivot: z.object({ row: axis, column: axis }).optional(),
+    pivot: z
+      .object({
+        row: axis.or(z.literal("measure")),
+        column: axis.or(z.literal("measure")),
+        series: axis.or(z.literal("measure")).optional(),
+        metrics: z
+          .array(label.pipe(z.string().min(1)))
+          .min(1)
+          .max(12)
+          .optional(),
+      })
+      .optional(),
     unit: z.literal("MiB").optional(),
   })
   .refine(
@@ -72,8 +83,24 @@ export const panel = filter
     "スロット合計は両方のスロットを対象とするメトリクスで使用できます",
   )
   .refine(
-    (p) => p.display !== "pivot" || (p.pivot && p.pivot.row !== p.pivot.column),
-    "行と列には異なる項目が必要です",
+    (p) =>
+      p.display !== "pivot" ||
+      (p.pivot &&
+        p.pivot.row !== p.pivot.column &&
+        p.pivot.series !== p.pivot.row &&
+        p.pivot.series !== p.pivot.column),
+    "行・列・系列には異なるフィールドを指定してください",
+  )
+  .refine(
+    (p) =>
+      !p.pivot?.metrics ||
+      (p.display === "pivot" &&
+        p.measure === "metric" &&
+        !p.unit &&
+        [p.pivot.row, p.pivot.column, p.pivot.series].includes("measure") &&
+        !p.pivot.metrics.includes(p.metric) &&
+        new Set(p.pivot.metrics).size === p.pivot.metrics.length),
+    "複数のメトリクスには指標名の軸を指定してください",
   )
   .refine(
     (p) => !p.unit || (p.measure === "metric" && p.metric === "memory.current"),
@@ -88,6 +115,7 @@ export const panel = filter
     if (p.display === "chart") return p.group === "source";
     return (
       p.display === "pivot" &&
+      !p.pivot?.series &&
       [p.pivot?.row, p.pivot?.column].every(
         (axis) => axis === "source" || axis === "day",
       )

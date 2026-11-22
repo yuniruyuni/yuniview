@@ -6,7 +6,7 @@ import type {
   Point,
   RouteRow,
 } from "../../../../shared/console";
-import { defaultTotalSlots } from "../../../../shared/console";
+import { defaultTotalSlots, isAttribute } from "../../../../shared/console";
 import type { Database } from "../../infra/db";
 import { sql } from "../../infra/db";
 import { events } from "../../models/events";
@@ -89,14 +89,20 @@ export async function series(
         count(*)::int AS samples FROM totals GROUP BY 1,2 ORDER BY 1,2`);
   }
   const field = (key: NonNullable<Panel["pivot"]>["row"]) =>
-    key === "day"
-      ? sql`(at AT TIME ZONE 'Asia/Tokyo')::date::text`
-      : sql.raw(key);
+    isAttribute(key)
+      ? sql`coalesce(attrs->>${key.slice(5)},'')`
+      : key === "measure"
+        ? p.measure === "metric"
+          ? sql`name`
+          : sql`${p.measure}::text`
+        : key === "day"
+          ? sql`(at AT TIME ZONE 'Asia/Tokyo')::date::text`
+          : sql.raw(key);
   const group = pivot
     ? field(pivot.row)
     : p.group === "all"
       ? sql.raw("'all'::text")
-      : sql.raw(p.group);
+      : field(p.group);
   const period =
     buckets && !pivot
       ? sql`date_bin(make_interval(secs=>${Math.max(1, Math.ceil((p.minutes * 60) / 40))}::int),at,'2000-01-01'::timestamptz)`
@@ -106,7 +112,7 @@ export async function series(
     : p.measure === "logs"
       ? sql.raw("kind='log'")
       : p.measure === "metric"
-        ? sql`kind='metric' AND name=${p.metric} AND value IS NOT NULL`
+        ? sql`kind='metric' AND name IN (${sql.list([p.metric, ...(pivot?.metrics ?? [])])}) AND value IS NOT NULL`
         : sql.raw("kind='span' AND entry");
   const aggregate = distinct
     ? sql`count(DISTINCT nullif(attrs->>${distinct.field},''))`
@@ -117,8 +123,12 @@ export async function series(
         : p.measure === "metric"
           ? sql.raw(`${p.aggregation}(value)`)
           : sql.raw("count(*)");
+  const units = pivot?.metrics?.length
+    ? sql`min(unit) AS "metricUnit",`
+    : sql``;
+  const keys = pivot?.series ? sql`1,2,3,4` : pivot ? sql`1,2,3` : sql`1,2`;
   return db.queryAll<Point>(
-    sql`SELECT ${period} AS bucket,${group} AS series,${pivot ? sql`${field(pivot.column)} AS "column",` : sql``} (${aggregate}::float8 / ${p.unit === "MiB" ? 1048576 : 1}::float8) AS value,count(*)::int AS samples FROM telemetry_events WHERE ${matches(p, end)} AND ${filter} GROUP BY ${pivot ? sql`1,2,3` : sql`1,2`} HAVING ${aggregate} IS NOT NULL ORDER BY ${pivot ? sql`1,2,3` : sql`1,2`}`,
+    sql`SELECT ${period} AS bucket,${group} AS series,${pivot ? sql`${field(pivot.column)} AS "column",` : sql``} ${pivot?.series ? sql`${field(pivot.series)} AS facet,` : sql``} ${units} (${aggregate}::float8 / ${p.unit === "MiB" ? 1048576 : 1}::float8) AS value,count(*)::int AS samples FROM telemetry_events WHERE ${matches(p, end)} AND ${filter} GROUP BY ${keys} HAVING ${aggregate} IS NOT NULL ORDER BY ${keys}`,
   );
 }
 const columns = sql.raw(

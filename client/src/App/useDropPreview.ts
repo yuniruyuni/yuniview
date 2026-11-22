@@ -56,11 +56,7 @@ export function useDropPreview<T>(
         // not move the destination under a stationary pointer.
         if (el?.classList.contains("layout-end"))
           return el.dataset.drop ?? null;
-        if (
-          document
-            .elementFromPoint(x, y)
-            ?.closest(".canvas-toolbar, .panel-inspector")
-        )
+        if (document.elementFromPoint(x, y)?.closest(".canvas-toolbar"))
           return null;
         const hit = cells.current.find(
           ({ bounds: r }) =>
@@ -87,9 +83,6 @@ export function useDropPreview<T>(
     const tick = () => {
       const g = gesture.current;
       if (!g) return;
-      const overTray = document
-        .elementFromPoint(g.x, g.y)
-        ?.closest(".field-drop-tray");
       const edge = 48;
       const speed =
         g.y < edge
@@ -98,7 +91,7 @@ export function useDropPreview<T>(
       const bounds = root.current?.getBoundingClientRect();
       const moreTargets =
         bounds && (speed < 0 ? bounds.top < 0 : bounds.bottom > innerHeight);
-      if (speed && moreTargets && !overTray) {
+      if (speed && moreTargets) {
         const before = window.scrollY;
         window.scrollBy(0, speed);
         if (window.scrollY !== before)

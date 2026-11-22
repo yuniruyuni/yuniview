@@ -1,10 +1,11 @@
 import { useId, useState } from "react";
 import type { Overview, Panel, Point } from "../../../shared/console";
 import {
-  axes,
   changeGroup,
   defaultTotalSlots,
+  isAttribute,
   measures,
+  shelfName,
   slotTotalChoice,
 } from "../../../shared/console";
 import { clock, Feedback, number, useQuery } from "../api";
@@ -375,7 +376,7 @@ export function PanelView({
             : "この期間と絞り込み条件に一致するデータがありません。"}
         </p>
       ) : panel.display === "pivot" && panel.pivot ? (
-        <PivotTable panel={panel} points={data} end={end} />
+        <PivotView panel={panel} points={data} end={end} />
       ) : panel.display === "chart" ? (
         <Chart
           points={data}
@@ -447,6 +448,37 @@ export function investigatePanel(p: Panel, end: string) {
     }).toString()
   );
 }
+function PivotView({
+  panel,
+  points,
+  end,
+}: {
+  panel: Panel;
+  points: Point[];
+  end: string;
+}) {
+  const axis = panel.pivot?.series;
+  if (!axis) return <PivotTable panel={panel} points={points} end={end} />;
+  const facets = new Map<string, Point[]>();
+  for (const p of points) {
+    const key = p.facet ?? "";
+    const rows = facets.get(key);
+    if (rows) rows.push(p);
+    else facets.set(key, [p]);
+  }
+  return (
+    <>
+      {Array.from(facets, ([key, rows]) => (
+        <section key={key}>
+          <h4>
+            {shelfName(axis)} · {key || "未指定"}
+          </h4>
+          <PivotTable panel={panel} points={rows} end={end} />
+        </section>
+      ))}
+    </>
+  );
+}
 function PivotTable({
   panel,
   points,
@@ -475,7 +507,13 @@ function PivotTable({
     for (const [axis, val] of [
       [pivot.row, row],
       [pivot.column, col],
+      [pivot.series, points[0]?.facet ?? ""],
     ] as const) {
+      if (!axis || isAttribute(axis)) continue;
+      if (axis === "measure") {
+        if (p.measure === "metric") p.metric = val;
+        continue;
+      }
       if (axis === "day") {
         const next = Date.parse(`${val}T00:00:00+09:00`) + 86400000 - 1;
         until = new Date(Math.min(next, Date.parse(end))).toISOString();
@@ -500,7 +538,7 @@ function PivotTable({
         <thead>
           <tr>
             <th>
-              {axes[pivot.row]} ／ {axes[pivot.column]}
+              {shelfName(pivot.row)} ／ {shelfName(pivot.column)}
             </th>
             {cols.map((c) => (
               <th key={c}>{c || "未指定"}</th>
@@ -513,13 +551,20 @@ function PivotTable({
               <th scope="row">{r || "未指定"}</th>
               {cols.map((c) => {
                 const p = cells.get(c);
+                const value = p
+                  ? [number(p.value), p.metricUnit].filter(Boolean).join(" ")
+                  : "—";
                 return (
                   <td key={c}>
-                    {p && panel.distinct?.dataset === "daily" ? (
-                      number(p.value)
+                    {p &&
+                    (panel.distinct?.dataset === "daily" ||
+                      [pivot.row, pivot.column, pivot.series].some(
+                        (k) => k && isAttribute(k),
+                      )) ? (
+                      value
                     ) : p ? (
                       <a href={cellLink(r, c)} aria-label={`${r} ${c} の詳細`}>
-                        {number(p.value)}
+                        {value}
                       </a>
                     ) : (
                       "—"

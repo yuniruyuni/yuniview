@@ -622,8 +622,7 @@ summary {
   padding: 0;
   margin: 0;
 }
-.canvas-toolbar,
-.inspector-heading {
+.canvas-toolbar {
   display: flex;
   gap: 10px;
   align-items: center;
@@ -654,9 +653,7 @@ summary {
   gap: 12px;
   min-width: 0;
 }
-.canvas-body[data-settings] {
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 36%);
-}
+
 .canvas-grid {
   align-items: stretch;
   min-width: 0;
@@ -673,9 +670,7 @@ summary {
   margin: 0;
   overflow: auto;
 }
-.canvas-cell[data-selected] > .card {
-  border-color: #26827f;
-}
+
 .canvas-cell[data-preview] > .card {
   outline: 3px solid #167774;
   background: #eef8f6;
@@ -691,40 +686,8 @@ summary {
 .panel-handle span {
   color: #557b76;
 }
-.panel-inspector {
-  min-width: 0;
-  border: 1px solid #bed0ce;
-  background: white;
-  border-radius: 8px;
-  padding: 12px;
-  position: sticky;
-  top: 80px;
-  max-height: calc(100dvh - 95px);
-  overflow: auto;
-}
-.inspector-heading {
-  justify-content: space-between;
-}
-.inspector-heading h3 {
-  margin: 0;
-}
-.panel-inspector .builder {
-  grid-template-columns: 1fr;
-  gap: 12px;
-}
-.panel-inspector .field-catalog button {
-  width: auto;
-  display: inline-block;
-}
+
 @media (max-width: 800px) {
-  .canvas-body[data-settings] {
-    grid-template-columns: 1fr;
-  }
-  .panel-inspector {
-    grid-row: 1;
-    position: static;
-    max-height: 55dvh;
-  }
   .editor .canvas-toolbar {
     position: static;
   }
@@ -737,41 +700,14 @@ summary {
 .drag-source:active {
   cursor: grabbing;
 }
-.field-drop-tray [data-preview] {
-  outline: 2px solid #167774;
-  background: #d6f2eb;
-}
+
 .layout-end {
   display: grid;
   place-items: center;
   border: 1px dashed #718d88;
   min-height: 4rem;
 }
-.field-drop-tray {
-  position: fixed;
-  inset: auto 12px 20px;
-  width: fit-content;
-  max-width: calc(100% - 24px);
-  margin: auto;
-  z-index: 10;
-  border: 1px solid #66918a;
-  border-radius: 10px;
-  padding: 10px 14px;
-  background: #f4faf9;
-  box-shadow: 0 6px 24px #163e3c33;
-}
-.field-drop-tray > div {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 5px;
-}
-.field-drop-tray [data-drop] {
-  padding: 10px;
-  border: 1px dashed #477d76;
-  border-radius: 5px;
-  background: white;
-}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -796,4 +732,69 @@ summary {
   padding: 5px 10px;
   box-shadow: 0 2px 8px #163e3c33;
   z-index: 12;
+}
+.worksheet-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 12px 0;
+}
+.worksheet-heading h2 {
+  margin: 0;
+}
+.worksheet .builder {
+  align-items: start;
+}
+.worksheet .field-catalog {
+  max-height: 70dvh;
+  overflow: auto;
+}
+.worksheet-shelves {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 1rem;
+}
+.worksheet-shelves > div {
+  padding: 8px 12px;
+  min-height: 44px;
+  border: 1px dashed #a6bfba;
+  border-radius: 6px;
+  background: white;
+}
+.worksheet-shelves label {
+  display: grid;
+  grid-template-columns: 4rem minmax(0, 1fr);
+  align-items: center;
+  font-weight: 600;
+}
+.worksheet-shelves select {
+  width: 100%;
+  min-width: 0;
+}
+.worksheet-shelves [data-ready] {
+  border-color: #327d75;
+  background: #eff8f5;
+}
+.worksheet-shelves [data-preview] {
+  outline: 2px solid #167774;
+}
+@media (max-width: 800px) {
+  .worksheet .field-catalog {
+    max-height: 28dvh;
+  }
+  .worksheet .builder {
+    gap: 8px;
+  }
+}
+.worksheet-shelves {
+  position: sticky;
+  top: 72px;
+  z-index: 2;
+  background: #f4f8f7;
+  padding: 6px 0;
+}
+@media (max-width: 800px) {
+  .worksheet-shelves {
+    top: 0;
+  }
 }

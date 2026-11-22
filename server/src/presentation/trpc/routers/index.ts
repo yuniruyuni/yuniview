@@ -14,6 +14,24 @@ import { publicProcedure as p, router } from "../init";
 
 const windowInput = filter.extend({ end: z.iso.datetime() });
 export const appRouter = router({
+  worksheetAttributes: p
+    .input(
+      z.object({
+        source: z.string().max(512),
+        kind: z.enum(["metric", "log", "span"]),
+        metric: z.string().max(512),
+        end: z.iso.datetime(),
+        minutes: z.number().int().min(1).max(43200),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db.queryAll<{
+        key: string;
+      }>(sql`SELECT DISTINCT a.key FROM (
+      SELECT attrs FROM telemetry_events WHERE at<=${input.end}::timestamptz AND at>${input.end}::timestamptz-make_interval(mins=>${input.minutes}::int) AND kind=${input.kind} AND ${input.source ? sql`source=${input.source}` : sql`true`} AND ${input.kind === "metric" ? sql`name=${input.metric}` : sql`true`} ORDER BY at DESC LIMIT 512
+    ) sample CROSS JOIN LATERAL json_each(sample.attrs) a WHERE json_typeof(a.value) IN ('string','number','boolean') AND length(a.key) BETWEEN 1 AND 256 ORDER BY a.key LIMIT 128`);
+      return rows.map((r) => r.key);
+    }),
   overview: p
     .input(windowInput)
     .query(({ ctx, input }) => overview(ctx.db, input, new Date(input.end))),

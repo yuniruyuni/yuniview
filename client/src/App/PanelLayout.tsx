@@ -7,8 +7,6 @@ type Editing = {
   initial: Panel;
   apply: (panels: Panel[], configure?: Panel) => void;
   configure: (i: number) => void;
-  selected?: string;
-  inspector?: ReactNode;
 };
 export function PanelLayout({
   panels,
@@ -80,10 +78,7 @@ export function PanelLayout({
             : panels[drag.preview.item].title}
         </span>
       )}
-      <div
-        className="canvas-body"
-        data-settings={editing?.inspector ? true : undefined}
-      >
+      <div className="canvas-body">
         <div className="cards canvas-grid">
           {projected.map((p, i) => (
             <div
@@ -92,9 +87,6 @@ export function PanelLayout({
               data-wide={p.wide || undefined}
               data-drop={editing ? i : undefined}
               data-preview={(editing && to === i) || undefined}
-              data-selected={
-                (editing?.selected && p.id === editing.selected) || undefined
-              }
             >
               <PanelView
                 panel={p}
@@ -165,7 +157,6 @@ export function PanelLayout({
               </div>
             )}
         </div>
-        {editing?.inspector}
       </div>
       <span className="sr-only" role="status">
         {notice}

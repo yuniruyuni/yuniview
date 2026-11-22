@@ -129,6 +129,44 @@ test("agent records → trace and logs → saved panel → monitor and notificat
       });
       expect((await result.json()).result.data[0].value).toBe(count);
     }
+    const end = new Date().toISOString();
+    const attributes = await request.get("/api/trpc/worksheetAttributes", {
+      params: {
+        input: JSON.stringify({
+          end,
+          minutes: 60,
+          source: "checkout",
+          kind: "log",
+          metric: "",
+        }),
+      },
+    });
+    expect((await attributes.json()).result.data).toContain("order.id");
+    const pivot = {
+      ...blankPanel,
+      source: "checkout",
+      measure: "logs",
+      display: "pivot",
+      text: "order",
+      pivot: { row: "attr:order.id", column: "slot", series: "source" },
+    };
+    const cells = await request.get("/api/trpc/series", {
+      params: { input: JSON.stringify({ panel: pivot, end, buckets: false }) },
+    });
+    expect((await cells.json()).result.data).toEqual([
+      expect.objectContaining({
+        series: "order-a",
+        column: "blue",
+        facet: "checkout",
+        value: 2,
+      }),
+      expect.objectContaining({
+        series: "order-b",
+        column: "blue",
+        facet: "checkout",
+        value: 1,
+      }),
+    ]);
     await ingest("resources", { cpuUsageUsec: 100, memoryBytes: 2048 });
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
@@ -170,10 +208,10 @@ test("agent records → trace and logs → saved panel → monitor and notificat
     await expect(details).toHaveAttribute("href", /slot=blue/);
     await form
       .getByRole("combobox", { name: "行", exact: true })
-      .selectOption("slot");
+      .selectOption("axis/slot");
     await expect(
       form.getByRole("combobox", { name: "列", exact: true }),
-    ).toHaveValue("source");
+    ).toHaveValue("axis/source");
     await expect(
       form.getByRole("link", { name: "blue checkout の詳細" }),
     ).toBeVisible();
@@ -312,9 +350,10 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   const form = page.locator("form.editor");
   await form.getByLabel("名前", { exact: true }).fill("Drag studio");
   await form.getByLabel("パネル名").fill("First");
+  await form.getByRole("button", { name: "配置に戻る" }).click();
   await form.getByRole("button", { name: "＋ パネル追加" }).click();
   await form.getByLabel("パネル名").fill("Second");
-  await form.getByRole("button", { name: "設定を閉じる" }).click();
+  await form.getByRole("button", { name: "配置に戻る" }).click();
   const titles = form.locator(".canvas-grid article h3 .handle-text");
   const tiles = form.locator(".canvas-grid .panel-handle");
   await tiles
@@ -350,16 +389,48 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await page.mouse.down();
   await page.mouse.move(axis.x + 22, axis.y + 10);
   const shelf = await form
-    .locator('.field-drop-tray [data-drop="column"]')
+    .locator('.worksheet-shelves [data-drop="column"]')
     .boundingBox();
   if (!shelf) throw Error("Missing pivot destination");
   await page.mouse.move(shelf.x + 10, shelf.y + 10);
-  await expect(form.locator(".preview-head h4")).toContainText("ピボットの列");
+  await expect(form.locator(".preview-head h4")).toContainText("列");
   await page.mouse.up();
   await expect(
     form.getByRole("combobox", { name: "表示", exact: true }),
   ).toHaveValue("pivot");
-  await form.getByRole("button", { name: "設定を閉じる" }).click();
+  await expect(page).toHaveURL(/sheet=/);
+  await expect(form.locator(".canvas-grid")).toHaveCount(0);
+  const catalog = form.locator(".field-catalog");
+  const row = form.locator('.worksheet-shelves [data-drop="row"]');
+  await catalog
+    .getByRole("button", { name: "メモリ使用量", exact: true })
+    .dragTo(row);
+  await expect(
+    form.getByRole("combobox", { name: "行", exact: true }),
+  ).toHaveValue("metric/memory.current");
+  await catalog
+    .getByRole("button", { name: "CPU 使用時間（累積）", exact: true })
+    .dragTo(row);
+  await expect(
+    row.getByRole("button", { name: "cpu.usage を外す" }),
+  ).toBeVisible();
+  await catalog
+    .getByRole("button", { name: "サービス", exact: true })
+    .dragTo(form.locator('.worksheet-shelves [data-drop="series"]'));
+  await expect(
+    form.getByRole("heading", { name: "サービス · checkout" }),
+  ).toBeVisible();
+  await expect(
+    form.getByRole("rowheader", { name: "memory.current" }),
+  ).toBeVisible();
+  await expect(
+    form.getByRole("rowheader", { name: "cpu.usage" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    form.getByRole("heading", { name: "サービス · checkout" }),
+  ).toBeVisible();
+  await form.getByRole("button", { name: "配置に戻る" }).click();
   await form
     .getByRole("button", { name: "＋ パネル追加" })
     .dragTo(tiles.first());

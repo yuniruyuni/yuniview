@@ -33,6 +33,7 @@ function read() {
 }
 function link(params: Record<string, string>) {
   const p = read();
+  if (params.page && params.page !== p.get("page")) p.delete("sheet");
   for (const [k, v] of Object.entries(params)) {
     if (v) p.set(k, v);
     else p.delete(k);

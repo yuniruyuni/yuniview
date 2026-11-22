@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Dashboard, Overview, Panel } from "../../../shared/console";
 import { Feedback, rpc, useQuery } from "../api";
 import { PanelBuilder } from "./PanelBuilder";
@@ -25,16 +25,33 @@ export function DashboardWorkspace({
   const [selected, select] = useState(
     () => new URLSearchParams(location.hash.slice(1)).get("dashboard") ?? "",
   );
-  const [draft, edit] = useState<Draft | null>(null);
-  const [settings, inspect] = useState(false);
-  const settingsPane = useRef<HTMLElement>(null);
-  const inspectedId = settings
-    ? draft?.board.panels[draft.index]?.id
-    : undefined;
+  const [draft, edit] = useState<Draft | null>(
+    () => history.state?.worksheetDraft ?? null,
+  );
+  const [route, setRoute] = useState(
+    () => new URLSearchParams(location.hash.slice(1)),
+  );
+  const sheet = route.get("sheet");
+  const settings = sheet !== null;
   useEffect(() => {
-    if (inspectedId && window.matchMedia("(max-width: 800px)").matches)
-      settingsPane.current?.scrollIntoView({ block: "start" });
-  }, [inspectedId]);
+    function read() {
+      setRoute(new URLSearchParams(location.hash.slice(1)));
+    }
+    window.addEventListener("hashchange", read);
+    return () => window.removeEventListener("hashchange", read);
+  }, []);
+  function sheetRoute(boardId: string, key: string | null, replace = false) {
+    const params = new URLSearchParams(location.hash.slice(1));
+    params.set("page", "dashboards");
+    params.set("dashboard", boardId);
+    if (key === null) params.delete("sheet");
+    else params.set("sheet", key);
+    const hash = "#" + params.toString();
+    if (hash !== location.hash)
+      history[replace ? "replaceState" : "pushState"](null, "", hash);
+    setRoute(params);
+    window.scrollTo(0, 0);
+  }
   const [revision, refresh] = useState(0);
   const { data, error } = useQuery<Saved[]>(
     "dashboardLibrary",
@@ -46,6 +63,37 @@ export function DashboardWorkspace({
   const [target, destination] = useState("");
   const active = data?.find((d) => d.definition.id === selected) ?? data?.[0];
   const board = active?.definition;
+  useEffect(() => {
+    if (sheet === null || !data) return;
+    const boardId = route.get("dashboard");
+    const saved = data.find((d) => d.definition.id === boardId);
+    const current =
+      draft?.board.id === boardId
+        ? draft
+        : saved
+          ? {
+              board: structuredClone(saved.definition),
+              version: saved.version,
+              index: 0,
+            }
+          : null;
+    const index = /^\d+$/.test(sheet)
+      ? Number(sheet)
+      : (current?.board.panels.findIndex((p) => p.id === sheet) ?? -1);
+    if (!current || !Number.isInteger(index) || !current.board.panels[index]) {
+      const next = new URLSearchParams(route);
+      next.delete("sheet");
+      history.replaceState(null, "", "#" + next);
+      setRoute(next);
+      return;
+    }
+    if (current !== draft || draft.index !== index) {
+      for (const panel of current.board.panels)
+        panel.id ??= crypto.randomUUID();
+      edit({ ...current, index });
+      select(current.board.id);
+    } else history.replaceState({ worksheetDraft: draft }, "");
+  }, [data, draft, route, sheet]);
   const initial = {
     ...seed,
     title: "メモリ使用量",
@@ -71,7 +119,14 @@ export function DashboardWorkspace({
       board.panels.push({ ...extra, id: crypto.randomUUID() });
       index = board.panels.length - 1;
     }
-    inspect(configure);
+    sheetRoute(
+      board.id,
+      configure
+        ? saved && !extra && !saved.definition.panels[index].id
+          ? String(index)
+          : (board.panels[index].id ?? String(index))
+        : null,
+    );
     edit({ board, version: saved?.version ?? null, index });
     fail("");
     if (saved) select(board.id);
@@ -79,6 +134,11 @@ export function DashboardWorkspace({
   function append(p: Panel) {
     if (!draft) return;
     const panels = [...draft.board.panels, { ...p, id: crypto.randomUUID() }];
+    sheetRoute(
+      draft.board.id,
+      panels[panels.length - 1].id ?? String(panels.length - 1),
+      true,
+    );
     edit({
       ...draft,
       board: { ...draft.board, panels },
@@ -95,6 +155,7 @@ export function DashboardWorkspace({
         { definition: draft.board, expectedVersion: draft.version },
         true,
       );
+      sheetRoute(draft.board.id, null, true);
       select(draft.board.id);
       edit(null);
       refresh((n) => n + 1);
@@ -175,18 +236,17 @@ export function DashboardWorkspace({
       panels.findIndex((panel) => panel.id === selected?.id),
     );
     edit({ ...draft, index, board: { ...draft.board, panels } });
-    if (configure) inspect(true);
+    if (configure) sheetRoute(draft.board.id, configure.id ?? String(index));
   }
-  const inspector = draft && settings && p && (
-    <aside
-      ref={settingsPane}
-      className="panel-inspector"
-      aria-label="パネル設定"
-    >
-      <div className="inspector-heading">
-        <h3>パネル設定</h3>
-        <button type="button" onClick={() => inspect(false)}>
-          設定を閉じる
+  const worksheet = draft && settings && p && (
+    <section className="worksheet" aria-label="ワークシート">
+      <div className="worksheet-heading">
+        <h2>ワークシート</h2>
+        <button
+          type="button"
+          onClick={() => sheetRoute(draft.board.id, null, true)}
+        >
+          配置に戻る
         </button>
       </div>
       <PanelBuilder
@@ -215,13 +275,75 @@ export function DashboardWorkspace({
           disabled={draft.board.panels.length === 1}
           onClick={() => {
             apply(draft.board.panels.filter((_, i) => i !== draft.index));
-            inspect(false);
+            sheetRoute(draft.board.id, null, true);
           }}
         >
           パネル削除
         </button>
       </div>
-    </aside>
+    </section>
+  );
+  const toolbar = draft ? (
+    <>
+      <label className="board-name">
+        名前
+        <input
+          required
+          maxLength={512}
+          value={draft.board.title}
+          onChange={(e) =>
+            edit({
+              ...draft,
+              board: { ...draft.board, title: e.target.value },
+            })
+          }
+        />
+      </label>
+      <button type="submit" className="primary" disabled={busy}>
+        保存
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => {
+          sheetRoute(board?.id ?? draft.board.id, null, true);
+          edit(null);
+          if (message) refresh((n) => n + 1);
+          fail("");
+        }}
+      >
+        キャンセル
+      </button>
+    </>
+  ) : (
+    <>
+      {board && <h2>{board.title}</h2>}
+      {active && (
+        <>
+          <Select
+            label="ダッシュボード"
+            value={active.definition.id}
+            choices={data.map((d) => [d.definition.id, d.definition.title])}
+            change={select}
+          />
+          <button
+            className="primary"
+            type="button"
+            onClick={() => begin(active, 0, undefined, false)}
+          >
+            編集モード
+          </button>
+        </>
+      )}
+      <button type="button" onClick={() => begin(undefined, 0, initial)}>
+        ダッシュボードを作成
+      </button>
+      {active && (
+        <button type="button" onClick={remove}>
+          削除
+        </button>
+      )}
+    </>
   );
   return (
     <form
@@ -233,115 +355,59 @@ export function DashboardWorkspace({
       }}
     >
       {message && <p role="alert">{message}</p>}
-      <PanelLayout
-        panels={draft?.board.panels ?? board?.panels ?? []}
-        end={end}
-        editing={
-          draft
-            ? {
-                initial,
-                apply,
-                selected: settings ? p?.id : undefined,
-                configure: (i) => {
-                  edit({ ...draft, index: i });
-                  inspect(true);
-                },
-                inspector,
-              }
-            : undefined
-        }
-        open={(i) => begin(active, i)}
-        toolbar={
-          draft ? (
-            <>
-              <label className="board-name">
-                名前
-                <input
-                  required
-                  maxLength={512}
-                  value={draft.board.title}
-                  onChange={(e) =>
-                    edit({
-                      ...draft,
-                      board: { ...draft.board, title: e.target.value },
-                    })
-                  }
-                />
-              </label>
-              <button type="submit" className="primary" disabled={busy}>
-                保存
-              </button>
+      {worksheet ? (
+        <>
+          <div className="canvas-toolbar">{toolbar}</div>
+          {worksheet}
+        </>
+      ) : (
+        <PanelLayout
+          panels={draft?.board.panels ?? board?.panels ?? []}
+          end={end}
+          editing={
+            draft
+              ? {
+                  initial,
+                  apply,
+
+                  configure: (i) => {
+                    edit({ ...draft, index: i });
+                    sheetRoute(
+                      draft.board.id,
+                      draft.board.panels[i].id ?? String(i),
+                    );
+                  },
+                }
+              : undefined
+          }
+          open={(i) => begin(active, i)}
+          toolbar={toolbar}
+          viewActions={(panel, i) => (
+            <div className="tools">
               <button
                 type="button"
-                disabled={busy}
-                onClick={() => {
-                  edit(null);
-                  if (message) refresh((n) => n + 1);
-                  fail("");
-                }}
+                disabled={(board?.panels.length ?? 0) >= 24}
+                onClick={() =>
+                  begin(active, i, {
+                    ...panel,
+                    title: `${panel.title} のコピー`,
+                  })
+                }
               >
-                キャンセル
+                複製
               </button>
-            </>
-          ) : (
-            <>
-              {board && <h2>{board.title}</h2>}
-              {active && (
-                <>
-                  <Select
-                    label="ダッシュボード"
-                    value={active.definition.id}
-                    choices={data.map((d) => [
-                      d.definition.id,
-                      d.definition.title,
-                    ])}
-                    change={select}
-                  />
-                  <button
-                    className="primary"
-                    type="button"
-                    onClick={() => begin(active, 0, undefined, false)}
-                  >
-                    編集モード
-                  </button>
-                </>
+              {panel.distinct?.dataset !== "daily" && (
+                <a href={investigatePanel(panel, end)}>調査</a>
               )}
-              <button
-                type="button"
-                onClick={() => begin(undefined, 0, initial)}
-              >
-                ダッシュボードを作成
-              </button>
-              {active && (
-                <button type="button" onClick={remove}>
-                  削除
+              {panel.display !== "pivot" && panel.measure !== "distinct" && (
+                <button type="button" onClick={() => monitor(panel)}>
+                  モニター化
                 </button>
               )}
-            </>
-          )
-        }
-        viewActions={(panel, i) => (
-          <div className="tools">
-            <button
-              type="button"
-              disabled={(board?.panels.length ?? 0) >= 24}
-              onClick={() =>
-                begin(active, i, { ...panel, title: `${panel.title} のコピー` })
-              }
-            >
-              複製
-            </button>
-            {panel.distinct?.dataset !== "daily" && (
-              <a href={investigatePanel(panel, end)}>調査</a>
-            )}
-            {panel.display !== "pivot" && panel.measure !== "distinct" && (
-              <button type="button" onClick={() => monitor(panel)}>
-                モニター化
-              </button>
-            )}
-          </div>
-        )}
-      />
+            </div>
+          )}
+        />
+      )}
     </form>
   );
 }
