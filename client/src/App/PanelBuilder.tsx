@@ -20,9 +20,11 @@ import {
   type Pivot,
   pivotFields,
   type ShelfAxis,
+  type StyleChannel,
   shelfFields,
   shelfName,
   slotTotalChoice,
+  styleChannels,
   type TimeField,
   timeBuckets,
   usesLogRecords,
@@ -57,6 +59,33 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
         ...next,
         conditions: next.conditions.filter((c) => c.field !== "log"),
       };
+    if (next.pivot?.encoding) {
+      const pivot = next.pivot;
+      const row = shelfFields(pivot.row),
+        col = shelfFields(pivot.column);
+      const active = new Set([
+        ...shelfFields(pivot.series),
+        ...(row.includes("measure") ? row : col.includes("measure") ? col : []),
+      ]);
+      const encoding = Object.fromEntries(
+        Object.entries(pivot.encoding ?? {}).filter(([, field]) =>
+          active.has(field),
+        ),
+      );
+      const rules = pivot.styleRules?.filter(
+        (r) =>
+          encoding[r.channel] &&
+          encoding[r.channel] === p.pivot?.encoding?.[r.channel],
+      );
+      next = {
+        ...next,
+        pivot: {
+          ...pivot,
+          encoding: Object.keys(encoding).length ? encoding : undefined,
+          styleRules: rules?.length ? rules : undefined,
+        },
+      };
+    }
     if (next.pivot?.metricOptions) {
       const pivot = { ...next.pivot };
       const names =
@@ -102,7 +131,7 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
     ].filter((k) => k && isAttribute(k)),
   ]);
   const fields: [Dimension | TimeField, string][] = [
-    ...(daily ? [] : (Object.entries(timeBuckets) as [TimeField, string][])),
+    ...(daily ? [] : [["time:60", "時刻"] as [TimeField, string]]),
     ...dimensions.filter(
       ([key]) => !daily || key === "day" || key === "source",
     ),
@@ -372,6 +401,8 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
     change(panel);
   }
   function addFilter(field: FilterField) {
+    if (isTimeField(field))
+      field = conditions.find((c) => isTimeField(c.field))?.field ?? field;
     if (!conditions.some((c) => c.field === field))
       writeFilter(field, { field });
     openConditions(field);
@@ -380,6 +411,57 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
     ([k]) => p.group !== "slot_total" || (k !== "slot" && k !== "instance"),
   );
   if (logs) filterFields.push(["log", "ログ"]);
+  const stylePivot: Pivot | undefined =
+    pivot ||
+    (!daily && p.display === "chart" && p.group !== "slot_total"
+      ? {
+          row: "measure",
+          column: "time:60",
+          series: p.group === "all" ? [] : [p.group],
+          mark: "line",
+        }
+      : undefined);
+  const valueSide =
+    stylePivot &&
+    (shelfFields(stylePivot.row).includes("measure")
+      ? "row"
+      : shelfFields(stylePivot.column).includes("measure")
+        ? "column"
+        : undefined);
+  const styleFields =
+    stylePivot && valueSide
+      ? Array.from(
+          new Set([
+            ...shelfFields(stylePivot.series),
+            ...shelfFields(stylePivot[valueSide]),
+            ...fields
+              .map(([f]) => f)
+              .filter(
+                (f) =>
+                  !isTimeField(f) &&
+                  !shelfFields(
+                    stylePivot[valueSide === "row" ? "column" : "row"],
+                  ).includes(f),
+              ),
+          ]),
+        )
+      : [];
+  function withStyle(channel: StyleChannel, field?: ShelfAxis): Panel {
+    if (!stylePivot) return p;
+    const series = shelfFields(stylePivot.series);
+    return {
+      ...p,
+      display: "pivot",
+      pivot: {
+        ...stylePivot,
+        series:
+          field && !pivotFields(stylePivot).includes(field)
+            ? [...series, field]
+            : series,
+        encoding: { ...stylePivot.encoding, [channel]: field },
+      },
+    };
+  }
   type Field =
     | { kind: "log"; key: "log" }
     | { kind: "measure"; key: string }
@@ -397,6 +479,17 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
         ...options,
         { id: "filter", label: "フィルター", filter: "log" as const },
       ];
+    if (
+      (field.kind === "dimension" || field.kind === "placed") &&
+      styleFields.includes(field.key)
+    ) {
+      for (const channel of Object.keys(styleChannels) as StyleChannel[])
+        options.push({
+          id: "style-" + channel,
+          label: styleChannels[channel],
+          panel: withStyle(channel, field.key),
+        });
+    }
     if (field.kind === "placed") {
       for (const id of shelves)
         if (!daily || id !== "series")
@@ -429,7 +522,10 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
           });
       return options;
     }
-    const key = field.key;
+    const key =
+      isTimeField(field.key) && pivot
+        ? (pivotFields(pivot).find(isTimeField) ?? field.key)
+        : field.key;
     if (!daily || (key === "source" && !pivot)) {
       options.push({
         id: "series",
@@ -441,7 +537,7 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
       { id: "row", label: "行", panel: assign(p, "row", key) },
       { id: "column", label: "列", panel: assign(p, "column", key) },
     );
-    if (filterFields.some(([k]) => k === key))
+    if (isTimeField(key) || filterFields.some(([k]) => k === key))
       options.push({ id: "filter", label: "フィルター", filter: key });
     return options;
   }
@@ -475,7 +571,9 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
       : (candidate ?? p);
   const fieldName =
     item && item.kind !== "measure"
-      ? shelfName(item.key)
+      ? isTimeField(item.key)
+        ? "時刻"
+        : shelfName(item.key)
       : choices.find(([k]) => k === item?.key)?.[1];
 
   const times = Array.from(
@@ -712,8 +810,53 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
                           >
                             {field === "measure"
                               ? choices.find(([k]) => k === selected)?.[1]
-                              : shelfName(field)}
+                              : isTimeField(field)
+                                ? "時刻"
+                                : shelfName(field)}
                           </button>
+                          {isTimeField(field) && (
+                            <select
+                              aria-label={label + "の時刻の粒度"}
+                              value={field}
+                              onChange={(e) => {
+                                const grain = e.target.value as TimeField;
+                                const encoding = { ...pivot.encoding };
+                                for (const channel of Object.keys(
+                                  encoding,
+                                ) as StyleChannel[])
+                                  if (encoding[channel] === field)
+                                    encoding[channel] = grain;
+                                change({
+                                  ...p,
+                                  pivot: {
+                                    ...pivot,
+                                    encoding,
+                                    [id]: assigned.map((k) =>
+                                      k === field ? grain : k,
+                                    ),
+                                  },
+                                });
+                              }}
+                            >
+                              {(
+                                Object.entries(timeBuckets) as [
+                                  TimeField,
+                                  string,
+                                ][]
+                              ).map(([key, name]) => (
+                                <option
+                                  key={key}
+                                  value={key}
+                                  disabled={
+                                    key !== field &&
+                                    pivotFields(pivot).includes(key)
+                                  }
+                                >
+                                  {name.slice(3, -1)}
+                                </option>
+                              ))}
+                            </select>
+                          )}
                           {!daily && (
                             <button
                               type="button"
@@ -825,6 +968,10 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
             </button>
           </div>
           <PanelView
+            onStyleRules={(rules) => {
+              if (pivot)
+                change({ ...p, pivot: { ...pivot, styleRules: rules } });
+            }}
             panel={{ ...preview, title: preview.title.trim() || "プレビュー" }}
             end={end}
           />
@@ -983,6 +1130,47 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
               </>
             )}
           </div>
+          {stylePivot && !!valueSide && (
+            <fieldset className="series-encoding">
+              <legend>系列のスタイル</legend>
+              {(Object.entries(styleChannels) as [StyleChannel, string][]).map(
+                ([channel, label]) => (
+                  <Select
+                    key={channel}
+                    dropTarget={"style-" + channel}
+                    label={label}
+                    value={
+                      styleFields.includes(
+                        stylePivot.encoding?.[channel] as ShelfAxis,
+                      )
+                        ? (stylePivot.encoding?.[channel] ?? "")
+                        : ""
+                    }
+                    choices={[
+                      [
+                        "",
+                        {
+                          color: "系列ごと",
+                          dash: "実線",
+                          width: "通常",
+                          shape: "丸",
+                        }[channel],
+                      ],
+                      ...styleFields.map((f): [string, string] => [
+                        f,
+                        shelfName(f),
+                      ]),
+                    ]}
+                    change={(v) =>
+                      change(
+                        withStyle(channel, v ? (v as ShelfAxis) : undefined),
+                      )
+                    }
+                  />
+                ),
+              )}
+            </fieldset>
+          )}
           <h4 className="shared-settings-heading">共通設定</h4>
           <div className="fields">
             <Select

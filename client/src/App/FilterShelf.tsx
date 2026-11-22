@@ -8,6 +8,7 @@ import {
   shelfName,
 } from "../../../shared/console";
 import { Feedback, useQuery } from "../api";
+import { ShelfPicker } from "./ShelfPicker";
 
 function inputValue(n: number | undefined, type: string) {
   if (n === undefined) return "";
@@ -267,6 +268,9 @@ export function FilterShelf({
   ready: boolean;
   hover: boolean;
 }) {
+  const [picking, pick] = useState(false);
+  const fieldLabel = (f: FilterField) =>
+    isTimeField(f) ? "時刻" : shelfName(f);
   const current = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (open)
@@ -281,22 +285,26 @@ export function FilterShelf({
       data-preview={hover || undefined}
       aria-label="フィルター"
     >
-      <label>
-        フィルター
-        <select
-          value=""
-          onChange={(e) => {
-            if (e.target.value) add(e.target.value as FilterField);
-          }}
-        >
-          <option value="">属性を追加</option>
-          {fields.map(([k, v]) => (
-            <option key={k} value={k}>
-              {v}
-            </option>
-          ))}
-        </select>
-      </label>
+      <button
+        type="button"
+        className="filter-target"
+        aria-label="フィルターに属性を追加"
+        title="ダブルクリックまたは Enter で属性を選択"
+        onDoubleClick={() => pick(true)}
+        onClick={(e) => {
+          if (e.detail === 0) pick(true);
+        }}
+      >
+        フィルター {!items.length && <span>ここにドロップ</span>}
+      </button>
+      {picking && (
+        <ShelfPicker
+          label="フィルター"
+          choices={fields}
+          close={() => pick(false)}
+          select={(key) => add(key as FilterField)}
+        />
+      )}
       <div className="filter-chips">
         {items.map((c) => (
           <span key={c.field} className="shelf-chip">
@@ -306,7 +314,7 @@ export function FilterShelf({
               aria-expanded={open === c.field}
               onClick={() => setOpen(open === c.field ? undefined : c.field)}
             >
-              {shelfName(c.field)} ·{" "}
+              {fieldLabel(c.field)} ·{" "}
               {(c.contains || undefined) ??
                 c.values?.join("、") ??
                 (c.min !== undefined || c.max !== undefined
@@ -332,7 +340,7 @@ export function FilterShelf({
             </button>
             <button
               type="button"
-              aria-label={shelfName(c.field) + " のフィルターを外す"}
+              aria-label={fieldLabel(c.field) + " のフィルターを外す"}
               onClick={() => remove(c.field)}
             >
               ×
@@ -343,13 +351,13 @@ export function FilterShelf({
       {active && (
         <section
           className="filter-editor"
-          aria-label={shelfName(active.field) + " の条件"}
+          aria-label={fieldLabel(active.field) + " の条件"}
           onKeyDown={(e) => {
             if (e.key === "Escape") setOpen(undefined);
           }}
         >
           <div className="options-heading">
-            <strong>{shelfName(active.field)}</strong>
+            <strong>{fieldLabel(active.field)}</strong>
             <button type="button" onClick={() => setOpen(undefined)}>
               閉じる
             </button>

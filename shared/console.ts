@@ -73,7 +73,17 @@ export interface MetricOption {
   aggregation?: Panel["aggregation"];
   mark?: WorksheetMark;
 }
+export const styleChannels = {
+  color: "色",
+  dash: "線種",
+  width: "線の太さ",
+  shape: "点の形",
+} as const;
+export type StyleChannel = keyof typeof styleChannels;
+export type StyleRule = { channel: StyleChannel; value: string; index: number };
 export type Pivot = {
+  styleRules?: StyleRule[];
+  encoding?: Partial<Record<StyleChannel, ShelfAxis>>;
   row: ShelfFields;
   column: ShelfFields;
   series?: ShelfFields;

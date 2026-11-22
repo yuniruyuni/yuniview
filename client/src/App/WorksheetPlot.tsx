@@ -5,8 +5,12 @@ import {
   metricName,
   type Panel,
   type Point,
+  type ShelfAxis,
+  type StyleChannel,
+  type StyleRule,
   shelfFields,
   shelfName,
+  styleChannels,
 } from "../../../shared/console";
 import { number } from "../api";
 
@@ -20,12 +24,131 @@ const palette = [
   "#33475c",
 ];
 const ticks = [0, 0.25, 0.5, 0.75, 1];
+function PointSymbol({
+  shape,
+  x,
+  y,
+  r,
+  children,
+}: {
+  shape: number;
+  x: number;
+  y: number;
+  r: number;
+  children?: React.ReactNode;
+}) {
+  if (shape === 1)
+    return (
+      <rect x={x - r} y={y - r} width={r * 2} height={r * 2}>
+        {children}
+      </rect>
+    );
+  if (shape === 2)
+    return (
+      <polygon
+        points={[
+          [x, y - r * 1.3],
+          [x + r * 1.2, y + r],
+          [x - r * 1.2, y + r],
+        ]
+          .map((pair) => pair.join(","))
+          .join(" ")}
+      >
+        {children}
+      </polygon>
+    );
+  return (
+    <circle cx={x} cy={y} r={r}>
+      {children}
+    </circle>
+  );
+}
+const styleNames: Record<StyleChannel, string[]> = {
+  color: ["青緑", "橙", "紫", "青", "赤紫", "緑", "紺"],
+  dash: ["実線", "点線", "破線"],
+  width: ["細い", "通常", "太い"],
+  shape: ["丸", "四角", "三角"],
+};
+function StyleAssignments({
+  domains,
+  rules,
+  save,
+}: {
+  domains: Map<StyleChannel, string[]>;
+  rules: StyleRule[];
+  save: (rules: StyleRule[]) => void;
+}) {
+  const [channelChoice, chooseChannel] = useState<StyleChannel>("color"),
+    [valueChoice, chooseValue] = useState("");
+  const channel = domains.has(channelChoice)
+    ? channelChoice
+    : domains.keys().next().value;
+  if (!channel) return null;
+  const values = domains.get(channel)!;
+  const value = values.includes(valueChoice) ? valueChoice : values[0];
+  const index = rules.find(
+    (r) => r.channel === channel && r.value === value,
+  )?.index;
+  return (
+    <details className="style-assignments">
+      <summary>値ごとのスタイル</summary>
+      <div>
+        <label>
+          変更するスタイル
+          <select
+            value={channel}
+            onChange={(e) => chooseChannel(e.target.value as StyleChannel)}
+          >
+            {Array.from(domains.keys(), (c) => (
+              <option key={c} value={c}>
+                {styleChannels[c]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          属性値
+          <select value={value} onChange={(e) => chooseValue(e.target.value)}>
+            {values.map((v) => (
+              <option key={v} value={v}>
+                {v || "未指定"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          割り当て
+          <select
+            value={index ?? ""}
+            onChange={(e) => {
+              const next = rules.filter(
+                (r) => r.channel !== channel || r.value !== value,
+              );
+              if (e.target.value !== "")
+                next.push({ channel, value, index: Number(e.target.value) });
+              save(next);
+            }}
+          >
+            <option value="">自動</option>
+            {styleNames[channel].map((n, i) => (
+              <option key={n} value={i}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </details>
+  );
+}
 export function WorksheetPlot({
   panel,
   points,
+  onStyleRules,
 }: {
   panel: Panel;
   points: Point[];
+  onStyleRules?: (rules: StyleRule[]) => void;
 }) {
   const [focused, focus] = useState("");
   const pivot = panel.pivot!;
@@ -40,7 +163,13 @@ export function WorksheetPlot({
   type Mark = { category: string; value: number };
   const groups = new Map<
     string,
-    { label: string; unit: string; marks: Mark[]; format: string }
+    {
+      label: string;
+      unit: string;
+      marks: Mark[];
+      format: string;
+      dimensions: Map<ShelfAxis, string>;
+    }
   >();
   const categories = new Map<string, string>();
   for (const p of points) {
@@ -71,7 +200,14 @@ export function WorksheetPlot({
         pivot.mark;
       const format =
         !mark || mark === "auto" ? (temporal ? "line" : "bar") : mark;
-      groups.set(key, { label, unit, marks: [], format });
+      const dimensions = new Map<ShelfAxis, string>();
+      valueFields.forEach((f, i) => {
+        dimensions.set(f, values[i]);
+      });
+      facets.forEach((f, i) => {
+        dimensions.set(f, facet[i]);
+      });
+      groups.set(key, { label, unit, marks: [], format, dimensions });
     }
     groups.get(key)!.marks.push({ category: categoryKey, value: p.value });
     categories.set(categoryKey, category.join(" › ") || "未指定");
@@ -97,6 +233,37 @@ export function WorksheetPlot({
         ? (time(key) - first) / (last - first)
         : ((positions.get(key) ?? 0) + 0.5) / ordered.length;
   const all = Array.from(groups.entries());
+  // Assign each channel independently so matching field values share the same mark across series.
+  const domainsByChannel = new Map<StyleChannel, string[]>();
+  const scale = (channel: StyleChannel) => {
+    const field = pivot.encoding?.[channel];
+    if (!field || !all.some(([, g]) => g.dimensions.has(field)))
+      return undefined;
+    const domain = Array.from(
+      new Set(all.map(([, g]) => g.dimensions.get(field) ?? "")),
+    ).sort();
+    domainsByChannel.set(channel, domain);
+    const indices = new Map(domain.map((v, i) => [v, i]));
+    for (const rule of pivot.styleRules ?? [])
+      if (rule.channel === channel) indices.set(rule.value, rule.index);
+    return (values: Map<ShelfAxis, string>) =>
+      indices.get(values.get(field) ?? "") ?? 0;
+  };
+  const colorScale = scale("color"),
+    dashScale = scale("dash"),
+    widthScale = scale("width"),
+    shapeScale = scale("shape");
+  const styles = new Map(
+    all.map(([key, g], i) => [
+      key,
+      {
+        color: palette[(colorScale?.(g.dimensions) ?? i) % palette.length],
+        dash: [undefined, "1 4", "7 4"][(dashScale?.(g.dimensions) ?? 0) % 3],
+        width: widthScale ? [1, 2, 3.5][widthScale(g.dimensions) % 3] : 2,
+        shape: (shapeScale?.(g.dimensions) ?? 0) % 3,
+      },
+    ]),
+  );
   const visible = all.filter(
     ([k]) => stacked || !groups.has(focused) || k === focused,
   );
@@ -157,175 +324,218 @@ export function WorksheetPlot({
         {rows.map(shelfName).join(" › ")}
         {mixed ? "　単位ごとに目盛を正規化" : ""}
       </small>
-      <svg
-        viewBox="0 0 625 190"
-        role="img"
-        aria-label={
-          formats.size > 1
-            ? "複合グラフ"
-            : stacked
-              ? "全系列の積み上げ面グラフ"
-              : bars
-                ? "カテゴリ別の棒グラフ"
-                : "系列別の折れ線グラフ"
-        }
-      >
-        {ticks.map((t) => {
-          const [x, y] = xy(0, t),
-            [x2, y2] = xy(1, t);
-          return (
-            <g key={t}>
-              <line x1={x} y1={y} x2={x2} y2={y2} stroke="#dae5e3" />
-              <text
-                x={horizontal ? x : x - 5}
-                y={horizontal ? 173 : y + 3}
-                textAnchor={horizontal ? "middle" : "end"}
-              >
-                {mixed
-                  ? number(t * 100) + "%"
-                  : number(low + t * (high - low || 1))}
-              </text>
-            </g>
-          );
-        })}
-        {tickKeys.map((k) => {
-          const [x, y] = xy(coord(k), 0),
-            label = formatCategory(k);
-          return (
-            <text
-              key={k}
-              x={horizontal ? 63 : x}
-              y={horizontal ? y + 3 : 174}
-              textAnchor={horizontal ? "end" : "middle"}
-            >
-              {label.length > (horizontal ? 10 : 17)
-                ? label.slice(0, horizontal ? 9 : 16) + "…"
-                : label}
-              <title>{label}</title>
-            </text>
-          );
-        })}
-        {[...visible]
-          .sort(
-            ([, a], [, b]) =>
-              Number(a.format === "line") - Number(b.format === "line") ||
-              Number(b.format === "stacked_area") -
-                Number(a.format === "stacked_area"),
-          )
-          .map(([key, g]) => {
-            const index = barGroups.findIndex(([k]) => k === key);
-            const bars = g.format === "bar",
-              stacked = g.format === "stacked_area";
-            const color =
-              palette[all.findIndex(([k]) => k === key) % palette.length];
-            const [min, max] = domains.get(g.unit)!;
-            const scale = (v: number) => (v - min) / (max - min || 1);
-            const marks = g.marks.sort(
-              (a, b) => coord(a.category) - coord(b.category),
-            );
-            const width =
-              ((horizontal ? 125 : 490) * band * 0.78) /
-              Math.max(1, barGroups.length);
+      <div className="chart-with-legend">
+        <svg
+          viewBox="0 0 625 190"
+          role="img"
+          aria-label={
+            formats.size > 1
+              ? "複合グラフ"
+              : stacked
+                ? "全系列の積み上げ面グラフ"
+                : bars
+                  ? "カテゴリ別の棒グラフ"
+                  : "系列別の折れ線グラフ"
+          }
+        >
+          {ticks.map((t) => {
+            const [x, y] = xy(0, t),
+              [x2, y2] = xy(1, t);
             return (
-              <g
-                key={key}
-                fill={color}
-                opacity={
-                  stacked && groups.has(focused) && focused !== key ? 0.3 : 1
-                }
-              >
-                {!bars && !stacked && (
-                  <path
-                    fill="none"
-                    stroke={color}
-                    strokeWidth="2"
-                    d={marks
-                      .map((m, i) => {
-                        return (
-                          (i ? "L" : "M") +
-                          xy(coord(m.category), scale(m.value)).join(",")
-                        );
-                      })
-                      .join(" ")}
-                  />
-                )}
-                {marks.map((m) => {
-                  const [x, y] = xy(coord(m.category), scale(m.value)),
-                    [x0, y0] = xy(coord(m.category), scale(0));
-                  const offset = (index - barGroups.length / 2) * width;
-                  const title = (
-                    <title key={m.category}>
-                      {formatCategory(m.category)} · {g.label} ·{" "}
-                      {number(m.value)} {g.unit}
-                    </title>
-                  );
-                  if (stacked) {
-                    const base = baselines.get(m) ?? 0;
-                    const total = totals.get(m.category)!;
-                    const c = coord(m.category);
-                    const start = c - band / 2,
-                      end = c + band / 2;
-                    const polygon = [
-                      xy(start, scale(base)),
-                      xy(start, scale(base + m.value)),
-                      xy(end, scale(base + m.value)),
-                      xy(end, scale(base)),
-                    ];
-                    return (
-                      <polygon
-                        key={m.category}
-                        points={polygon.map((p) => p.join(",")).join(" ")}
-                      >
-                        <title>
-                          {formatCategory(m.category)} · {g.label} ·{" "}
-                          {number(m.value)} {g.unit} ／ 観測合計{" "}
-                          {number(total.positive + total.negative)} {g.unit}
-                        </title>
-                      </polygon>
-                    );
-                  }
-                  return bars ? (
-                    <rect
-                      key={m.category}
-                      x={horizontal ? Math.min(x, x0) : x + offset}
-                      y={horizontal ? y + offset : Math.min(y, y0)}
-                      width={horizontal ? Math.abs(x - x0) : width}
-                      height={horizontal ? width : Math.abs(y - y0)}
-                    >
-                      {title}
-                    </rect>
-                  ) : (
-                    <circle
-                      key={m.category}
-                      cx={x}
-                      cy={y}
-                      r={marks.length > 200 ? 1 : 2.5}
-                    >
-                      {title}
-                    </circle>
-                  );
-                })}
+              <g key={t}>
+                <line x1={x} y1={y} x2={x2} y2={y2} stroke="#dae5e3" />
+                <text
+                  x={horizontal ? x : x - 5}
+                  y={horizontal ? 173 : y + 3}
+                  textAnchor={horizontal ? "middle" : "end"}
+                >
+                  {mixed
+                    ? number(t * 100) + "%"
+                    : number(low + t * (high - low || 1))}
+                </text>
               </g>
             );
           })}
-      </svg>
-      <div className="legend">
-        {all.map(([k, g], i) => (
-          <button
-            type="button"
-            key={k}
-            style={{ borderLeftColor: palette[i % palette.length] }}
-            aria-pressed={focused === k}
-            onClick={() => focus(focused === k ? "" : k)}
-          >
-            {g.label}
-            {g.unit && " (" + g.unit + ")"}
-            {mixed &&
-              domains.has(g.unit) &&
-              " " + domains.get(g.unit)!.map(number).join("–")}
-          </button>
-        ))}
+          {tickKeys.map((k) => {
+            const [x, y] = xy(coord(k), 0),
+              label = formatCategory(k);
+            return (
+              <text
+                key={k}
+                x={horizontal ? 63 : x}
+                y={horizontal ? y + 3 : 174}
+                textAnchor={horizontal ? "end" : "middle"}
+              >
+                {label.length > (horizontal ? 10 : 17)
+                  ? label.slice(0, horizontal ? 9 : 16) + "…"
+                  : label}
+                <title>{label}</title>
+              </text>
+            );
+          })}
+          {[...visible]
+            .sort(
+              ([, a], [, b]) =>
+                Number(a.format === "line") - Number(b.format === "line") ||
+                Number(b.format === "stacked_area") -
+                  Number(a.format === "stacked_area"),
+            )
+            .map(([key, g]) => {
+              const index = barGroups.findIndex(([k]) => k === key);
+              const bars = g.format === "bar",
+                stacked = g.format === "stacked_area";
+              const {
+                color,
+                dash,
+                width: strokeWidth,
+                shape,
+              } = styles.get(key)!;
+              const [min, max] = domains.get(g.unit)!;
+              const scale = (v: number) => (v - min) / (max - min || 1);
+              const marks = g.marks.sort(
+                (a, b) => coord(a.category) - coord(b.category),
+              );
+              const width =
+                ((horizontal ? 125 : 490) * band * 0.78) /
+                Math.max(1, barGroups.length);
+              return (
+                <g
+                  key={key}
+                  fill={color}
+                  opacity={
+                    stacked && groups.has(focused) && focused !== key ? 0.3 : 1
+                  }
+                >
+                  {!bars && !stacked && (
+                    <path
+                      fill="none"
+                      stroke={color}
+                      strokeWidth={strokeWidth}
+                      strokeDasharray={dash}
+                      strokeLinecap="round"
+                      d={marks
+                        .map((m, i) => {
+                          return (
+                            (i ? "L" : "M") +
+                            xy(coord(m.category), scale(m.value)).join(",")
+                          );
+                        })
+                        .join(" ")}
+                    />
+                  )}
+                  {marks.map((m) => {
+                    const [x, y] = xy(coord(m.category), scale(m.value)),
+                      [x0, y0] = xy(coord(m.category), scale(0));
+                    const offset = (index - barGroups.length / 2) * width;
+                    const title = (
+                      <title key={m.category}>
+                        {formatCategory(m.category)} · {g.label} ·{" "}
+                        {number(m.value)} {g.unit}
+                      </title>
+                    );
+                    if (stacked) {
+                      const base = baselines.get(m) ?? 0;
+                      const total = totals.get(m.category)!;
+                      const c = coord(m.category);
+                      const start = c - band / 2,
+                        end = c + band / 2;
+                      const polygon = [
+                        xy(start, scale(base)),
+                        xy(start, scale(base + m.value)),
+                        xy(end, scale(base + m.value)),
+                        xy(end, scale(base)),
+                      ];
+                      return (
+                        <polygon
+                          key={m.category}
+                          points={polygon.map((p) => p.join(",")).join(" ")}
+                        >
+                          <title>
+                            {formatCategory(m.category)} · {g.label} ·{" "}
+                            {number(m.value)} {g.unit} ／ 観測合計{" "}
+                            {number(total.positive + total.negative)} {g.unit}
+                          </title>
+                        </polygon>
+                      );
+                    }
+                    return bars ? (
+                      <rect
+                        key={m.category}
+                        x={horizontal ? Math.min(x, x0) : x + offset}
+                        y={horizontal ? y + offset : Math.min(y, y0)}
+                        width={horizontal ? Math.abs(x - x0) : width}
+                        height={horizontal ? width : Math.abs(y - y0)}
+                      >
+                        {title}
+                      </rect>
+                    ) : (
+                      <PointSymbol
+                        shape={shape}
+                        key={m.category}
+                        x={x}
+                        y={y}
+                        r={marks.length > 200 ? 1 : 2.5}
+                      >
+                        {title}
+                      </PointSymbol>
+                    );
+                  })}
+                </g>
+              );
+            })}
+        </svg>
+        <div className="legend">
+          {all.map(([k, g]) => {
+            const style = styles.get(k)!;
+            return (
+              <button
+                type="button"
+                key={k}
+                style={{ borderLeftColor: style.color }}
+                aria-pressed={focused === k}
+                onClick={() => focus(focused === k ? "" : k)}
+              >
+                <svg
+                  className="legend-key"
+                  aria-hidden="true"
+                  viewBox="0 0 32 12"
+                  fill={style.color}
+                >
+                  {g.format === "line" ? (
+                    <>
+                      <line
+                        x1="1"
+                        x2="31"
+                        y1="6"
+                        y2="6"
+                        stroke={style.color}
+                        strokeWidth={style.width}
+                        strokeDasharray={style.dash}
+                        strokeLinecap="round"
+                      />
+                      <PointSymbol shape={style.shape} x={16} y={6} r={3} />
+                    </>
+                  ) : (
+                    <rect x="3" y="2" width="26" height="8" />
+                  )}
+                </svg>
+                {g.label}
+                {g.unit && " (" + g.unit + ")"}
+                {mixed &&
+                  domains.has(g.unit) &&
+                  " " + domains.get(g.unit)!.map(number).join("–")}
+              </button>
+            );
+          })}
+        </div>
       </div>
+      {onStyleRules && domainsByChannel.size > 0 && (
+        <StyleAssignments
+          domains={domainsByChannel}
+          rules={pivot.styleRules ?? []}
+          save={onStyleRules}
+        />
+      )}
     </div>
   );
 }

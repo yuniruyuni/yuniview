@@ -105,6 +105,26 @@ export const panel = filter
     display: z.enum(["chart", "value", "table", "pivot"]),
     pivot: z
       .object({
+        styleRules: z
+          .array(
+            z
+              .object({
+                channel: z.enum(["color", "dash", "width", "shape"]),
+                value: label,
+                index: z.number().int().min(0).max(6),
+              })
+              .refine((r) => r.channel === "color" || r.index < 3),
+          )
+          .max(256)
+          .optional(),
+        encoding: z
+          .object({
+            color: shelfField.optional(),
+            dash: shelfField.optional(),
+            width: shelfField.optional(),
+            shape: shelfField.optional(),
+          })
+          .optional(),
         row: shelf,
         column: shelf,
         series: shelf.optional(),

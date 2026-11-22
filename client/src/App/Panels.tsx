@@ -8,6 +8,7 @@ import {
   measures,
   pivotFields,
   type ShelfAxis,
+  type StyleRule,
   shelfFields,
   shelfName,
   slotTotalChoice,
@@ -240,73 +241,75 @@ export function Chart({
     );
   const y = (p: Point) => 135 - (112 * (p.value - low)) / (high - low);
   return (
-    <>
-      <svg viewBox="0 0 610 155" role="img" aria-labelledby={id}>
-        <title id={id}>集計値の推移</title>
-        {[0, 0.5, 1].map((n) => (
-          <g key={n}>
-            <line
-              x1="45"
-              x2="595"
-              y1={135 - 112 * n}
-              y2={135 - 112 * n}
-              stroke="#dae5e3"
-            />
-            <text x="40" y={138 - 112 * n} textAnchor="end">
-              {number(low + n * (high - low))}
-            </text>
-          </g>
-        ))}
-        {groups.map((g, i) => {
-          const ps = shown.filter((p) => p.series === g);
-          return (
-            <g key={g} stroke={colors[i % colors.length]}>
-              <path
-                fill="none"
-                strokeWidth="2"
-                d={ps
-                  .map((p, i) => {
-                    const move =
-                      !i ||
-                      Date.parse(p.bucket) - Date.parse(ps[i - 1].bucket) >
-                        gapMs;
-                    return `${move ? "M" : "L"}${x(p)},${y(p)}`;
-                  })
-                  .join(" ")}
+    <div className="chart-with-legend">
+      <div>
+        <svg viewBox="0 0 610 155" role="img" aria-labelledby={id}>
+          <title id={id}>集計値の推移</title>
+          {[0, 0.5, 1].map((n) => (
+            <g key={n}>
+              <line
+                x1="45"
+                x2="595"
+                y1={135 - 112 * n}
+                y2={135 - 112 * n}
+                stroke="#dae5e3"
               />
-              {ps.map((p) => {
-                const mark = (
-                  <circle
-                    key={p.bucket}
-                    cx={x(p)}
-                    cy={y(p)}
-                    r="3"
-                    fill={colors[i % colors.length]}
-                  >
-                    <title>
-                      {formatTime(p.bucket)} · {g} · {number(p.value)}
-                    </title>
-                  </circle>
-                );
-                return choose ? (
-                  <a
-                    key={p.bucket}
-                    href={choose(p)}
-                    aria-label={`${formatTime(p.bucket)} のログ`}
-                  >
-                    {mark}
-                  </a>
-                ) : (
-                  mark
-                );
-              })}
+              <text x="40" y={138 - 112 * n} textAnchor="end">
+                {number(low + n * (high - low))}
+              </text>
             </g>
-          );
-        })}
-      </svg>
-      <div className="range">
-        <span>{formatTime(new Date(start).toISOString())}</span>
-        <span>{formatTime(new Date(end).toISOString())}</span>
+          ))}
+          {groups.map((g, i) => {
+            const ps = shown.filter((p) => p.series === g);
+            return (
+              <g key={g} stroke={colors[i % colors.length]}>
+                <path
+                  fill="none"
+                  strokeWidth="2"
+                  d={ps
+                    .map((p, i) => {
+                      const move =
+                        !i ||
+                        Date.parse(p.bucket) - Date.parse(ps[i - 1].bucket) >
+                          gapMs;
+                      return `${move ? "M" : "L"}${x(p)},${y(p)}`;
+                    })
+                    .join(" ")}
+                />
+                {ps.map((p) => {
+                  const mark = (
+                    <circle
+                      key={p.bucket}
+                      cx={x(p)}
+                      cy={y(p)}
+                      r="3"
+                      fill={colors[i % colors.length]}
+                    >
+                      <title>
+                        {formatTime(p.bucket)} · {g} · {number(p.value)}
+                      </title>
+                    </circle>
+                  );
+                  return choose ? (
+                    <a
+                      key={p.bucket}
+                      href={choose(p)}
+                      aria-label={`${formatTime(p.bucket)} のログ`}
+                    >
+                      {mark}
+                    </a>
+                  ) : (
+                    mark
+                  );
+                })}
+              </g>
+            );
+          })}
+        </svg>
+        <div className="range">
+          <span>{formatTime(new Date(start).toISOString())}</span>
+          <span>{formatTime(new Date(end).toISOString())}</span>
+        </div>
       </div>
       <div className="legend">
         {groups.map((g, i) => (
@@ -321,7 +324,7 @@ export function Chart({
           </button>
         ))}
       </div>
-    </>
+    </div>
   );
 }
 export function PanelView({
@@ -331,16 +334,25 @@ export function PanelView({
   heading,
   onEdit,
   choose,
+  onStyleRules,
 }: {
   panel: Panel;
   end: string;
   actions?: React.ReactNode;
+  onStyleRules?: (rules: StyleRule[]) => void;
   heading?: React.ReactNode;
   onEdit?: () => void;
   choose?: (p: Point) => string;
 }) {
   const { data, error } = useQuery<Point[]>("series", {
-    panel: { ...panel, wide: undefined, title: "プレビュー" },
+    panel: {
+      ...panel,
+      pivot: panel.pivot
+        ? { ...panel.pivot, encoding: undefined, styleRules: undefined }
+        : undefined,
+      wide: undefined,
+      title: "プレビュー",
+    },
     end,
     buckets: panel.display === "chart",
   });
@@ -381,7 +393,12 @@ export function PanelView({
             : "この期間と絞り込み条件に一致するデータがありません。"}
         </p>
       ) : panel.display === "pivot" && panel.pivot ? (
-        <PivotView panel={panel} points={data} end={end} />
+        <PivotView
+          panel={panel}
+          points={data}
+          end={end}
+          onStyleRules={onStyleRules}
+        />
       ) : panel.display === "chart" ? (
         <Chart
           points={data}
@@ -459,10 +476,12 @@ function PivotView({
   panel,
   points,
   end,
+  onStyleRules,
 }: {
   panel: Panel;
   points: Point[];
   end: string;
+  onStyleRules?: (rules: StyleRule[]) => void;
 }) {
   const pivot = panel.pivot!;
   const row = shelfFields(pivot.row),
@@ -487,7 +506,13 @@ function PivotView({
     }
     return (
       <>
-        {!!plot.length && <WorksheetPlot panel={panel} points={plot} />}
+        {!!plot.length && (
+          <WorksheetPlot
+            panel={panel}
+            points={plot}
+            onStyleRules={onStyleRules}
+          />
+        )}
         {!!table.length && (
           <FacetTable panel={panel} points={table} end={end} />
         )}

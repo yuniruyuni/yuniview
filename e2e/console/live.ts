@@ -608,7 +608,10 @@ test("worksheet encodes time or categories on either axis and splits observed se
       .locator(".field-catalog")
       .getByRole("button", { name: label, exact: true })
       .dragTo(form.locator('.worksheet-shelves [data-drop="' + shelf + '"]'));
-  await place("時刻（10秒）", "column");
+  await place("時刻", "column");
+  await form.getByLabel("列の時刻の粒度").selectOption("time:10");
+  await page.reload();
+  await expect(form.getByLabel("列の時刻の粒度")).toHaveValue("time:10");
   await place("CPU 使用率 (%)", "row");
   await place("メモリ使用量", "row");
   await place("スロット", "series");
@@ -637,7 +640,7 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await memFormat.selectOption("bar");
   await cpuFormat.selectOption("line");
   await expect(plot.getByRole("img", { name: "複合グラフ" })).toBeVisible();
-  await expect(plot.locator("rect")).toHaveCount(9);
+  await expect(plot.getByRole("img").locator("rect")).toHaveCount(9);
   await expect(plot.locator("path")).toHaveCount(3);
   await memory.getByRole("combobox", { name: "集計" }).selectOption("max");
   await cpu.getByRole("combobox", { name: "集計" }).selectOption("min");
@@ -657,6 +660,45 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await expect(
     plot.locator("circle title").filter({ hasText: "CPU 使用率" }),
   ).toHaveCount(3);
+  await form
+    .getByRole("combobox", { name: "色", exact: true })
+    .selectOption("slot");
+  await form
+    .locator(".field-catalog")
+    .getByRole("button", { name: "リビジョン", exact: true })
+    .dragTo(form.locator('[data-drop="style-dash"]'));
+  await form
+    .getByRole("combobox", { name: "線の太さ", exact: true })
+    .selectOption("slot");
+  await form
+    .getByRole("combobox", { name: "点の形", exact: true })
+    .selectOption("revision");
+  await expect(
+    plot.getByRole("img").locator('path[stroke-dasharray="1 4"]'),
+  ).toHaveCount(4);
+  await expect(
+    plot.getByRole("img").locator('path[stroke-width="1"]'),
+  ).toHaveCount(4);
+  await expect(plot.getByRole("img").locator("rect")).toHaveCount(8);
+  const diagram = await plot.getByRole("img").boundingBox(),
+    legend = await plot.locator(".legend").boundingBox();
+  expect(legend!.x).toBeGreaterThanOrEqual(diagram!.x + diagram!.width - 1);
+  await expect(
+    plot.locator('.legend-key line[stroke-dasharray="1 4"]'),
+  ).toHaveCount(4);
+  await plot.getByText("値ごとのスタイル", { exact: true }).click();
+  const rules = plot.locator(".style-assignments");
+  await rules
+    .getByRole("combobox", { name: "変更するスタイル" })
+    .selectOption("shape");
+  await rules.getByRole("combobox", { name: "属性値" }).selectOption("B");
+  await rules
+    .getByRole("combobox", { name: "割り当て" })
+    .selectOption({ label: "三角" });
+  await expect(plot.getByRole("img").locator("polygon")).toHaveCount(8);
+  await expect(plot.locator(".legend-key polygon")).toHaveCount(4);
+  await plot.getByText("値ごとのスタイル", { exact: true }).click();
+  await expect(form.locator('[data-drop="filter"] select')).toHaveCount(0);
   await memFormat.selectOption("auto");
   await cpuFormat.selectOption("auto");
   await form.getByRole("button", { name: "時刻（10秒） を列から外す" }).click();
@@ -670,7 +712,7 @@ test("worksheet encodes time or categories on either axis and splits observed se
     .filter({ hasText: "メモリ使用量" })
     .dragTo(form.locator('.worksheet-shelves [data-drop="column"]'));
   await expect(plot).toContainText("横軸 指標");
-  await expect(plot.locator("rect")).toHaveCount(6);
+  await expect(plot.getByRole("img").locator("rect")).toHaveCount(6);
   await form.getByRole("button", { name: "配置に戻る" }).click();
   await form.getByLabel("名前", { exact: true }).fill("Axis chart");
   await form.getByRole("button", { name: "保存", exact: true }).click();
@@ -678,7 +720,9 @@ test("worksheet encodes time or categories on either axis and splits observed se
     page.getByRole("heading", { name: "Axis chart", exact: true }),
   ).toBeVisible();
   await page.reload();
-  await expect(page.locator(".worksheet-plot rect")).toHaveCount(6);
+  await expect(page.locator(".worksheet-plot svg[role=img] rect")).toHaveCount(
+    6,
+  );
   await expect(
     page.locator("rect title").filter({ hasText: "3,145,728" }),
   ).toHaveCount(3);
@@ -691,6 +735,9 @@ test("worksheet encodes time or categories on either axis and splits observed se
     form.getByRole("combobox", { name: "期間", exact: true }),
   ).toHaveCount(1);
   await expect(form.locator(".worksheet-shelves select")).toHaveCount(0);
+  await expect(
+    form.getByRole("combobox", { name: "点の形", exact: true }),
+  ).toHaveValue("revision");
 });
 
 test("worksheet shows only panel controls and fits inside the viewport", async ({
@@ -774,9 +821,9 @@ test("filter shelf combines observed choices with numeric and time ranges before
     .getByRole("button", { name: "閉じる" })
     .click();
   await catalog
-    .getByRole("button", { name: "時刻（1秒）", exact: true })
+    .getByRole("button", { name: "時刻", exact: true })
     .dragTo(shelf);
-  const time = form.getByRole("region", { name: "時刻（1秒） の条件" });
+  const time = form.getByRole("region", { name: "時刻 の条件" });
   await expect(time.getByLabel("上限")).toHaveAttribute(
     "type",
     "datetime-local",
@@ -784,9 +831,7 @@ test("filter shelf combines observed choices with numeric and time ranges before
   await time.getByLabel("上限").fill("2000-01-01T00:00");
   await time.getByRole("button", { name: "範囲を適用" }).click();
   await expect(form.locator(".builder-main .empty")).toBeVisible();
-  await form
-    .getByRole("button", { name: "時刻（1秒） のフィルターを外す" })
-    .click();
+  await form.getByRole("button", { name: "時刻 のフィルターを外す" }).click();
   await expect(form.locator(".values strong")).toHaveText("1");
   await form.getByRole("button", { name: "配置に戻る" }).click();
   await form.getByLabel("名前", { exact: true }).fill("Filtered requests");

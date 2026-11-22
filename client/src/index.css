@@ -1030,13 +1030,6 @@ main:has(.worksheet) {
 .filter-shelf[data-preview] {
   outline: 2px solid #167774;
 }
-.filter-shelf > label {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  font-weight: 600;
-  white-space: nowrap;
-}
 .filter-shelf select {
   max-width: 9rem;
   min-width: 0;
@@ -1176,4 +1169,78 @@ main:has(.worksheet) {
 .shared-settings-heading {
   border-top: 1px solid #cfddda;
   padding-top: 10px;
+}
+.chart-with-legend {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) fit-content(32%);
+  gap: 10px;
+  align-items: start;
+}
+.chart-with-legend > * {
+  min-width: 0;
+}
+.chart-with-legend .legend {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  max-height: min(42dvh, 22rem);
+  overflow: auto;
+  margin: 6px 0;
+}
+.chart-with-legend .legend button {
+  text-align: left;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+  padding: 4px 5px;
+}
+.card .legend-key {
+  width: 28px;
+  height: 12px;
+  display: inline-block;
+  margin: 0 4px 0 0;
+  vertical-align: middle;
+}
+.series-encoding {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.series-encoding legend,
+.filter-target {
+  font-weight: 650;
+}
+.filter-shelf .filter-target {
+  background: transparent;
+  border: 0;
+  padding: 4px;
+}
+.worksheet-shelves .shelf-chip select {
+  width: auto;
+  max-width: 100%;
+  padding: 2px;
+  font-size: 12px;
+}
+.worksheet-shelves .shelf-chip {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.style-assignments {
+  margin-top: 8px;
+}
+.style-assignments summary {
+  cursor: pointer;
+}
+.style-assignments > div {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.style-assignments select {
+  max-width: 14rem;
+}
+.filter-target span {
+  font-weight: 400;
+  color: #617373;
+  font-size: 12px;
 }
