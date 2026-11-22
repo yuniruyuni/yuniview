@@ -5,9 +5,13 @@ export function ShelfPicker({
   choices,
   select,
   close,
+  constants,
+  setConstant,
 }: {
   label: string;
   choices: [string, string][];
+  constants?: [string, string][];
+  setConstant?: (v: string) => void;
   select: (value: string) => void;
   close: () => void;
 }) {
@@ -39,30 +43,51 @@ export function ShelfPicker({
           閉じる
         </button>
       </div>
-      <label>
-        フィールドを検索
-        <input
-          ref={searchInput}
-          type="search"
-          value={query}
-          onChange={(e) => search(e.target.value)}
-        />
-      </label>
-      <div className="picker-list">
-        {matches.map(([key, name]) => (
-          <button
-            type="button"
-            key={key}
-            onClick={() => {
-              select(key);
-              close();
-            }}
-          >
-            {name}
-          </button>
-        ))}
-        {!matches.length && <small>一致するフィールドがありません。</small>}
-      </div>
+      {constants && setConstant && (
+        <fieldset className="constant-options">
+          <legend>全系列に適用</legend>
+          {constants.map(([v, name]) => (
+            <button
+              type="button"
+              key={v}
+              onClick={() => {
+                setConstant(v);
+                close();
+              }}
+            >
+              {name}
+            </button>
+          ))}
+        </fieldset>
+      )}
+      {choices.length > 0 && (
+        <>
+          <label>
+            フィールドを検索
+            <input
+              ref={searchInput}
+              type="search"
+              value={query}
+              onChange={(e) => search(e.target.value)}
+            />
+          </label>
+          <div className="picker-list">
+            {matches.map(([key, name]) => (
+              <button
+                type="button"
+                key={key}
+                onClick={() => {
+                  select(key);
+                  close();
+                }}
+              >
+                {name}
+              </button>
+            ))}
+            {!matches.length && <small>一致するフィールドがありません。</small>}
+          </div>
+        </>
+      )}
     </dialog>
   );
 }

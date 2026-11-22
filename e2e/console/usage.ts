@@ -49,8 +49,9 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
   await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
   const form = page.locator("form.editor");
   await form
-    .getByRole("combobox", { name: "指標", exact: true })
-    .selectOption("distinct");
+    .locator(".field-catalog")
+    .getByRole("button", { name: "ユニーク数", exact: true })
+    .click();
   await form.getByLabel("集合名").fill("visit.account");
   for (const [date, count] of [
     [day, "2"],

@@ -1009,7 +1009,7 @@ main:has(.worksheet) {
   vertical-align: top;
 }
 .worksheet .builder-main {
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 .filter-shelf {
   position: relative;
@@ -1203,12 +1203,6 @@ main:has(.worksheet) {
   margin: 0 4px 0 0;
   vertical-align: middle;
 }
-.series-encoding {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-.series-encoding legend,
 .filter-target {
   font-weight: 650;
 }
@@ -1247,34 +1241,14 @@ main:has(.worksheet) {
   font-size: 12px;
 }
 
-.style-shelves {
+.worksheet-shelves .style-target {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  min-width: 0;
-  gap: 4px;
-  margin-top: 5px;
-}
-.style-shelves legend {
-  font-size: 12px;
-  font-weight: 650;
-}
-.style-shelves > div {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  border: 1px dashed #a6bfba;
-  border-radius: 6px;
-  background: white;
-}
-.style-shelves .style-target {
+  text-align: left;
+  width: 100%;
+  padding: 2px 4px;
   border: 0;
   background: transparent;
-  min-width: 0;
-  flex: 1;
-  display: grid;
-  gap: 1px;
-  text-align: left;
-  padding: 4px 6px;
+  gap: 3px;
 }
 .style-target strong {
   font-size: 12px;
@@ -1292,20 +1266,11 @@ main:has(.worksheet) {
   border-radius: 3px;
   padding: 0 3px;
 }
-.style-shelves .style-remove {
+.worksheet-shelves .style-remove {
   border: 0;
   background: transparent;
-  padding: 3px;
+  padding: 2px 4px;
 }
-.style-shelves [data-ready] {
-  border-color: #327d75;
-  background: #eff8f5;
-}
-.style-shelves [data-preview] {
-  outline: 2px solid #167774;
-  outline-offset: -2px;
-}
-
 .options-heading > label {
   flex: 1;
   display: grid;
@@ -1377,4 +1342,79 @@ main:has(.worksheet) {
     position-try-fallbacks: flip-inline, flip-block;
     margin: 4px 0;
   }
+}
+
+.worksheet-shelves {
+  margin: 6px 0;
+  padding: 0;
+  border: 0;
+  max-height: none;
+  min-width: 0;
+}
+.worksheet-shelves strong {
+  font-size: 13px;
+}
+.constant-options {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+@media (max-width: 1150px) {
+  .worksheet .builder {
+    grid-template-areas: "catalog format" "catalog preview";
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .worksheet .field-catalog {
+    grid-area: catalog;
+  }
+  .worksheet .builder-main {
+    grid-area: preview;
+  }
+  .worksheet .worksheet-options,
+  .worksheet .worksheet-options[data-open] {
+    display: contents;
+  }
+  .format-setup {
+    grid-area: format;
+    min-width: 0;
+    max-height: 35dvh;
+    overflow: auto;
+  }
+  .format-setup .options-heading > label {
+    display: flex;
+    align-items: center;
+  }
+  .format-setup .worksheet-shelves {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .other-settings {
+    display: none;
+  }
+  .other-settings[data-open] {
+    display: block;
+    position: absolute;
+    z-index: 4;
+    inset: 0 0 0 auto;
+    width: min(310px, 100%);
+    background: white;
+    overflow: auto;
+    padding: 10px;
+    border: 1px solid #cededb;
+  }
+}
+@media (max-width: 640px) {
+  .worksheet .builder {
+    grid-template-areas: "catalog" "format" "preview";
+    grid-template-rows: minmax(0, 19%) auto minmax(0, 1fr);
+  }
+}
+
+.worksheet-shelves > div:has(.style-remove) {
+  padding-right: 22px;
+}
+.worksheet-shelves > div > .style-remove {
+  position: absolute;
+  right: 2px;
+  top: 2px;
 }

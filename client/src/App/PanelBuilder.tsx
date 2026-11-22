@@ -3,6 +3,7 @@ import {
   type Axis,
   axes,
   blankPanel,
+  changeGroup,
   cpuPercent,
   type Dimension,
   type Distinct,
@@ -21,6 +22,7 @@ import {
   type StyleChannel,
   shelfFields,
   shelfName,
+  slotTotalChoice,
   styleChannels,
   type TimeField,
   timeBuckets,
@@ -73,7 +75,9 @@ export function PanelBuilder({
   back,
 }: Props) {
   const [settingsOpen, showSettings] = useState(false);
-  const [picker, openPicker] = useState<Shelf | StyleChannel>();
+  const [picker, openPicker] = useState<
+    Shelf | StyleChannel | "measure" | "group"
+  >();
   const [search, find] = useState("");
   const [undo, remember] = useState<Panel[]>([]);
   function change(next: Panel) {
@@ -258,9 +262,17 @@ export function PanelBuilder({
       ...(base.pivot ??
         (base.distinct?.dataset === "daily"
           ? { row: "day", column: "source" }
-          : { row: [], column: [], mark: "auto" as const })),
+          : {
+              row: shelf === "row" ? [] : ["measure"],
+              column: shelf === "column" ? [] : ["time:60"],
+              mark: "line" as const,
+              series:
+                base.group !== "all" && base.group !== "slot_total"
+                  ? [base.group]
+                  : [],
+            })),
     };
-    if (isTimeField(field)) pair.mark ??= "auto";
+
     const before = shelfFields(pair[shelf]);
     for (const role of [...shelves, "series"] as const)
       pair[role] = shelfFields(pair[role]).filter(
@@ -488,7 +500,7 @@ export function PanelBuilder({
   );
   if (logs) filterFields.push(["log", "ログ"]);
   const stylePivot: Pivot | undefined =
-    pivot ||
+    (pivot && { ...pivot }) ||
     (!daily && p.display === "chart" && p.group !== "slot_total"
       ? {
           row: "measure",
@@ -497,6 +509,12 @@ export function PanelBuilder({
           mark: "line",
         }
       : undefined);
+  if (
+    stylePivot?.mark &&
+    stylePivot.mark !== "table" &&
+    !pivotFields(stylePivot).includes("measure")
+  )
+    configurePlotAxes(stylePivot);
   const valueSide =
     stylePivot &&
     (shelfFields(stylePivot.row).includes("measure")
@@ -535,14 +553,35 @@ export function PanelBuilder({
   const format =
     legacyMarks.size > 1
       ? "mixed"
-      : ([...legacyMarks][0] ??
-        (pivot
+      : legacyMarks.size
+        ? [...legacyMarks][0]
+        : pivot
           ? (pivot.mark ?? "table")
           : p.display === "chart"
             ? "line"
             : p.display === "table"
               ? "summary"
-              : p.display));
+              : p.display;
+  const grouped = format === "summary" || format === "value";
+  const axisLabels =
+    format === "table"
+      ? { row: "行", column: "列" }
+      : { row: "縦軸", column: "横軸" };
+  const visibleAxes: Shelf[] =
+    grouped || (daily && !pivot)
+      ? []
+      : format === "table"
+        ? shelves
+        : ["column", "row"];
+  const valueSlot =
+    grouped ||
+    daily ||
+    (format === "table" && pivot && !pivotFields(pivot).includes("measure"));
+  const groupChoices: [string, string][] = [
+    ["all", "全体"],
+    ...fields.filter(([k]) => k !== "day" && !isTimeField(k)),
+    ...(p.group === "slot_total" ? [slotTotalChoice] : []),
+  ];
   const channels = styleTargets(format, stylePivot);
   const encoding = { ...stylePivot?.encoding };
   const unassigned = shelfFields(stylePivot?.series).filter(
@@ -601,10 +640,10 @@ export function PanelBuilder({
         });
     }
     if (field.kind === "placed") {
-      for (const id of shelves)
+      for (const id of visibleAxes)
         options.push({
           id,
-          label: { row: "行", column: "列" }[id],
+          label: axisLabels[id],
           panel: assign(
             p,
             id,
@@ -621,12 +660,12 @@ export function PanelBuilder({
     }
     if (field.kind === "measure") {
       const base = picked(field.key);
-      options.push({ id: "measure", label: "指標", panel: base });
+      if (valueSlot) options.push({ id: "measure", label: "値", panel: base });
       if (base.distinct?.dataset !== "daily")
-        for (const id of shelves)
+        for (const id of visibleAxes)
           options.push({
             id,
-            label: { row: "行", column: "列" }[id],
+            label: axisLabels[id],
             panel: placeMeasure(id, field.key),
           });
       return options;
@@ -635,10 +674,10 @@ export function PanelBuilder({
       isTimeField(field.key) && pivot
         ? (pivotFields(pivot).find(isTimeField) ?? field.key)
         : field.key;
-    options.push(
-      { id: "row", label: "行", panel: assign(p, "row", key) },
-      { id: "column", label: "列", panel: assign(p, "column", key) },
-    );
+    for (const id of visibleAxes)
+      options.push({ id, label: axisLabels[id], panel: assign(p, id, key) });
+    if (grouped && key !== "day" && !isTimeField(key))
+      options.push({ id: "group", label: "分類", panel: changeGroup(p, key) });
     if (isTimeField(key) || filterFields.some(([k]) => k === key))
       options.push({ id: "filter", label: "フィルター", filter: key });
     return options;
@@ -766,7 +805,15 @@ export function PanelBuilder({
                   onPointerDown={(e) =>
                     drag.start(e, { kind: "dimension", key: k })
                   }
-                  onClick={() => change(assign(p, "row", k))}
+                  onClick={() => {
+                    if (grouped) {
+                      if (k !== "day" && !isTimeField(k))
+                        change(changeGroup(p, k));
+                    } else if (visibleAxes.length)
+                      change(
+                        assign(p, format === "table" ? "row" : "column", k),
+                      );
+                  }}
                 >
                   {v}
                 </button>
@@ -774,245 +821,6 @@ export function PanelBuilder({
           </div>
         </div>
         <div className="builder-main">
-          <div className="worksheet-shelves">
-            {shelves.map((id) => {
-              const assigned = pivot ? shelfFields(pivot[id]) : [];
-              const label = { row: "行", column: "列" }[id];
-              const implicit = !pivot
-                ? id === "row"
-                  ? choices.find(([key]) => key === selected)?.[1]
-                  : id === "column"
-                    ? p.display === "chart"
-                      ? "時刻"
-                      : ""
-                    : ""
-                : "";
-              const opts: [string, string][] = [
-                ...fields.map(([k, v]): [string, string] => ["axis/" + k, v]),
-                ...choices.filter(
-                  ([key]) => key !== "distinct" || !meta.dailyFields.length,
-                ),
-              ];
-              return (
-                <div
-                  key={id}
-                  data-drop={id}
-                  data-ready={
-                    (item && targets.some((t) => t.id === id)) || undefined
-                  }
-                  data-preview={hovered?.id === id || undefined}
-                >
-                  <button
-                    type="button"
-                    className="shelf-target"
-                    aria-label={label + "にフィールドを追加"}
-                    title="ダブルクリックまたは Enter でフィールドを選択"
-                    onDoubleClick={() => openPicker(id)}
-                    onClick={(e) => {
-                      if (e.detail === 0) openPicker(id);
-                    }}
-                  >
-                    <strong>{label}</strong>
-                    {!assigned.length &&
-                      !(!pivot && id === "row" && p.measure === "metric") && (
-                        <span>{implicit || "ここにドロップ"}</span>
-                      )}
-                  </button>
-                  {!pivot && id === "row" && p.measure === "metric" && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        editMetric(
-                          editingMetric === p.metric ? undefined : p.metric,
-                        )
-                      }
-                    >
-                      {metricName(p.metric)} ·{" "}
-                      {aggregationNames[aggregation(p.metric)]}
-                    </button>
-                  )}
-                  {((!pivot && id === "row") || assigned.includes("measure")) &&
-                    p.measure === "metric" &&
-                    metricMenu(p.metric)}
-                  {picker === id && (
-                    <ShelfPicker
-                      label={label}
-                      choices={opts}
-                      close={() => openPicker(undefined)}
-                      select={(v) => {
-                        if (!v) return;
-                        const f: Field = v.startsWith("axis/")
-                          ? {
-                              kind: "dimension",
-                              key: v.slice(5) as Dimension | TimeField,
-                            }
-                          : { kind: "measure", key: v };
-                        const next = candidates(f).find(
-                          (c) => c.id === id,
-                        )?.panel;
-                        if (next) change(next);
-                      }}
-                    />
-                  )}
-                  {pivot && (
-                    <div className="shelf-chips">
-                      {assigned.map((field, i) => (
-                        <span
-                          className="shelf-chip"
-                          key={field}
-                          data-drop={
-                            item?.kind === "placed" ? id + "/" + i : undefined
-                          }
-                        >
-                          <button
-                            type="button"
-                            className="drag-source"
-                            title={
-                              field === "measure" && p.measure === "metric"
-                                ? "クリックして集計を変更"
-                                : "ドラッグまたは Alt＋左右矢印で移動"
-                            }
-                            onClick={
-                              field === "measure" && p.measure === "metric"
-                                ? () =>
-                                    editMetric(
-                                      editingMetric === p.metric
-                                        ? undefined
-                                        : p.metric,
-                                    )
-                                : undefined
-                            }
-                            onPointerDown={(e) =>
-                              drag.start(e, { kind: "placed", key: field })
-                            }
-                            onKeyDown={(e) => {
-                              if (
-                                !e.altKey ||
-                                !["ArrowLeft", "ArrowRight"].includes(e.key)
-                              )
-                                return;
-                              e.preventDefault();
-                              change(
-                                assign(
-                                  p,
-                                  id,
-                                  field,
-                                  Math.max(
-                                    0,
-                                    i + (e.key === "ArrowLeft" ? -1 : 1),
-                                  ),
-                                ),
-                              );
-                            }}
-                          >
-                            {field === "measure"
-                              ? choices.find(([k]) => k === selected)?.[1]
-                              : isTimeField(field)
-                                ? "時刻"
-                                : shelfName(field)}
-                          </button>
-                          {field === "measure" && p.measure === "metric" && (
-                            <small>
-                              {aggregationNames[aggregation(p.metric)]}
-                            </small>
-                          )}
-                          {isTimeField(field) && (
-                            <select
-                              aria-label={label + "の時刻の粒度"}
-                              value={field}
-                              onChange={(e) => {
-                                const grain = e.target.value as TimeField;
-                                const encoding = { ...pivot.encoding };
-                                for (const channel of Object.keys(
-                                  encoding,
-                                ) as StyleChannel[])
-                                  if (encoding[channel] === field)
-                                    encoding[channel] = grain;
-                                change({
-                                  ...p,
-                                  pivot: {
-                                    ...pivot,
-                                    encoding,
-                                    [id]: assigned.map((k) =>
-                                      k === field ? grain : k,
-                                    ),
-                                  },
-                                });
-                              }}
-                            >
-                              {(
-                                Object.entries(timeBuckets) as [
-                                  TimeField,
-                                  string,
-                                ][]
-                              ).map(([key, name]) => (
-                                <option
-                                  key={key}
-                                  value={key}
-                                  disabled={
-                                    key !== field &&
-                                    pivotFields(pivot).includes(key)
-                                  }
-                                >
-                                  {name.slice(3, -1)}
-                                </option>
-                              ))}
-                            </select>
-                          )}
-                          {!daily && (
-                            <button
-                              type="button"
-                              aria-label={
-                                shelfName(field) +
-                                " を" +
-                                { row: "行", column: "列" }[id] +
-                                "から外す"
-                              }
-                              onClick={() => without(id, field)}
-                            >
-                              ×
-                            </button>
-                          )}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {assigned.includes("measure") &&
-                    pivot &&
-                    pivot.metrics?.map((m) => (
-                      <div className="shelf-chip" key={m}>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            editMetric(editingMetric === m ? undefined : m)
-                          }
-                        >
-                          {metricName(m)} · {aggregationNames[aggregation(m)]}
-                        </button>
-                        {metricMenu(m)}
-                        <button
-                          type="button"
-                          key={m}
-                          aria-label={m + " を外す"}
-                          onClick={() => {
-                            const rest = pivot.metrics?.filter((k) => k !== m);
-                            change({
-                              ...p,
-                              pivot: {
-                                ...pivot,
-                                metrics: rest?.length ? rest : undefined,
-                              },
-                            });
-                          }}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                </div>
-              );
-            })}
-          </div>
           <FilterShelf
             panel={{
               ...p,
@@ -1052,7 +860,7 @@ export function PanelBuilder({
             >
               設定
             </button>
-            {pivot && (
+            {pivot && visibleAxes.length > 0 && (
               <button
                 type="button"
                 onClick={() =>
@@ -1062,7 +870,9 @@ export function PanelBuilder({
                   })
                 }
               >
-                行と列を入れ替え
+                {format === "table"
+                  ? "行と列を入れ替え"
+                  : "横軸と縦軸を入れ替え"}
               </button>
             )}
             <button
@@ -1098,36 +908,423 @@ export function PanelBuilder({
           aria-label="パネル設定"
           data-open={settingsOpen || undefined}
         >
-          <div className="options-heading">
-            <Select
-              label="表示形式"
-              value={format}
-              choices={
-                daily
-                  ? [
-                      ["table", "ピボット表"],
-                      ["line", "折れ線"],
-                    ]
-                  : [
-                      ...(format === "mixed"
-                        ? [["mixed", "保存済みの複合表示"] as [string, string]]
-                        : []),
-                      ["auto", "自動"],
-                      ["line", "折れ線"],
-                      ["bar", "棒"],
-                      ["stacked_area", "積み上げ面"],
-                      ["table", "ピボット表"],
-                      ...(multiple
-                        ? []
-                        : ([
-                            ["summary", "集計表"],
-                            ["value", "数値"],
-                          ] as [string, string][])),
-                    ]
-              }
-              change={setFormat}
-            />
-
+          <div className="format-setup">
+            <div className="options-heading">
+              <Select
+                label="表示形式"
+                value={format}
+                choices={
+                  daily
+                    ? [
+                        ["table", "ピボット表"],
+                        ["line", "折れ線"],
+                      ]
+                    : [
+                        ...(format === "mixed"
+                          ? [
+                              ["mixed", "保存済みの複合表示"] as [
+                                string,
+                                string,
+                              ],
+                            ]
+                          : []),
+                        ["auto", "自動"],
+                        ["line", "折れ線"],
+                        ["bar", "棒"],
+                        ["stacked_area", "積み上げ面"],
+                        ["table", "ピボット表"],
+                        ...(multiple
+                          ? []
+                          : ([
+                              ["summary", "集計表"],
+                              ["value", "数値"],
+                            ] as [string, string][])),
+                      ]
+                }
+                change={setFormat}
+              />
+            </div>
+            <fieldset
+              className="worksheet-shelves"
+              aria-label="フィールドの割り当て"
+            >
+              {visibleAxes.map((id) => {
+                const assigned = pivot ? shelfFields(pivot[id]) : [];
+                const label = axisLabels[id];
+                const implicit = pivot
+                  ? ""
+                  : id === "column"
+                    ? "時刻"
+                    : choices.find(([key]) => key === selected)?.[1];
+                const opts: [string, string][] = [
+                  ...fields.map(([k, v]): [string, string] => ["axis/" + k, v]),
+                  ...choices.filter(
+                    ([key]) => key !== "distinct" || !meta.dailyFields.length,
+                  ),
+                ];
+                return (
+                  <div
+                    key={id}
+                    data-drop={id}
+                    data-ready={
+                      (item && targets.some((t) => t.id === id)) || undefined
+                    }
+                    data-preview={hovered?.id === id || undefined}
+                  >
+                    <button
+                      type="button"
+                      className="shelf-target"
+                      aria-label={label + "にフィールドを追加"}
+                      title="フィールドをドロップ、またはクリックして選択"
+                      onClick={() => openPicker(id)}
+                    >
+                      <strong>{label}</strong>
+                      {!assigned.length &&
+                        !(!pivot && id === "row" && p.measure === "metric") && (
+                          <span>{implicit || "ここにドロップ"}</span>
+                        )}
+                    </button>
+                    {!pivot && id === "row" && p.measure === "metric" && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          editMetric(
+                            editingMetric === p.metric ? undefined : p.metric,
+                          )
+                        }
+                      >
+                        {metricName(p.metric)} ·{" "}
+                        {aggregationNames[aggregation(p.metric)]}
+                      </button>
+                    )}
+                    {((!pivot && id === "row") ||
+                      assigned.includes("measure")) &&
+                      p.measure === "metric" &&
+                      metricMenu(p.metric)}
+                    {picker === id && (
+                      <ShelfPicker
+                        label={label}
+                        choices={opts}
+                        close={() => openPicker(undefined)}
+                        select={(v) => {
+                          if (!v) return;
+                          const f: Field = v.startsWith("axis/")
+                            ? {
+                                kind: "dimension",
+                                key: v.slice(5) as Dimension | TimeField,
+                              }
+                            : { kind: "measure", key: v };
+                          const next = candidates(f).find(
+                            (c) => c.id === id,
+                          )?.panel;
+                          if (next) change(next);
+                        }}
+                      />
+                    )}
+                    {pivot && (
+                      <div className="shelf-chips">
+                        {assigned.map((field, i) => (
+                          <span
+                            className="shelf-chip"
+                            key={field}
+                            data-drop={
+                              item?.kind === "placed" ? id + "/" + i : undefined
+                            }
+                          >
+                            <button
+                              type="button"
+                              className="drag-source"
+                              title={
+                                field === "measure" && p.measure === "metric"
+                                  ? "クリックして集計を変更"
+                                  : "ドラッグまたは Alt＋左右矢印で移動"
+                              }
+                              onClick={
+                                field === "measure" && p.measure === "metric"
+                                  ? () =>
+                                      editMetric(
+                                        editingMetric === p.metric
+                                          ? undefined
+                                          : p.metric,
+                                      )
+                                  : undefined
+                              }
+                              onPointerDown={(e) =>
+                                drag.start(e, { kind: "placed", key: field })
+                              }
+                              onKeyDown={(e) => {
+                                if (
+                                  !e.altKey ||
+                                  !["ArrowLeft", "ArrowRight"].includes(e.key)
+                                )
+                                  return;
+                                e.preventDefault();
+                                change(
+                                  assign(
+                                    p,
+                                    id,
+                                    field,
+                                    Math.max(
+                                      0,
+                                      i + (e.key === "ArrowLeft" ? -1 : 1),
+                                    ),
+                                  ),
+                                );
+                              }}
+                            >
+                              {field === "measure"
+                                ? choices.find(([k]) => k === selected)?.[1]
+                                : isTimeField(field)
+                                  ? "時刻"
+                                  : shelfName(field)}
+                            </button>
+                            {field === "measure" && p.measure === "metric" && (
+                              <small>
+                                {aggregationNames[aggregation(p.metric)]}
+                              </small>
+                            )}
+                            {isTimeField(field) && (
+                              <select
+                                aria-label={label + "の時刻の粒度"}
+                                value={field}
+                                onChange={(e) => {
+                                  const grain = e.target.value as TimeField;
+                                  const encoding = { ...pivot.encoding };
+                                  for (const channel of Object.keys(
+                                    encoding,
+                                  ) as StyleChannel[])
+                                    if (encoding[channel] === field)
+                                      encoding[channel] = grain;
+                                  change({
+                                    ...p,
+                                    pivot: {
+                                      ...pivot,
+                                      encoding,
+                                      [id]: assigned.map((k) =>
+                                        k === field ? grain : k,
+                                      ),
+                                    },
+                                  });
+                                }}
+                              >
+                                {(
+                                  Object.entries(timeBuckets) as [
+                                    TimeField,
+                                    string,
+                                  ][]
+                                ).map(([key, name]) => (
+                                  <option
+                                    key={key}
+                                    value={key}
+                                    disabled={
+                                      key !== field &&
+                                      pivotFields(pivot).includes(key)
+                                    }
+                                  >
+                                    {name.slice(3, -1)}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                            {!daily && (
+                              <button
+                                type="button"
+                                aria-label={
+                                  shelfName(field) + " を" + label + "から外す"
+                                }
+                                onClick={() => without(id, field)}
+                              >
+                                ×
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {assigned.includes("measure") &&
+                      pivot &&
+                      pivot.metrics?.map((m) => (
+                        <div className="shelf-chip" key={m}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              editMetric(editingMetric === m ? undefined : m)
+                            }
+                          >
+                            {metricName(m)} · {aggregationNames[aggregation(m)]}
+                          </button>
+                          {metricMenu(m)}
+                          <button
+                            type="button"
+                            key={m}
+                            aria-label={m + " を外す"}
+                            onClick={() => {
+                              const rest = pivot.metrics?.filter(
+                                (k) => k !== m,
+                              );
+                              change({
+                                ...p,
+                                pivot: {
+                                  ...pivot,
+                                  metrics: rest?.length ? rest : undefined,
+                                },
+                              });
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                );
+              })}
+              {valueSlot && (
+                <div
+                  data-drop="measure"
+                  data-ready={
+                    targets.some((t) => t.id === "measure") || undefined
+                  }
+                  data-preview={targetRole === "measure" || undefined}
+                >
+                  <button
+                    type="button"
+                    className="style-target"
+                    onClick={() => openPicker("measure")}
+                  >
+                    <strong>値</strong>
+                    <span>
+                      {choices.find(([key]) => key === selected)?.[1]}
+                    </span>
+                  </button>
+                  {p.measure === "metric" && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        editMetric(
+                          editingMetric === p.metric ? undefined : p.metric,
+                        )
+                      }
+                    >
+                      {aggregationNames[aggregation(p.metric)]}
+                    </button>
+                  )}
+                  {metricMenu(p.metric)}
+                  {picker === "measure" && (
+                    <ShelfPicker
+                      label="値"
+                      choices={choices}
+                      close={() => openPicker(undefined)}
+                      select={pick}
+                    />
+                  )}
+                </div>
+              )}
+              {grouped && (
+                <div
+                  data-drop="group"
+                  data-ready={
+                    targets.some((t) => t.id === "group") || undefined
+                  }
+                  data-preview={targetRole === "group" || undefined}
+                >
+                  <button
+                    type="button"
+                    className="style-target"
+                    onClick={() => openPicker("group")}
+                  >
+                    <strong>分類</strong>
+                    <span>
+                      {groupChoices.find(([key]) => key === p.group)?.[1]}
+                    </span>
+                  </button>
+                  {picker === "group" && (
+                    <ShelfPicker
+                      label="分類"
+                      choices={groupChoices}
+                      close={() => openPicker(undefined)}
+                      select={(v) =>
+                        change(changeGroup(p, v as Panel["group"]))
+                      }
+                    />
+                  )}
+                </div>
+              )}
+              {(p.display === "chart" || !!valueSide) &&
+                channels.map(([channel, label]) => {
+                  const target = "style-" + channel;
+                  const field = encoding[channel];
+                  const index = p.fixedStyle?.[channel];
+                  return (
+                    <div
+                      key={channel}
+                      data-drop={styleFields.length ? target : undefined}
+                      data-ready={
+                        (item && targets.some((t) => t.id === target)) ||
+                        undefined
+                      }
+                      data-preview={hovered?.id === target || undefined}
+                    >
+                      <button
+                        type="button"
+                        className="style-target"
+                        aria-label={label + "に属性を割り当て"}
+                        title="属性をドロップ、またはクリックして選択"
+                        onClick={() => openPicker(channel)}
+                      >
+                        <strong>{label}</strong>
+                        <span data-assigned={!!field || undefined}>
+                          {field
+                            ? shelfName(field)
+                            : index !== undefined
+                              ? styleNames[channel][index]
+                              : styleFields.length
+                                ? "属性をドロップ"
+                                : "既定"}
+                        </span>
+                      </button>
+                      {field && (
+                        <button
+                          type="button"
+                          className="style-remove"
+                          aria-label={label + "の割り当てを外す"}
+                          onClick={() => change(withStyle(channel))}
+                        >
+                          ×
+                        </button>
+                      )}
+                      {picker === channel && (
+                        <ShelfPicker
+                          label={label}
+                          constants={[
+                            ...(channel === "color"
+                              ? [["", "自動配色"] as [string, string]]
+                              : []),
+                            ...styleNames[channel].map(
+                              (name, i): [string, string] => [String(i), name],
+                            ),
+                          ]}
+                          setConstant={(v) =>
+                            change({
+                              ...(field ? withStyle(channel) : p),
+                              fixedStyle: {
+                                ...p.fixedStyle,
+                                [channel]: v === "" ? undefined : Number(v),
+                              },
+                            })
+                          }
+                          choices={styleFields.map((f) => [f, shelfName(f)])}
+                          close={() => openPicker(undefined)}
+                          select={(v) =>
+                            change(withStyle(channel, v as ShelfAxis))
+                          }
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+            </fieldset>
+          </div>
+          <div className="other-settings" data-open={settingsOpen || undefined}>
             <button
               type="button"
               className="settings-toggle"
@@ -1135,193 +1332,87 @@ export function PanelBuilder({
             >
               閉じる
             </button>
-          </div>
-          {stylePivot && valueSide && channels.length > 0 && (
-            <fieldset className="style-shelves">
-              <legend>系列のスタイル</legend>
-              {channels.map(([channel, label]) => {
-                const target = "style-" + channel;
-                const field = encoding[channel];
-                return (
-                  <div
-                    key={channel}
-                    data-drop={target}
-                    data-ready={
-                      (item && targets.some((t) => t.id === target)) ||
-                      undefined
-                    }
-                    data-preview={hovered?.id === target || undefined}
-                  >
-                    <button
-                      type="button"
-                      className="style-target"
-                      aria-label={label + "に属性を割り当て"}
-                      title="属性をドロップ、またはクリックして選択"
-                      onClick={() => openPicker(channel)}
-                    >
-                      <strong>{label}</strong>
-                      <span data-assigned={!!field || undefined}>
-                        {field ? shelfName(field) : "属性をドロップ"}
-                      </span>
-                    </button>
-                    {field && (
-                      <button
-                        type="button"
-                        className="style-remove"
-                        aria-label={label + "の割り当てを外す"}
-                        onClick={() => change(withStyle(channel))}
-                      >
-                        ×
-                      </button>
-                    )}
-                    {picker === channel && (
-                      <ShelfPicker
-                        label={label}
-                        choices={styleFields.map((f) => [f, shelfName(f)])}
-                        close={() => openPicker(undefined)}
-                        select={(v) =>
-                          change(withStyle(channel, v as ShelfAxis))
-                        }
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </fieldset>
-          )}
-          {pivot && unassigned.length > 0 && (
-            <fieldset>
-              <legend>保存済みの分類</legend>
-              {unassigned.map((f) => (
-                <button
-                  type="button"
-                  key={f}
-                  aria-label={shelfName(f) + "の分類を解除"}
-                  onClick={() =>
-                    change({
-                      ...p,
-                      pivot: {
-                        ...pivot,
-                        series: shelfFields(pivot.series).filter(
-                          (k) => k !== f,
-                        ),
-                      },
-                    })
-                  }
-                >
-                  {shelfName(f)} ×
-                </button>
-              ))}
-            </fieldset>
-          )}
-          <div className="fields">
-            {!multiple && (
-              <>
-                <Select
-                  dropTarget="measure"
-                  label="指標"
-                  value={selected}
-                  choices={choices}
-                  change={pick}
-                />
-                {selection && (
-                  <>
-                    <Select
-                      label="集計対象"
-                      value={selection.dataset}
-                      choices={[
-                        ["daily", "日次集合"],
-                        ["log", "ログ属性"],
-                        ["span", "スパン属性"],
-                      ]}
-                      change={(v) => {
-                        change(withDataset(p, v as Distinct["dataset"]));
-                      }}
-                    />
-                    <label>
-                      {daily ? "集合名" : "属性キー"}
-                      <input
-                        required
-                        maxLength={256}
-                        list={daily ? "daily-fields" : undefined}
-                        value={selection.field}
-                        onChange={(e) =>
-                          change({
-                            ...p,
-                            distinct: {
-                              dataset: selection.dataset,
-                              field: e.target.value,
-                            },
-                          })
-                        }
-                      />
-                    </label>
-                    <datalist id="daily-fields">
-                      {meta.dailyFields.map((k) => (
-                        <option key={k} value={k} />
-                      ))}
-                    </datalist>
-                  </>
-                )}
-              </>
-            )}
-          </div>
-          {channels.length > 0 && (p.display === "chart" || !!valueSide) && (
-            <fieldset className="series-encoding">
-              <legend>固定スタイル</legend>
-              {channels.map(([channel, label]) => {
-                const mapped = !!encoding[channel];
-                return (
-                  <Select
-                    key={channel}
-                    label={label}
-                    value={
-                      mapped
-                        ? "mapped"
-                        : String(
-                            p.fixedStyle?.[channel] ??
-                              { color: "", dash: 0, width: 1, shape: 0 }[
-                                channel
-                              ],
-                          )
-                    }
-                    choices={[
-                      ...(mapped
-                        ? [["mapped", "属性別"] as [string, string]]
-                        : []),
-                      ...(channel === "color"
-                        ? [["", "自動配色"] as [string, string]]
-                        : []),
-                      ...styleNames[channel].map(
-                        (name, i): [string, string] => [String(i), name],
-                      ),
-                    ]}
-                    change={(v) => {
-                      if (v === "mapped") return;
-                      const next = mapped ? withStyle(channel) : p;
+            {pivot && unassigned.length > 0 && (
+              <fieldset>
+                <legend>保存済みの分類</legend>
+                {unassigned.map((f) => (
+                  <button
+                    type="button"
+                    key={f}
+                    aria-label={shelfName(f) + "の分類を解除"}
+                    onClick={() =>
                       change({
-                        ...next,
-                        fixedStyle: {
-                          ...p.fixedStyle,
-                          [channel]: v === "" ? undefined : Number(v),
+                        ...p,
+                        pivot: {
+                          ...pivot,
+                          series: shelfFields(pivot.series).filter(
+                            (k) => k !== f,
+                          ),
                         },
-                      });
-                    }}
-                  />
-                );
-              })}
-            </fieldset>
-          )}
-          {p.text && !legacyLog && (
-            <label>
-              保存済みの本文・名前フィルター
-              <input
-                value={p.text}
-                onChange={(e) => update("text", e.target.value)}
-              />
-            </label>
-          )}
-          {actions}
+                      })
+                    }
+                  >
+                    {shelfName(f)} ×
+                  </button>
+                ))}
+              </fieldset>
+            )}
+            <div className="fields">
+              {!multiple && (
+                <>
+                  {selection && (
+                    <>
+                      <Select
+                        label="集計対象"
+                        value={selection.dataset}
+                        choices={[
+                          ["daily", "日次集合"],
+                          ["log", "ログ属性"],
+                          ["span", "スパン属性"],
+                        ]}
+                        change={(v) => {
+                          change(withDataset(p, v as Distinct["dataset"]));
+                        }}
+                      />
+                      <label>
+                        {daily ? "集合名" : "属性キー"}
+                        <input
+                          required
+                          maxLength={256}
+                          list={daily ? "daily-fields" : undefined}
+                          value={selection.field}
+                          onChange={(e) =>
+                            change({
+                              ...p,
+                              distinct: {
+                                dataset: selection.dataset,
+                                field: e.target.value,
+                              },
+                            })
+                          }
+                        />
+                      </label>
+                      <datalist id="daily-fields">
+                        {meta.dailyFields.map((k) => (
+                          <option key={k} value={k} />
+                        ))}
+                      </datalist>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+            {p.text && !legacyLog && (
+              <label>
+                保存済みの本文・名前フィルター
+                <input
+                  value={p.text}
+                  onChange={(e) => update("text", e.target.value)}
+                />
+              </label>
+            )}
+            {actions}
+          </div>
         </section>
       </div>
     </>
