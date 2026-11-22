@@ -240,16 +240,29 @@ export function DashboardWorkspace({
   }
   const worksheet = draft && settings && p && (
     <section className="worksheet" aria-label="ワークシート">
-      <div className="worksheet-heading">
-        <h2>ワークシート</h2>
-        <button
-          type="button"
-          onClick={() => sheetRoute(draft.board.id, null, true)}
-        >
-          配置に戻る
-        </button>
-      </div>
       <PanelBuilder
+        back={() => sheetRoute(draft.board.id, null, true)}
+        actions={
+          <div className="tools">
+            <button
+              type="button"
+              disabled={draft.board.panels.length >= 24}
+              onClick={() => append({ ...p, title: `${p.title} のコピー` })}
+            >
+              パネルを複製
+            </button>
+            <button
+              type="button"
+              disabled={draft.board.panels.length === 1}
+              onClick={() => {
+                apply(draft.board.panels.filter((_, i) => i !== draft.index));
+                sheetRoute(draft.board.id, null, true);
+              }}
+            >
+              パネル削除
+            </button>
+          </div>
+        }
         key={p.id}
         p={p}
         end={end}
@@ -262,25 +275,6 @@ export function DashboardWorkspace({
           )
         }
       />
-      <div className="tools">
-        <button
-          type="button"
-          disabled={draft.board.panels.length >= 24}
-          onClick={() => append({ ...p, title: `${p.title} のコピー` })}
-        >
-          パネルを複製
-        </button>
-        <button
-          type="button"
-          disabled={draft.board.panels.length === 1}
-          onClick={() => {
-            apply(draft.board.panels.filter((_, i) => i !== draft.index));
-            sheetRoute(draft.board.id, null, true);
-          }}
-        >
-          パネル削除
-        </button>
-      </div>
     </section>
   );
   const toolbar = draft ? (

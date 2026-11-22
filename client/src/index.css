@@ -733,43 +733,156 @@ summary {
   box-shadow: 0 2px 8px #163e3c33;
   z-index: 12;
 }
-.worksheet-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 12px 0;
+.workspace:has(.worksheet) {
+  height: 100dvh;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
 }
-.worksheet-heading h2 {
+.workspace:has(.worksheet) > aside {
+  overflow: auto;
+}
+main:has(.worksheet) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 12px clamp(12px, 1.5vw, 24px);
+}
+main:has(.worksheet) > header {
   margin: 0;
 }
+main:has(.worksheet) > header h2 {
+  font-size: 20px;
+}
+main:has(.worksheet) > header .tools {
+  margin: 0;
+}
+.dashboard-page:has(.worksheet),
+.worksheet {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.dashboard-page:has(.worksheet) .canvas-toolbar {
+  position: static;
+  margin: 0;
+  padding: 8px 0;
+}
+.worksheet-heading,
+.options-heading {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+.worksheet-heading {
+  padding: 10px 0;
+}
+.worksheet-heading h2 {
+  font-size: 18px;
+}
+.worksheet-heading .sheet-title,
+.dashboard-page:has(.worksheet) .board-name {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sheet-title {
+  flex: 1;
+}
+.sheet-title input,
+.dashboard-page:has(.worksheet) .board-name input {
+  min-width: 0;
+  width: min(27vw, 24rem);
+}
 .worksheet .builder {
-  align-items: start;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: clamp(150px, 16vw, 220px) minmax(0, 1fr) clamp(
+      175px,
+      17vw,
+      235px
+    );
+  grid-template-rows: minmax(0, 1fr);
+  gap: 10px;
+  margin: 0;
+}
+.worksheet .field-catalog,
+.worksheet-options {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #cededb;
+  border-radius: 8px;
 }
 .worksheet .field-catalog {
-  max-height: 70dvh;
+  display: flex;
+  flex-direction: column;
+}
+.field-catalog input {
+  min-width: 0;
+  width: 100%;
+}
+.catalog-list,
+.worksheet-options,
+.builder-main > .card,
+.worksheet-shelves {
   overflow: auto;
+  overscroll-behavior: contain;
+}
+.catalog-list {
+  margin-top: 6px;
+}
+.worksheet-options {
+  background: white;
+}
+.options-heading h4 {
+  font-weight: 650;
+}
+.worksheet-options .fields,
+.worksheet-options .shelves {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+.worksheet-options input,
+.worksheet-options select {
+  min-width: 0;
+  max-width: 100%;
+}
+.worksheet-options .tools {
+  gap: 6px;
+}
+.worksheet-options .tools button {
+  font-size: 12px;
+}
+.worksheet .builder-main {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-content: start;
 }
 .worksheet-shelves {
   display: grid;
-  gap: 6px;
-  margin-bottom: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  max-height: 24dvh;
 }
 .worksheet-shelves > div {
-  padding: 8px 12px;
-  min-height: 44px;
+  min-width: 0;
+  padding: 6px;
   border: 1px dashed #a6bfba;
   border-radius: 6px;
   background: white;
+  overflow-wrap: anywhere;
 }
 .worksheet-shelves label {
-  display: grid;
-  grid-template-columns: 4rem minmax(0, 1fr);
-  align-items: center;
   font-weight: 600;
 }
 .worksheet-shelves select {
-  width: 100%;
   min-width: 0;
+  width: 100%;
 }
 .worksheet-shelves [data-ready] {
   border-color: #327d75;
@@ -777,28 +890,121 @@ summary {
 }
 .worksheet-shelves [data-preview] {
   outline: 2px solid #167774;
+  outline-offset: -2px;
+}
+.worksheet .preview-head {
+  margin: 6px 0;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.worksheet .preview-head h4 {
+  margin: 0 auto 0 0;
+}
+.worksheet .builder-main > .card {
+  min-height: 0;
+  margin: 0;
+}
+.worksheet .card svg {
+  max-height: 40dvh;
+}
+.settings-toggle {
+  display: none;
+}
+@media (max-width: 1150px) {
+  .worksheet .builder {
+    grid-template-columns: clamp(150px, 19vw, 210px) minmax(0, 1fr);
+  }
+  .settings-toggle {
+    display: inline-block;
+  }
+  .worksheet-options {
+    display: none;
+  }
+  .worksheet-options[data-open] {
+    display: block;
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 4;
+    width: min(310px, 100%);
+    box-shadow: -6px 2px 20px #14343729;
+  }
 }
 @media (max-width: 800px) {
-  .worksheet .field-catalog {
-    max-height: 28dvh;
+  .workspace:has(.worksheet) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .workspace:has(.worksheet) > aside {
+    padding: 4px 8px;
+  }
+  .workspace:has(.worksheet) > aside h1 {
+    display: none;
+  }
+  main:has(.worksheet) {
+    padding: 6px 8px;
+  }
+  .worksheet .field-catalog button {
+    display: block;
+    width: 100%;
+  }
+}
+@media (max-width: 640px) {
+  .worksheet-heading {
+    flex-wrap: wrap;
+    padding: 5px 0;
+    gap: 5px;
+  }
+  .worksheet-heading h2 {
+    font-size: 15px;
+  }
+  .worksheet-heading .sheet-title {
+    flex: 1;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .sheet-title input {
+    width: 100%;
+    font-size: 13px;
   }
   .worksheet .builder {
-    gap: 8px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 24%) minmax(0, 1fr);
+    gap: 5px;
   }
-}
-.worksheet-shelves {
-  position: sticky;
-  top: 72px;
-  z-index: 2;
-  background: #f4f8f7;
-  padding: 6px 0;
-}
-@media (max-width: 800px) {
+  .worksheet .field-catalog {
+    padding: 5px;
+  }
+  .worksheet .field-catalog > label {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+  }
+  .worksheet .field-catalog .catalog-list button {
+    display: inline-block;
+    width: auto;
+    padding: 4px 7px;
+  }
+  .catalog-list h4 {
+    margin: 3px 0;
+  }
   .worksheet-shelves {
-    top: 0;
+    max-height: 19dvh;
+  }
+  .worksheet-shelves > div {
+    padding: 3px;
+  }
+  .worksheet select,
+  .worksheet button {
+    font-size: 12px;
+  }
+  .worksheet .builder-main > .card {
+    padding: 8px;
+  }
+  .worksheet-options[data-open] {
+    width: min(310px, 100%);
   }
 }
-
 .shelf-chips {
   display: flex;
   align-items: center;

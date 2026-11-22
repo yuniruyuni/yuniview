@@ -620,3 +620,39 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await page.reload();
   await expect(page.locator(".worksheet-plot rect")).toHaveCount(6);
 });
+
+test("worksheet keeps the drop shelves, preview and save inside the viewport", async ({
+  page,
+}) => {
+  await page.goto("/#page=dashboards");
+  await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
+  const form = page.locator("form.editor");
+  for (const [width, height] of [
+    [1280, 720],
+    [375, 667],
+  ]) {
+    await page.setViewportSize({ width, height });
+    for (const element of [
+      form.getByRole("button", { name: "保存", exact: true }),
+      form.locator(".field-catalog"),
+      form.locator(".worksheet-shelves"),
+      form.locator(".builder-main > .card"),
+    ]) {
+      await expect(element).toBeInViewport({ ratio: 1 });
+    }
+    expect(
+      await page.evaluate(() => document.documentElement.scrollHeight),
+    ).toBeLessThanOrEqual(height);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+  }
+  await form.getByRole("button", { name: "設定", exact: true }).click();
+  await form
+    .getByRole("combobox", { name: "期間", exact: true })
+    .selectOption("15");
+  await form.getByRole("button", { name: "閉じる", exact: true }).click();
+  await expect(
+    form.getByRole("button", { name: "設定", exact: true }),
+  ).toHaveAttribute("aria-expanded", "false");
+});
