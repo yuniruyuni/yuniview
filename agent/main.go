@@ -40,6 +40,7 @@ func run() error {
 	socket := flag.String("socket", "", "optional Unix socket for central HTTP transport")
 	state := flag.String("state", "/var/lib/yuniview-agent", "persistent queue directory")
 	limit := flag.Uint64("queue-bytes", 64<<20, "maximum pending payload bytes")
+	journal := flag.String("journal-container", "", "container ID for journald stdout/stderr")
 	logfile := flag.String("log-file", "", "optional target stdout/stderr log path")
 	cgroup := flag.String("cgroup", "", "optional target cgroup v2 directory")
 	interval := flag.Duration("sample-interval", 10*time.Second, "resource sampling period")
@@ -60,7 +61,10 @@ func run() error {
 	if *limit < maxBatch || *interval <= 0 || *flush < 0 {
 		return fmt.Errorf("queue-bytes must be at least %d with a positive sample-interval and nonnegative shutdown-timeout", maxBatch)
 	}
-	if *signals == "" && *logfile == "" && *cgroup == "" {
+	if *journal != "" && *logfile != "" {
+		return fmt.Errorf("choose one stdout source")
+	}
+	if *signals == "" && *logfile == "" && *journal == "" && *cgroup == "" {
 		return fmt.Errorf("enable at least one input")
 	}
 	q, err := openQueue(*state, *limit, src)
@@ -89,7 +93,11 @@ func run() error {
 				return fmt.Errorf("unknown signal %q", s)
 			}
 		}
-		listener, err = net.Listen("tcp", *listen)
+		network, address := "tcp", *listen
+		if path, ok := strings.CutPrefix(address, "unix://"); ok {
+			network, address = "unix", path
+		}
+		listener, err = net.Listen(network, address)
 		if err != nil {
 			return err
 		}
@@ -103,6 +111,9 @@ func run() error {
 	}
 	delivery := newSender(*endpoint, *token, *socket)
 	wg.Go(func() { delivery.run(ctx, q) })
+	if *journal != "" {
+		wg.Go(func() { followJournal(ctx, q, *journal) })
+	}
 	t := tailer{path: *logfile}
 	defer t.close()
 	if *logfile != "" {

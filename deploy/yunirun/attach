@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Attach/update both slots. Run as root on the yunirun host, with a compiled agent.
+set -euo pipefail
+export PATH=/run/current-system/sw/bin:$PATH
+bundle=$(cd "$(dirname "$0")" && pwd)
+binary=$(realpath "$1")
+shift
+cd /
+base=/var/lib/yuniview-sidecars
+registry=/var/lib/yunirun/allocations.json
+install -d -m 0755 "$base" "$base/bin" "$base/credentials"
+exec 9>"$base/install.lock"
+flock -x 9
+for file in agent start-agent; do
+  source=$bundle/start-agent
+  [[ $file != agent ]] || source=$binary
+  install -m 0755 "$source" "$base/bin/$file.new"
+  mv -f "$base/bin/$file.new" "$base/bin/$file"
+done
+db(){ podman exec -i --user postgres systemd-yuniview-db psql -X -qAt -v ON_ERROR_STOP=1 -U yuniview -d yuniview "$@"; }
+for app in "$@"; do
+  [[ $app =~ ^[a-z][a-z0-9-]*$ ]]
+  user=yunirun-$app
+  uid=$(id -u "$user")
+  gid=$(id -g "$user")
+  home=$(getent passwd "$user" | cut -d: -f6)
+  jq -e --arg a "$app" --argjson uid "$uid" '.entries[$a].UID==$uid' "$registry" >/dev/null
+  ctl(){ systemctl --machine="$user@" --user "$@"; }
+  install -d -m 0750 -g "$gid" "$base/credentials/$app"
+  for slot in blue green; do
+    other=blue; [[ $slot != blue ]] || other=green
+    port(){ jq -er --arg a "$app" --arg s "${1^}" '.entries[$a][$s]' "$registry"; }
+    health(){ curl -fsS --max-time 3 "http://127.0.0.1:$(port "$1")/health" >/dev/null; }
+    health "$other"
+    token=$base/credentials/$app/$slot
+    if [[ ! -f $token ]]; then
+      (umask 077; od -An -N32 -tx1 /dev/urandom | tr -d ' \n' > "$token.new")
+      [[ $(wc -c < "$token.new") == 64 ]]
+      chgrp "$gid" "$token.new"
+      chmod 0440 "$token.new"
+      mv "$token.new" "$token"
+    fi
+    digest=$(sha256sum "$token" | cut -d' ' -f1)
+    db -v service="$app" -v slot="$slot" -v digest="$digest" <<'SQL'
+BEGIN;
+INSERT INTO sources(id) VALUES (:'service') ON CONFLICT DO NOTHING;
+INSERT INTO agent_credentials(token_sha256,source_id,workload,slot)
+VALUES (:'digest',:'service','app',:'slot') ON CONFLICT DO NOTHING;
+COMMIT;
+SQL
+    name=$app-$slot
+    unit=yuniview-agent-$name
+    state=$home/.local/state/yuniview/$slot
+    sudo -u "$user" mkdir -p "$state/otlp"
+    sudo -u "$user" chmod 0700 "$state"
+    sudo -u "$user" chmod 0755 "$state/otlp"
+    quad=$home/.config/containers/systemd/$name.container.d
+    units=$home/.local/share/systemd/user
+    sudo -u "$user" mkdir -p "$quad" "$units"
+    sudo -u "$user" tee "$quad/yuniview-agent.conf" >/dev/null <<UNIT
+[Unit]
+Wants=$unit.service
+[Container]
+Volume=$state/otlp:/run/yuniview-otlp:ro
+Environment=OTEL_EXPORTER_OTLP_ENDPOINT=unix:///run/yuniview-otlp/http.sock
+Environment=OTEL_EXPORTER_OTLP_INSECURE=true
+Environment=OTEL_SERVICE_NAME=$app
+UNIT
+    sudo -u "$user" tee "$units/$unit.service" >/dev/null <<UNIT
+[Unit]
+Description=yuniview agent for $name
+ConditionUser=$user
+After=$name.service
+BindsTo=$name.service
+PartOf=$name.service
+[Service]
+Environment=PATH=/run/current-system/sw/bin:/usr/bin
+ExecStart=$base/bin/start-agent $app $slot
+Restart=on-failure
+RestartSec=3
+UNIT
+    ctl daemon-reload
+    # Only recreate the app if the actual container is missing the OTLP mount.
+    mounts=$(sudo -u "$user" env XDG_RUNTIME_DIR=/run/user/$uid podman inspect "systemd-$name" --format '{{range .Mounts}}{{println .Destination}}{{end}}')
+    if grep -qx /run/yuniview-otlp <<< "$mounts"; then ctl restart "$unit"; else ctl restart "$name"; fi
+    ready=false
+    for attempt in {1..60}; do
+      if health "$slot" 2>/dev/null && ctl is-active --quiet "$unit" && [[ -S $state/otlp/http.sock ]]; then ready=true; break; fi
+      sleep 1
+    done
+    [[ $ready == true ]] || { echo "$name failed readiness" >&2; exit 1; }
+    echo "$name ready"
+    # HAProxy checks need time to re-admit the slot before replacing its peer.
+    sleep 10
+  done
+done

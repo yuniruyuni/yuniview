@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+service=$1 slot=$2
+name=systemd-$service-$slot
+read -r container pid image < <(podman inspect --format '{{.Id}} {{.State.Pid}} {{.Image}}' "$name")
+revision=$(podman image inspect "$image" --format '{{range .RepoTags}}{{println .}}{{end}}' | sed -nE 's/.*:([0-9a-f]{40})$/\1/p' | head -1)
+cgroup=$(sed -n 's,^0::/,,p' "/proc/$pid/cgroup")
+test -n "$cgroup" && test -r "/sys/fs/cgroup/$cgroup/memory.current"
+state="$HOME/.local/state/yuniview/$slot"
+socket="$state/otlp/http.sock"
+# The private parent directory is mounted into this slot alone. Permit mapped container UIDs.
+umask 000
+rm -f "$socket"
+exec /var/lib/yuniview-sidecars/bin/agent -service "$service" -slot "$slot" -instance "$container" \
+ -revision "${revision:-$image}" -state "$state/queue" -token-file "/var/lib/yuniview-sidecars/credentials/$service/$slot" \
+ -listen "unix://$socket" -journal-container "$container" -cgroup "/sys/fs/cgroup/$cgroup" \
+ -socket /run/yuniview-ingest/http.sock -endpoint http://localhost/api/agent/v1/batches

@@ -61,3 +61,16 @@ bin/test-agent.sh
 イメージは UID/GID 65532 で起動する。起動側で永続領域に書き込み権限、資格情報と対象のログ・cgroup に読み取り権限を付ける。agent-vX.Y.Z タグ用の GitHub Actions が検証成功後に ghcr.io/yuniruyuni/yuniview-agent:X.Y.Z をビルド・配布する。
 
 統合テストは一時 PostgreSQL、実サーバー、agent に実際の gRPC を送信する。5 種の入力、中央停止中に受けたデータの再起動後の配送、資格の拒否と重複排除を検証する。
+
+## yunirun の常駐アプリへの配置
+
+NixOS ホストで、blue・green の各コンテナに同じアプリユーザーで動く systemd user service を付けられます。前提は Podman の journald ログ、cgroup v2、yuniview の取り込みソケット、両系の /health が正常であることです。リポジトリの agent を対象 CPU 向けにビルドし、管理者が対象アプリ名を指定します。
+
+```sh
+(cd agent && CGO_ENABLED=0 go build -o /tmp/yuniview-agent .)
+sudo deploy/yunirun/attach /tmp/yuniview-agent template web
+```
+
+配置コマンドはスロットごとに送信資格を生成し、DB にハッシュを登録します。agent は journal のコンテナ ID と対象 PID の cgroup に絞って収集します。journal の読取位置は未送信バッチと一緒に保存し、新しいコンテナの初回は直近20行から読み始めます。OTLP/gRPC のソケットだけをアプリにマウントし、計装済み SDK の送信先をそのソケットに設定します。運用者向けの読み取り資格は不要です。
+
+コンテナの再作成時は systemd が対応する agent を起動し直し、新しいコンテナ ID とイメージの revision を記録します。キューと送信資格は再デプロイ後も使われます。ホストを再構築した場合は、DB 復元後に配置コマンドを再実行してください。
