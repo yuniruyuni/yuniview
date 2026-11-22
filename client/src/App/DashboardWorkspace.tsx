@@ -21,7 +21,9 @@ export function DashboardWorkspace({
   consumed: () => void;
   monitor: (p: Panel) => void;
 }) {
-  const [selected, select] = useState("");
+  const [selected, select] = useState(
+    () => new URLSearchParams(location.hash.slice(1)).get("dashboard") ?? "",
+  );
   const [draft, edit] = useState<Draft | null>(null);
   const editor = useRef<HTMLFormElement>(null);
   const editing = Boolean(draft);
@@ -312,12 +314,15 @@ export function DashboardWorkspace({
                     >
                       複製
                     </button>
-                    <a href={investigatePanel(panel, end)}>調査</a>
-                    {panel.display !== "pivot" && (
-                      <button type="button" onClick={() => monitor(panel)}>
-                        モニター化
-                      </button>
+                    {panel.distinct?.dataset !== "daily" && (
+                      <a href={investigatePanel(panel, end)}>調査</a>
                     )}
+                    {panel.display !== "pivot" &&
+                      panel.measure !== "distinct" && (
+                        <button type="button" onClick={() => monitor(panel)}>
+                          モニター化
+                        </button>
+                      )}
                   </div>
                 }
               />

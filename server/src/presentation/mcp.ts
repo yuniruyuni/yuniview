@@ -39,16 +39,6 @@ export function managementMcp(ctx: Context) {
       async () => result(await listConfiguration(ctx.db)),
     );
     server.registerTool(
-      "list_daily_usage",
-      {
-        description:
-          "Read per-app counts of distinct logged-in accounts or browsers for each measured JST day in the past 30 days. Missing days are unmeasured.",
-        inputSchema: z.object({}),
-        annotations: readOnly,
-      },
-      async () => result({ days: await api.dailyUsage() }),
-    );
-    server.registerTool(
       "list_telemetry",
       {
         description:
@@ -65,7 +55,7 @@ export function managementMcp(ctx: Context) {
       "preview_panel",
       {
         description:
-          "Evaluate a dashboard or monitor query against recent telemetry before saving. Pivot panels return row (series), column and value per cell. For daily unique accounts or browsers, use day and source as the two axes.",
+          "Evaluate a dashboard or monitor query against recent telemetry before saving. Pivot panels return row (series), column and value per cell. For distinct counts specify dataset and field. Daily sets support day/source pivots or daily charts grouped by source.",
         inputSchema: z.object({ panel }),
         annotations: readOnly,
       },

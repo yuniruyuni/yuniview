@@ -95,6 +95,9 @@ export function startWorker(db: Database) {
         await db.queryRun(
           sql`DELETE FROM daily_visitors WHERE day < (now() AT TIME ZONE 'Asia/Tokyo')::date - 29`,
         );
+        await db.queryRun(
+          sql`DELETE FROM daily_set_members WHERE day < (now() AT TIME ZONE 'Asia/Tokyo')::date - 29`,
+        );
         if (days) {
           const cutoff = new Date(Date.now() - days * 86400000);
           await db.queryRun(

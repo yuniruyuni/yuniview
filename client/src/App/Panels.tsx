@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import type { Overview, Panel, Point } from "../../../shared/console";
-import { axes, isUsage, measures } from "../../../shared/console";
+import { axes, measures } from "../../../shared/console";
 import { clock, Feedback, number, useQuery } from "../api";
 
 export function Select({
@@ -63,9 +63,7 @@ export function PanelFields({
       <Select
         label="指標"
         value={p.measure}
-        choices={Object.entries(measures).filter(
-          ([k]) => k !== "accounts" && k !== "browsers",
-        )}
+        choices={Object.entries(measures).filter(([k]) => k !== "distinct")}
         change={(v) =>
           set({ ...p, measure: v as Panel["measure"], unit: undefined })
         }
@@ -388,13 +386,16 @@ export function investigatePanel(p: Panel, end: string) {
   return (
     "#" +
     new URLSearchParams({
-      page: isUsage(p.measure)
-        ? "usage"
-        : p.measure === "logs"
-          ? "logs"
-          : p.measure === "metric"
-            ? "metrics"
-            : "apm",
+      page:
+        p.measure === "distinct"
+          ? p.distinct?.dataset === "log"
+            ? "logs"
+            : "apm"
+          : p.measure === "logs"
+            ? "logs"
+            : p.measure === "metric"
+              ? "metrics"
+              : "apm",
       source: p.source,
       slot: p.slot,
       instance: p.instance,
@@ -475,7 +476,7 @@ function PivotTable({
                 const p = cells.get(c);
                 return (
                   <td key={c}>
-                    {p && isUsage(panel.measure) ? (
+                    {p && panel.distinct?.dataset === "daily" ? (
                       number(p.value)
                     ) : p ? (
                       <a href={cellLink(r, c)} aria-label={`${r} ${c} の詳細`}>

@@ -8,7 +8,12 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
   const previous = new Date(Date.parse(day) - 86400000)
     .toISOString()
     .slice(0, 10);
-  async function visit(slot: string, day: string, digest: string) {
+  async function visit(
+    slot: string,
+    day: string,
+    digest: string,
+    field?: string,
+  ) {
     const token =
       slot === "blue"
         ? process.env.CONSOLE_TOKEN
@@ -26,8 +31,10 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
             instance: slot,
           },
           time: new Date().toISOString(),
-          signal: "usage",
-          payload: { kind: "account", day, digest },
+          signal: field ? "daily_set" : "usage",
+          payload: field
+            ? { field, day, digest }
+            : { kind: "account", day, digest },
         },
       },
     );
@@ -37,30 +44,14 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
   await visit("blue", day, "a".repeat(64));
   await visit("green", day, "a".repeat(64));
   await visit("green", day, "b".repeat(64));
-  await page.goto("/#page=usage");
-  await expect(
-    page
-      .getByRole("row")
-      .filter({ has: page.getByRole("rowheader", { name: day, exact: true }) })
-      .getByRole("cell"),
-  ).toHaveText("2");
-  await expect(
-    page
-      .getByRole("row")
-      .filter({
-        has: page.getByRole("rowheader", { name: previous, exact: true }),
-      })
-      .getByRole("cell"),
-  ).toHaveText("0");
-  await expect(page.getByRole("cell", { name: "—", exact: true })).toHaveCount(
-    28,
-  );
+  await visit("green", day, "c".repeat(64), "checkout.cart");
   await page.goto("/#page=dashboards");
   await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
   const form = page.locator("form.editor");
   await form
     .getByRole("combobox", { name: "指標", exact: true })
-    .selectOption("accounts");
+    .selectOption("distinct");
+  await form.getByLabel("集合名").fill("visit.account");
   for (const [date, count] of [
     [day, "2"],
     [previous, "0"],
@@ -72,6 +63,14 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
         .getByRole("cell"),
     ).toHaveText(count);
   }
+  await form.getByLabel("集合名").fill("checkout.cart");
+  await expect(
+    form
+      .getByRole("row")
+      .filter({ has: page.getByRole("rowheader", { name: day }) })
+      .getByRole("cell"),
+  ).toHaveText("1");
+  await expect(form.getByRole("rowheader", { name: previous })).toHaveCount(0);
   await form.getByRole("button", { name: "パネルを複製" }).click();
   await expect(form.getByLabel("パネル名")).toHaveValue(/のコピー/);
   await form.getByRole("button", { name: "キャンセル" }).click();

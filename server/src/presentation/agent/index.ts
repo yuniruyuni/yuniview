@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { sql } from "../../infra/db";
 import type { Database } from "../../infra/db/database";
-import { batchSchema, usageMark } from "../../models/telemetry";
+import { batchSchema, dailySet, usageMark } from "../../models/telemetry";
 import { credential, storeBatch } from "../../repositories/telemetry";
 
 export const ingestPath = "/api/agent/v1/batches";
@@ -24,12 +24,20 @@ export function agentRoutes(db: Database) {
       (batch.source.slot ?? "") !== binding.slot
     )
       return c.body(null, 403);
-    if (batch.signal === "usage") {
-      const mark = usageMark.safeParse(batch.payload);
-      if (!mark.success) return c.body(null, 400);
-      const { day, kind, digest } = mark.data;
+    if (batch.signal === "usage" || batch.signal === "daily_set") {
+      const result =
+        batch.signal === "usage"
+          ? usageMark
+              .transform(({ kind, ...mark }) => ({
+                ...mark,
+                field: `visit.${kind}`,
+              }))
+              .safeParse(batch.payload)
+          : dailySet.safeParse(batch.payload);
+      if (!result.success) return c.body(null, 400);
+      const { day, field, digest } = result.data;
       await db.queryRun(
-        sql`INSERT INTO daily_visitors(day,source,kind,digest) VALUES(${day}::date,${binding.source_id},${kind},${digest}) ON CONFLICT DO NOTHING`,
+        sql`INSERT INTO daily_set_members(day,source,field,digest) VALUES(${day}::date,${binding.source_id},${field},${digest}) ON CONFLICT DO NOTHING`,
       );
       return c.body(null, 204);
     }

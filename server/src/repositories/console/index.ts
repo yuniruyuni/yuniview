@@ -58,12 +58,13 @@ export async function series(
   buckets: boolean,
 ) {
   const pivot = p.display === "pivot" ? p.pivot : undefined;
-  if (pivot && (p.measure === "accounts" || p.measure === "browsers")) {
+  const distinct = p.measure === "distinct" ? p.distinct : undefined;
+  if (distinct?.dataset === "daily") {
     const day = sql`day::text`;
-    const row = pivot.row === "day" ? day : sql`source`,
-      column = pivot.column === "day" ? day : sql`source`;
+    const row = pivot?.row === "day" ? day : sql`source`;
+    const count = sql`count(DISTINCT nullif(digest,''))::int`;
     return db.queryAll<Point>(
-      sql`SELECT ${end}::timestamptz AS bucket,${row} AS series,${column} AS "column",count(*) FILTER(WHERE digest<>'')::int AS value,count(*) FILTER(WHERE digest<>'')::int AS samples FROM daily_visitors WHERE kind=${p.measure === "accounts" ? "account" : "browser"} AND day BETWEEN (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date - ${Math.ceil(p.minutes / 1440) - 1}::int AND (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date AND ${p.source ? sql`source=${p.source}` : sql`true`} GROUP BY 2,3 ORDER BY 2,3`,
+      sql`SELECT ${pivot ? sql`${end}::timestamptz` : sql`day::timestamp AT TIME ZONE 'Asia/Tokyo'`} AS bucket,${row} AS series,${pivot ? sql`${pivot.column === "day" ? day : sql`source`} AS "column",` : sql``} ${count} AS value,${count} AS samples FROM daily_sets WHERE field=${distinct.field} AND day BETWEEN (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date - ${Math.ceil(p.minutes / 1440) - 1}::int AND (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date AND ${p.source ? sql`source=${p.source}` : sql`true`} GROUP BY ${pivot ? sql`1,2,3` : sql`1,2`} ORDER BY ${pivot ? sql`1,2,3` : sql`1,2`}`,
     );
   }
   const field = (key: NonNullable<Panel["pivot"]>["row"]) =>
@@ -79,14 +80,16 @@ export async function series(
     buckets && !pivot
       ? sql`date_bin(make_interval(secs=>${Math.max(1, Math.ceil((p.minutes * 60) / 40))}::int),at,'2000-01-01'::timestamptz)`
       : sql`${end}::timestamptz`;
-  const filter =
-    p.measure === "logs"
+  const filter = distinct
+    ? sql`kind=${distinct.dataset}`
+    : p.measure === "logs"
       ? sql.raw("kind='log'")
       : p.measure === "metric"
         ? sql`kind='metric' AND name=${p.metric} AND value IS NOT NULL`
         : sql.raw("kind='span' AND entry");
-  const aggregate =
-    p.measure === "latency"
+  const aggregate = distinct
+    ? sql`count(DISTINCT nullif(attrs->>${distinct.field},''))`
+    : p.measure === "latency"
       ? sql.raw("percentile_cont(0.95) WITHIN GROUP (ORDER BY value)")
       : p.measure === "errors"
         ? sql.raw("100.0*count(*) FILTER(WHERE failed)/count(*)")
@@ -131,13 +134,14 @@ export async function overview(
   >(sql`WITH stats AS (SELECT source,count(*) FILTER(WHERE entry)::int AS requests,count(*) FILTER(WHERE entry AND failed)::int AS errors,percentile_cont(0.95) WITHIN GROUP(ORDER BY value) FILTER(WHERE entry) AS latency FROM telemetry_events WHERE ${matches(f, end)} GROUP BY source)
  SELECT s.id AS source,(SELECT max(received_at) FROM telemetry_batches WHERE source_id=s.id) AS last,coalesce(requests,0) AS requests,coalesce(errors,0) AS errors,latency FROM sources s LEFT JOIN stats ON stats.source=s.id ORDER BY s.id`);
   const options = await db.queryAll<{ field: string; item: string }>(
-    sql`SELECT DISTINCT 'metric' AS field,name AS item FROM telemetry_events WHERE kind='metric' UNION SELECT DISTINCT 'slot',slot FROM telemetry_batches WHERE slot<>'' UNION SELECT DISTINCT 'revision',revision FROM telemetry_batches WHERE revision<>'' ORDER BY 1,2`,
+    sql`SELECT DISTINCT 'metric' AS field,name AS item FROM telemetry_events WHERE kind='metric' UNION SELECT DISTINCT 'daily',field FROM daily_sets UNION SELECT DISTINCT 'slot',slot FROM telemetry_batches WHERE slot<>'' UNION SELECT DISTINCT 'revision',revision FROM telemetry_batches WHERE revision<>'' ORDER BY 1,2`,
   );
   const values = (key: string) =>
     options.filter((o) => o.field === key).map((o) => o.item);
   return {
     services,
     metrics: values("metric"),
+    dailyFields: values("daily"),
     slots: values("slot"),
     revisions: values("revision"),
   };

@@ -4,8 +4,7 @@ export type Measure =
   | "latency"
   | "logs"
   | "metric"
-  | "accounts"
-  | "browsers";
+  | "distinct";
 export type Identifier =
   | "source"
   | "slot"
@@ -21,8 +20,7 @@ export const axes: Record<Axis, string> = {
   workload: "ワークロード",
   day: "日付（JST）",
 };
-export const isUsage = (measure: Measure) =>
-  measure === "accounts" || measure === "browsers";
+export type Distinct = { dataset: "daily" | "log" | "span"; field: string };
 export interface Filter {
   source: string;
   instance: string;
@@ -36,6 +34,7 @@ export interface Panel extends Filter {
   id?: string;
   title: string;
   measure: Measure;
+  distinct?: Distinct;
   metric: string;
   aggregation: "avg" | "max" | "min" | "sum";
   group: "all" | Identifier;
@@ -93,6 +92,7 @@ export interface Overview {
     latency: number | null;
   }[];
   metrics: string[];
+  dailyFields: string[];
   slots: string[];
   revisions: string[];
 }
@@ -137,8 +137,7 @@ export const blankPanel: Panel = {
   display: "chart",
 };
 export const measures: Record<Measure, string> = {
-  accounts: "日別ログインアカウント数",
-  browsers: "日別訪問ブラウザ数",
+  distinct: "ユニーク数",
   requests: "リクエスト数",
   errors: "失敗率 (%)",
   latency: "p95 応答時間 (ms)",

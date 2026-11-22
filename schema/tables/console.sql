@@ -38,3 +38,17 @@ CREATE TABLE daily_visitors (
  PRIMARY KEY (day, source, kind, digest)
 );
 GRANT SELECT, INSERT, DELETE ON daily_visitors TO yuniview_app;
+
+CREATE TABLE daily_set_members (
+ day date NOT NULL,
+ source text NOT NULL REFERENCES sources(id),
+ field text NOT NULL,
+ digest text NOT NULL,
+ PRIMARY KEY (field,day,source,digest)
+);
+GRANT SELECT, INSERT, DELETE ON daily_set_members TO yuniview_app;
+-- Include retained marks from agents served by the previous release during rollout.
+CREATE VIEW daily_sets AS
+ SELECT day,source,field,digest FROM daily_set_members
+ UNION ALL SELECT day,source,'visit.' || kind AS field,digest FROM daily_visitors;
+GRANT SELECT ON daily_sets TO yuniview_app;

@@ -3,7 +3,7 @@ import {
   type Axis,
   axes,
   blankPanel,
-  isUsage,
+  type Distinct,
   measures,
   type Overview,
   type Panel,
@@ -26,10 +26,11 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
     remember((items) => [...items.slice(-25), p]);
     set(next);
   }
-  const usage = isUsage(p.measure);
+  const selection = p.measure === "distinct" ? p.distinct : undefined;
+  const daily = selection?.dataset === "daily";
   const pivot = p.display === "pivot" && p.pivot;
   const fields = dimensions.filter(
-    ([key]) => !usage || key === "day" || key === "source",
+    ([key]) => !daily || key === "day" || key === "source",
   );
   const metrics = Array.from(
     new Set([
@@ -43,6 +44,23 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
     ...Object.entries(measures).filter(([k]) => k !== "metric"),
   ];
   const selected = p.measure === "metric" ? `metric/${p.metric}` : p.measure;
+  function withDataset(panel: Panel, dataset: Distinct["dataset"]): Panel {
+    const field = dataset === "daily" ? (meta.dailyFields[0] ?? "") : "";
+    const next = { ...panel, distinct: { dataset, field } };
+    if (dataset !== "daily") return next;
+    return {
+      ...next,
+      display: "pivot",
+      pivot: { row: "day", column: "source" },
+      group: "source",
+      minutes: 43200,
+      slot: "",
+      workload: "",
+      revision: "",
+      instance: "",
+      text: "",
+    };
+  }
   function pick(key: string) {
     const metric = key.startsWith("metric/") ? key.slice(7) : "";
     const measure = metric ? "metric" : (key as Panel["measure"]);
@@ -55,26 +73,25 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
           ? name
           : p.title,
       metric,
+      distinct: undefined,
       measure,
       unit: metric === "memory.current" ? "MiB" : undefined,
     };
-    if (isUsage(measure))
-      Object.assign(next, {
-        display: "pivot",
-        pivot: { row: "day", column: "source" },
-        minutes: 43200,
-        slot: "",
-        revision: "",
-        instance: "",
-        workload: "",
-        text: "",
-      });
-    else if (usage)
+    if (measure === "distinct")
+      return change(
+        withDataset(next, meta.dailyFields.length ? "daily" : "log"),
+      );
+    if (daily)
       Object.assign(next, { display: "chart", pivot: undefined, minutes: 60 });
     change(next);
   }
   function setAxis(which: "row" | "column", key: Axis) {
-    const pair = { ...(p.pivot ?? { row: "source", column: "slot" }) };
+    const pair = {
+      ...(p.pivot ??
+        (daily
+          ? { row: "day", column: "source" }
+          : { row: "source", column: "slot" })),
+    };
     const other = which === "row" ? "column" : "row";
     if (pair[other] === key) pair[other] = pair[which];
     pair[which] = key;
@@ -88,13 +105,13 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
   const update = <K extends keyof Panel>(key: K, value: Panel[K]) =>
     change({ ...p, [key]: value });
   const [filterKey, filterBy] = useState<Axis | "text">("source");
-  const fieldKeys = usage
+  const fieldKeys = daily
     ? (["source"] as const)
     : (["source", "slot", "workload", "revision", "instance", "text"] as const);
   const active = fieldKeys.filter((k) => p[k] || k === filterKey);
   const times = Array.from(
     new Set([
-      ...(usage ? [1440, 10080, 43200] : [5, 15, 60, 180, 360, 1440, 10080]),
+      ...(daily ? [1440, 10080, 43200] : [5, 15, 60, 180, 360, 1440, 10080]),
       p.minutes,
     ]),
   ).sort((a, b) => a - b);
@@ -136,11 +153,13 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
               draggable
               onDragStart={(e) => e.dataTransfer.setData("text/plain", k)}
               onClick={() =>
-                pivot
+                daily && !pivot
                   ? setAxis("row", k)
-                  : k === "day"
+                  : pivot
                     ? setAxis("row", k)
-                    : update("group", k)
+                    : k === "day"
+                      ? setAxis("row", k)
+                      : update("group", k)
               }
             >
               {v}
@@ -155,12 +174,54 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
             choices={choices}
             change={pick}
           />
+          {selection && (
+            <>
+              <Select
+                label="集計対象"
+                value={selection.dataset}
+                choices={[
+                  ["daily", "日次集合"],
+                  ["log", "ログ属性"],
+                  ["span", "スパン属性"],
+                ]}
+                change={(v) => {
+                  change(withDataset(p, v as Distinct["dataset"]));
+                }}
+              />
+              <label>
+                {daily ? "集合名" : "属性キー"}
+                <input
+                  required
+                  maxLength={256}
+                  list={daily ? "daily-fields" : undefined}
+                  value={selection.field}
+                  onChange={(e) =>
+                    change({
+                      ...p,
+                      distinct: {
+                        dataset: selection.dataset,
+                        field: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </label>
+              <datalist id="daily-fields">
+                {meta.dailyFields.map((k) => (
+                  <option key={k} value={k} />
+                ))}
+              </datalist>
+            </>
+          )}
           <Select
             label="表示"
             value={p.display}
             choices={
-              usage
-                ? [["pivot", "ピボット表"]]
+              daily
+                ? [
+                    ["pivot", "ピボット表"],
+                    ["chart", "折れ線"],
+                  ]
                 : [
                     ["chart", "折れ線"],
                     ["table", "表"],
@@ -173,7 +234,11 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
                 ...p,
                 display: v as Panel["display"],
                 pivot:
-                  v === "pivot" ? { row: "source", column: "slot" } : undefined,
+                  v === "pivot"
+                    ? daily
+                      ? { row: "day", column: "source" }
+                      : { row: "source", column: "slot" }
+                    : undefined,
               })
             }
           />
@@ -216,6 +281,8 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
                 change={(k) => setAxis(which, k as Axis)}
               />
             ))
+          ) : daily ? (
+            <span>系列：サービス</span>
           ) : (
             <Select
               onDrop={(e) =>

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { expect, test } from "@playwright/test";
+import { blankPanel } from "../../shared/console";
 
 test("agent records → trace and logs → saved panel → monitor and notification", async ({
   page,
@@ -90,6 +91,44 @@ test("agent records → trace and logs → saved panel → monitor and notificat
         },
       ],
     });
+    await ingest("logs", {
+      resourceLogs: [
+        {
+          scopeLogs: [
+            {
+              logRecords: ["order-a", "order-a", "order-b"].map((id) => ({
+                body: { stringValue: "order" },
+                timeUnixNano: String(start),
+                attributes: [{ key: "order.id", value: { stringValue: id } }],
+              })),
+            },
+          ],
+        },
+      ],
+    });
+    for (const [dataset, field, count] of [
+      ["log", "order.id", 2],
+      ["span", "http.route", 1],
+    ] as const) {
+      const panel = {
+        ...blankPanel,
+        measure: "distinct",
+        distinct: { dataset, field },
+        source: "checkout",
+        group: "all",
+        display: "value",
+      };
+      const result = await request.get("/api/trpc/series", {
+        params: {
+          input: JSON.stringify({
+            panel,
+            end: new Date().toISOString(),
+            buckets: false,
+          }),
+        },
+      });
+      expect((await result.json()).result.data[0].value).toBe(count);
+    }
     await ingest("resources", { cpuUsageUsec: 100, memoryBytes: 2048 });
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));

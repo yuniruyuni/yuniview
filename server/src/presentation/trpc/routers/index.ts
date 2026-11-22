@@ -14,16 +14,6 @@ import { publicProcedure as p, router } from "../init";
 
 const windowInput = filter.extend({ end: z.iso.datetime() });
 export const appRouter = router({
-  dailyUsage: p.query(({ ctx }) =>
-    ctx.db.queryAll<{
-      day: string;
-      source: string;
-      kind: string;
-      users: number;
-    }>(
-      sql`SELECT day::text,source,kind,count(*) FILTER (WHERE digest <> '')::int AS users FROM daily_visitors WHERE day BETWEEN (now() AT TIME ZONE 'Asia/Tokyo')::date-29 AND (now() AT TIME ZONE 'Asia/Tokyo')::date GROUP BY day,source,kind ORDER BY day DESC,source`,
-    ),
-  ),
   overview: p
     .input(windowInput)
     .query(({ ctx, input }) => overview(ctx.db, input, new Date(input.end))),

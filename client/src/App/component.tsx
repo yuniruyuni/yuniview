@@ -8,14 +8,12 @@ import {
   type Point,
 } from "../../../shared/console";
 import { clock, number, useQuery } from "../api";
-import { DailyUsage } from "./DailyUsage";
 import { Explorer, Trace } from "./Explore";
 import { Library } from "./Library";
 import { PanelView, Select } from "./Panels";
 
 const pages = {
   overview: "サービス一覧",
-  usage: "日別利用者数",
   logs: "ログ",
   apm: "APM",
   metrics: "メトリクス",
@@ -23,7 +21,13 @@ const pages = {
   monitors: "モニター",
 };
 type Page = keyof typeof pages;
-const empty: Overview = { services: [], slots: [], metrics: [], revisions: [] };
+const empty: Overview = {
+  services: [],
+  slots: [],
+  metrics: [],
+  dailyFields: [],
+  revisions: [],
+};
 function read() {
   return new URLSearchParams(window.location.hash.slice(1));
 }
@@ -56,7 +60,8 @@ export function App() {
     const timer = setInterval(() => setNow(new Date().toISOString()), 30000);
     return () => clearInterval(timer);
   }, [auto]);
-  const key = url.get("page") ?? "";
+  const key =
+    url.get("page") === "usage" ? "dashboards" : (url.get("page") ?? "");
   const page: Page = Object.hasOwn(pages, key) ? (key as Page) : "overview";
   const f: Filter = {
     ...defaults,
@@ -138,8 +143,7 @@ export function App() {
             </button>
           </div>
         </header>
-        {page !== "usage" &&
-          page !== "dashboards" &&
+        {page !== "dashboards" &&
           page !== "monitors" &&
           !(trace && page === "apm") && (
             <form
@@ -253,9 +257,7 @@ export function App() {
         {query.error && (
           <p role="alert">サービス情報の取得に失敗しました。{query.error}</p>
         )}
-        {page === "usage" ? (
-          <DailyUsage version={Date.parse(now)} />
-        ) : page === "overview" ? (
+        {page === "overview" ? (
           <>
             <div className="summary">
               {[

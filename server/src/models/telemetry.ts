@@ -15,7 +15,15 @@ export const batchSchema = z.object({
     revision: label.optional(),
   }),
   time: z.iso.datetime({ offset: true }),
-  signal: z.enum(["traces", "metrics", "logs", "resources", "stdout", "usage"]),
+  signal: z.enum([
+    "traces",
+    "metrics",
+    "logs",
+    "resources",
+    "stdout",
+    "usage",
+    "daily_set",
+  ]),
   payload: z.union([z.record(z.string(), z.unknown()), z.array(z.string())]),
 });
 export const usageMark = z
@@ -24,5 +32,9 @@ export const usageMark = z
     kind: z.enum(["browser", "account"]),
     digest: z.string().regex(/^(?:[a-f0-9]{64})?$/),
   })
+  .strict();
+export const dailySet = usageMark
+  .omit({ kind: true })
+  .extend({ field: label })
   .strict();
 export type Batch = z.infer<typeof batchSchema>;
