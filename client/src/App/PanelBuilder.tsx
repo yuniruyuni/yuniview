@@ -267,6 +267,16 @@ export function PanelBuilder({
     ...Object.entries(measures).filter(([k]) => k !== "metric"),
   ];
   const selected = p.measure === "metric" ? `metric/${p.metric}` : p.measure;
+  function dailyLayout(mark: Pivot["mark"], group: Panel["group"]): Pivot {
+    if (!mark || mark === "table")
+      return { row: "day", column: "source", mark: "table" };
+    return {
+      row: "measure",
+      column: "day",
+      series: group === "all" ? [] : ["source"],
+      mark,
+    };
+  }
   function withDataset(panel: Panel, dataset: Distinct["dataset"]): Panel {
     const field = dataset === "daily" ? (meta.dailyFields[0] ?? "") : "";
     const next = { ...panel, distinct: { dataset, field } };
@@ -276,10 +286,15 @@ export function PanelBuilder({
       conditions: next.conditions?.filter(
         (c) => c.field === "source" || c.field === "day",
       ),
-      display: "pivot",
-      pivot: { row: "day", column: "source" },
-      group: "source",
-      minutes: 43200,
+      display: panel.display === "chart" ? "pivot" : panel.display,
+      pivot:
+        panel.display === "chart" || panel.display === "pivot"
+          ? dailyLayout(
+              panel.display === "chart" ? "line" : panel.pivot?.mark,
+              panel.group,
+            )
+          : undefined,
+      group: panel.group === "all" ? "all" : "source",
       slot: "",
       workload: "",
       revision: "",
@@ -288,6 +303,7 @@ export function PanelBuilder({
     };
   }
   function picked(key: string): Panel {
+    if (key === selected) return p;
     const metric = key.startsWith("metric/") ? key.slice(7) : "";
     const measure = metric ? "metric" : (key as Panel["measure"]);
     const name = choices.find(([v]) => v === key)?.[1] ?? key;
@@ -314,8 +330,7 @@ export function PanelBuilder({
     };
     if (measure === "distinct")
       return withDataset(next, meta.dailyFields.length ? "daily" : "log");
-    if (daily)
-      Object.assign(next, { display: "chart", pivot: undefined, minutes: 60 });
+
     return next;
   }
   function pick(key: string) {
@@ -330,18 +345,18 @@ export function PanelBuilder({
     position?: number,
   ): Panel {
     const pair: Pivot = {
-      ...(base.pivot ??
-        (base.distinct?.dataset === "daily"
-          ? { row: "day", column: "source" }
-          : {
-              row: shelf === "row" ? [] : ["measure"],
-              column: shelf === "column" ? [] : ["time:60"],
-              mark: "line" as const,
-              series:
-                base.group !== "all" && base.group !== "slot_total"
-                  ? [base.group]
-                  : [],
-            })),
+      ...(base.pivot ?? {
+        row: shelf === "row" ? [] : ["measure"],
+        column:
+          shelf === "column"
+            ? []
+            : [base.distinct?.dataset === "daily" ? "day" : "time:60"],
+        mark: "line" as const,
+        series:
+          base.group !== "all" && base.group !== "slot_total"
+            ? [base.group]
+            : [],
+      }),
     };
 
     const before = shelfFields(pair[shelf]);
@@ -358,11 +373,7 @@ export function PanelBuilder({
     next.splice(index, 0, field);
     pair[shelf] = next;
     if (!shelfFields(pair.series).length) delete pair.series;
-    if (
-      base.distinct?.dataset !== "daily" &&
-      isTemporalField(field) &&
-      !pivotFields(pair).includes("measure")
-    ) {
+    if (isTemporalField(field) && !pivotFields(pair).includes("measure")) {
       const opposite = shelf === "row" ? "column" : "row";
       if (!shelfFields(pair[opposite]).length) pair[opposite] = ["measure"];
     }
@@ -386,7 +397,8 @@ export function PanelBuilder({
       if (!shelfFields(next[side]).length) {
         const other = side === "row" ? "column" : "row";
         const time =
-          shelfFields(next[other]).find(isTemporalField) ?? "time:60";
+          shelfFields(next[other]).find(isTemporalField) ??
+          (daily ? "day" : "time:60");
         next[other] = shelfFields(next[other]).filter((k) => k !== time);
         next.series = shelfFields(next.series).filter((k) => k !== time);
         next[side] = time;
@@ -394,15 +406,6 @@ export function PanelBuilder({
     }
   }
   function setFormat(format: string) {
-    if (daily) {
-      change({
-        ...p,
-        display: format === "line" ? "chart" : "pivot",
-        group: "source",
-        pivot: format === "line" ? undefined : { row: "day", column: "source" },
-      });
-      return;
-    }
     if (format === "summary" || format === "value") {
       change({
         ...p,
@@ -411,24 +414,33 @@ export function PanelBuilder({
       });
       return;
     }
-    if (!pivot && format === "line") {
+    if (!daily && !pivot && format === "line") {
       change({ ...p, display: "chart", pivot: undefined });
       return;
     }
-    const next: Pivot = pivot
-      ? { ...pivot }
-      : format === "table"
-        ? { row: "source", column: "slot" }
-        : {
-            row: "measure",
-            column: "time:60",
-            series:
-              p.group === "slot_total"
-                ? ["source", "workload", "slot"]
-                : p.group === "all"
-                  ? []
-                  : [p.group],
-          };
+    let next: Pivot;
+    if (
+      daily &&
+      (!pivot ||
+        (format !== "table" && !pivotFields(pivot).includes("measure")))
+    ) {
+      next = dailyLayout(format as Pivot["mark"], p.group);
+    } else if (pivot) {
+      next = { ...pivot };
+    } else if (format === "table") {
+      next = { row: "source", column: "slot" };
+    } else {
+      next = {
+        row: "measure",
+        column: "time:60",
+        series:
+          p.group === "slot_total"
+            ? ["source", "workload", "slot"]
+            : p.group === "all"
+              ? []
+              : [p.group],
+      };
+    }
     if (format !== "table") configurePlotAxes(next);
     change({
       ...p,
@@ -709,10 +721,10 @@ export function PanelBuilder({
   if (logs) filterFields.push(["log", "ログ"]);
   const stylePivot: Pivot | undefined =
     (pivot && { ...pivot }) ||
-    (!daily && p.display === "chart" && p.group !== "slot_total"
+    (p.display === "chart" && p.group !== "slot_total"
       ? {
           row: "measure",
-          column: "time:60",
+          column: daily ? "day" : "time:60",
           series: p.group === "all" ? [] : [p.group],
           mark: "line",
         }
@@ -775,15 +787,13 @@ export function PanelBuilder({
     format === "table"
       ? { row: "行", column: "列" }
       : { row: "縦軸", column: "横軸" };
-  const visibleAxes: Shelf[] =
-    grouped || (daily && !pivot)
-      ? []
-      : format === "table"
-        ? shelves
-        : ["column", "row"];
+  const visibleAxes: Shelf[] = grouped
+    ? []
+    : format === "table"
+      ? shelves
+      : ["column", "row"];
   const valueSlot =
     grouped ||
-    daily ||
     (format === "table" && pivot && !pivotFields(pivot).includes("measure"));
   const groupChoices: [string, string][] = [
     ["all", "全体"],
@@ -874,13 +884,12 @@ export function PanelBuilder({
     if (field.kind === "measure") {
       const base = picked(field.key);
       if (valueSlot) options.push({ id: "measure", label: "値", panel: base });
-      if (base.distinct?.dataset !== "daily")
-        for (const id of visibleAxes)
-          options.push({
-            id,
-            label: axisLabels[id],
-            panel: placeMeasure(id, field.key),
-          });
+      for (const id of visibleAxes)
+        options.push({
+          id,
+          label: axisLabels[id],
+          panel: placeMeasure(id, field.key),
+        });
       return options;
     }
     const key =
@@ -1123,9 +1132,7 @@ export function PanelBuilder({
                     : choices.find(([key]) => key === selected)?.[1];
                 const opts: [string, string][] = [
                   ...fields.map(([k, v]): [string, string] => ["axis/" + k, v]),
-                  ...choices.filter(
-                    ([key]) => key !== "distinct" || !meta.dailyFields.length,
-                  ),
+                  ...choices,
                 ];
                 return (
                   <div
@@ -1256,17 +1263,15 @@ export function PanelBuilder({
                                 {fieldZone(pivot, field)}
                               </small>
                             )}
-                            {!daily && (
-                              <button
-                                type="button"
-                                aria-label={
-                                  shelfName(field) + " を" + label + "から外す"
-                                }
-                                onClick={() => without(id, field)}
-                              >
-                                ×
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              aria-label={
+                                shelfName(field) + " を" + label + "から外す"
+                              }
+                              onClick={() => without(id, field)}
+                            >
+                              ×
+                            </button>
                           </span>
                         ))}
                       </div>
@@ -1532,30 +1537,23 @@ export function PanelBuilder({
           <Select
             label="表示形式"
             value={format}
-            choices={
-              daily
-                ? [
-                    ["table", "ピボット表"],
-                    ["line", "折れ線"],
-                  ]
-                : [
-                    ...(format === "mixed"
-                      ? [["mixed", "保存済みの複合表示"] as [string, string]]
-                      : []),
-                    ["auto", "自動"],
-                    ["line", "折れ線"],
-                    ["bar", "棒"],
-                    ["area", "エリアグラフ"],
-                    ["stacked_area", "積み上げ面"],
-                    ["table", "ピボット表"],
-                    ...(multiple
-                      ? []
-                      : ([
-                          ["summary", "集計表"],
-                          ["value", "数値"],
-                        ] as [string, string][])),
-                  ]
-            }
+            choices={[
+              ...(format === "mixed"
+                ? [["mixed", "保存済みの複合表示"] as [string, string]]
+                : []),
+              ["auto", "自動"],
+              ["line", "折れ線"],
+              ["bar", "棒"],
+              ["area", "エリアグラフ"],
+              ["stacked_area", "積み上げ面"],
+              ["table", "ピボット表"],
+              ...(multiple
+                ? []
+                : ([
+                    ["summary", "集計表"],
+                    ["value", "数値"],
+                  ] as [string, string][])),
+            ]}
             change={setFormat}
           />
         </div>

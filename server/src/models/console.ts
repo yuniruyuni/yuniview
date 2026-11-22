@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   cpuPercent,
   pivotFields,
-  shelfFields,
   type TimeField,
   timeBuckets,
   usesLogRecords,
@@ -224,15 +223,17 @@ export const panel = filter
       return false;
     if (p.slot || p.instance || p.revision || p.workload || p.text)
       return false;
-    if (p.display === "chart") return p.group === "source";
     return (
-      p.display === "pivot" &&
-      !!p.pivot &&
-      !shelfFields(p.pivot.series).length &&
-      pivotFields(p.pivot).length === 2 &&
-      pivotFields(p.pivot).every((axis) => axis === "source" || axis === "day")
+      (p.group === "source" || p.group === "all") &&
+      (!p.pivot ||
+        [
+          ...pivotFields(p.pivot),
+          ...Object.values(p.pivot.encoding ?? {}),
+        ].every(
+          (axis) => axis === "source" || axis === "day" || axis === "measure",
+        ))
     );
-  }, "対象フィールドを指定してください。日次集合はサービス別の折れ線または日付×サービスの表で集計できます")
+  }, "日次集合で使用できるフィールドは時刻（1日・JST）、サービス、指標です")
   .refine(
     (p) => p.measure !== "metric" || p.metric.length > 0,
     "指標を選択してください",

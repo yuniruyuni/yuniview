@@ -188,14 +188,34 @@ export async function series(
   const pivot = p.display === "pivot" ? p.pivot : undefined;
   const distinct = p.measure === "distinct" ? p.distinct : undefined;
   if (distinct?.dataset === "daily") {
-    const day = sql`day::text`;
-    const dailyField = (key: ShelfAxis) => (key === "day" ? day : sql`source`);
-    const row = shelfKey(pivot?.row ?? "source", dailyField);
-    const count = sql`count(DISTINCT nullif(digest,''))::int`;
+    const dailyField = (key: ShelfAxis) =>
+      key === "day"
+        ? sql`day::text`
+        : key === "measure"
+          ? sql`'distinct'::text`
+          : sql`source`;
+    const row = pivot
+      ? shelfKey(pivot.row, dailyField)
+      : p.group === "all"
+        ? sql`'all'::text`
+        : sql`source`;
+    const facet =
+      pivot?.series && shelfFields(pivot.series).length
+        ? shelfKey(pivot.series, dailyField)
+        : undefined;
+    const keys = facet ? sql`1,2,3,4` : pivot ? sql`1,2,3` : sql`1,2`;
     return (
-      await db.queryAll<GroupPoint>(
-        sql`SELECT ${pivot ? sql`${end}::timestamptz` : sql`day::timestamp AT TIME ZONE 'Asia/Tokyo'`} AS bucket,${row} AS series,${pivot ? sql`${shelfKey(pivot.column, dailyField)} AS "column",` : sql``} ${count} AS value,${count} AS samples FROM daily_sets WHERE ${dailyScope(p, end)} GROUP BY ${pivot ? sql`1,2,3` : sql`1,2`} ORDER BY ${pivot ? sql`1,2,3` : sql`1,2`}`,
-      )
+      await db.queryAll<GroupPoint>(sql`
+        WITH daily AS (
+          SELECT source,day,count(DISTINCT nullif(digest,'')) AS visitors
+          FROM daily_sets WHERE ${dailyScope(p, end)} GROUP BY source,day
+        )
+        SELECT ${!pivot && buckets ? sql`day::timestamp AT TIME ZONE 'Asia/Tokyo'` : sql`${end}::timestamptz`} AS bucket,
+          ${row} AS series,
+          ${pivot ? sql`${shelfKey(pivot.column, dailyField)} AS "column",` : sql``}
+          ${facet ? sql`${facet} AS facet,` : sql``}
+          sum(visitors)::float8 AS value,sum(visitors)::int AS samples
+        FROM daily GROUP BY ${keys} ORDER BY ${keys}`)
     ).map(decodePoint);
   }
   if (p.group === "slot_total") {

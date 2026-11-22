@@ -502,6 +502,8 @@ export function PanelView({
         {panel.display === "chart" &&
           panel.measure === "logs" &&
           ` · ${chartBucketSeconds(panel.minutes)}秒ごとの件数`}
+        {panel.distinct?.dataset === "daily" &&
+          " · サービス別・日別のユニーク数（複数をまとめた値は延べ件数）"}
         {panel.group === "slot_total" &&
           ` · ${(panel.totalSlots ?? defaultTotalSlots).join(" + ")}（全スロットを観測した分のみ）`}
       </small>
