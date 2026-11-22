@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  fieldZone,
   isTemporalField,
   measures,
   metricName,
@@ -11,6 +12,7 @@ import {
   shelfName,
 } from "../../../shared/console";
 import { number } from "../api";
+import { displayField } from "./fieldDisplay";
 import { dashPatterns, lineWidths, PointSymbol, palette } from "./SeriesStyle";
 
 const ticks = [0, 0.25, 0.5, 0.75, 1];
@@ -55,7 +57,7 @@ export function WorksheetPlot({
     const facet = p.facetPath ?? [p.facet ?? ""];
     const key = JSON.stringify([values, facet]);
     const categoryKey = JSON.stringify(category);
-    const unit = panel.unit ?? p.metricUnit ?? "";
+    const unit = p.metricUnit ?? panel.unit ?? "";
     if (!groups.has(key)) {
       const labelParts = [
         ...values.map((v, i) =>
@@ -63,10 +65,13 @@ export function WorksheetPlot({
             ? panel.measure === "metric"
               ? metricName(v)
               : measures[panel.measure]
-            : v || "未指定",
+            : displayField(panel, valueFields[i], v) || "未指定",
         ),
         ...facets.map(
-          (field, i) => shelfName(field) + "=" + (facet[i] || "未指定"),
+          (field, i) =>
+            shelfName(field) +
+            "=" +
+            (displayField(panel, field, facet[i]) || "未指定"),
         ),
       ];
       const metric = values[valueFields.indexOf("measure")];
@@ -218,23 +223,19 @@ export function WorksheetPlot({
       ordered.length <= 5 ||
       ticks.some((t) => Math.round(t * (ordered.length - 1)) === i),
   );
-  const formatCategory = (k: string) =>
-    jstDay
-      ? categories.get(k)!
-      : temporal
-        ? new Date(time(k)).toLocaleString("ja-JP", {
-            month: "numeric",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-          })
-        : categories.get(k)!;
+  const formatCategory = (key: string) =>
+    (JSON.parse(key) as string[])
+      .map((v, i) => displayField(panel, categoryFields[i], v))
+      .join(" › ") || "未指定";
+  const axisName = (field: ShelfAxis) =>
+    isTemporalField(field) && field !== "day" && field !== "time:86400"
+      ? shelfName(field) + " " + fieldZone(pivot, field)
+      : shelfName(field);
   return (
     <div className="worksheet-plot">
       <small>
-        横軸 {columns.map(shelfName).join(" › ")}　縦軸{" "}
-        {rows.map(shelfName).join(" › ")}
+        横軸 {columns.map(axisName).join(" › ")}　縦軸{" "}
+        {rows.map(axisName).join(" › ")}
         {units.size === 1 && all[0][1].unit && "　単位 " + all[0][1].unit}
         {mixed ? "　単位ごとに目盛を正規化" : ""}
       </small>

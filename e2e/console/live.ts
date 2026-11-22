@@ -645,16 +645,25 @@ test("worksheet encodes time or categories on either axis and splits observed se
     catalog.getByRole("button", { name: "時刻", exact: true }),
   ).toHaveCount(1);
   await expect(catalog.getByRole("button", { name: /日付/ })).toHaveCount(0);
+  const timeChip = form
+    .locator('[data-drop="column"] .shelf-chip')
+    .getByRole("button", { name: "時刻", exact: true });
   const grain = form.getByLabel("横軸の時刻の粒度");
-  await grain.selectOption({ label: "1日・JST" });
+  const zone = form.getByLabel("横軸のタイムゾーン");
+  await timeChip.click();
+  await grain.selectOption({ label: "1日" });
+  await expect(zone).toHaveValue("JST");
   await page.reload();
-  await expect(grain).toHaveValue("day");
-  await expect(form.locator(".worksheet-plot svg").first()).toBeVisible();
-  await grain.selectOption({ label: "1日・UTC" });
+  await timeChip.click();
   await expect(grain).toHaveValue("time:86400");
-  await form.getByLabel("横軸の時刻の粒度").selectOption("time:10");
+  await zone.selectOption("UTC");
+  await expect(grain).toHaveValue("time:86400");
+  await grain.selectOption("time:10");
   await page.reload();
-  await expect(form.getByLabel("横軸の時刻の粒度")).toHaveValue("time:10");
+  await timeChip.click();
+  await expect(grain).toHaveValue("time:10");
+  await expect(zone).toHaveValue("UTC");
+  await page.keyboard.press("Escape");
   await place("CPU 使用率 (%)", "row");
   await place("メモリ使用量", "row");
   await place("スロット", "style-color");
@@ -673,6 +682,26 @@ test("worksheet encodes time or categories on either axis and splits observed se
     plot.getByRole("img", { name: "系列別の折れ線グラフ" }),
   ).toBeVisible();
   await expect(plot.locator(".legend button[aria-pressed]")).toHaveCount(6);
+  const utcClock = new Date(t).toISOString().slice(11, 19);
+  await expect(
+    plot
+      .getByRole("img")
+      .locator("title")
+      .filter({ hasText: utcClock })
+      .first(),
+  ).toBeAttached();
+  await timeChip.click();
+  await zone.selectOption("JST");
+  await page.keyboard.press("Escape");
+  const jstClock = new Date(t + 9 * 3600000).toISOString().slice(11, 19);
+  await expect(
+    plot
+      .getByRole("img")
+      .locator("title")
+      .filter({ hasText: jstClock })
+      .first(),
+  ).toBeAttached();
+
   const format = form.getByRole("combobox", { name: "表示形式", exact: true });
   await expect(format).toHaveCount(1);
   await format.selectOption("bar");
@@ -686,6 +715,12 @@ test("worksheet encodes time or categories on either axis and splits observed se
   const colorZone = form.locator('[data-drop="style-color"]');
   const before = await colorZone.boundingBox();
   await metricButton.click();
+  const unit = form.locator(".metric-menu:popover-open").getByLabel("表示単位");
+  await unit.selectOption("MiB");
+  await expect(
+    plot.getByRole("img").locator("title").filter({ hasText: "MiB" }).first(),
+  ).toBeAttached();
+
   const control = await metricButton.boundingBox();
   const menu = await form.locator(".metric-menu:popover-open").boundingBox();
   if (!control || !menu) throw Error("Missing aggregation popup");
@@ -861,7 +896,7 @@ test("worksheet encodes time or categories on either axis and splits observed se
     4,
   );
   await expect(
-    page.locator("rect title").filter({ hasText: "3,145,728" }),
+    page.locator("rect title").filter({ hasText: "3 MiB" }),
   ).toHaveCount(2);
   await page.locator("button.panel-title").first().click();
   await expect(form.locator(".worksheet-shelves")).toContainText("最大");

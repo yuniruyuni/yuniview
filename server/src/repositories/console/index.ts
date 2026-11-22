@@ -205,21 +205,22 @@ export async function series(
       : sql`${end}::timestamptz`;
     return db.queryAll<Point>(sql`
       WITH per_slot AS (
-        SELECT date_trunc('minute', at) AS minute, source, workload, slot, avg(value) AS reading
+        SELECT date_trunc('minute', at) AS minute, source, workload, slot, avg(value) AS reading, min(unit) AS unit
         FROM telemetry_events WHERE ${matches(p, end)} AND kind='metric' AND name=${p.metric}
           AND value IS NOT NULL AND slot IN (${sql.list(slots)})
         GROUP BY 1,2,3,4
       ), totals AS (
-        SELECT minute, source, workload, sum(reading) AS total FROM per_slot
+        SELECT minute, source, workload, sum(reading) AS total, min(unit) AS unit FROM per_slot
         GROUP BY 1,2,3 HAVING count(*)=${slots.length}::int
       )
       SELECT ${bucket} AS bucket, source || '/' || workload AS series,
+        ${p.fieldUnits?.["metric/" + p.metric] ? sql`min(unit) AS "metricUnit",` : sql``}
         ${sql.raw(p.aggregation)}(total) / ${p.unit === "MiB" ? 1048576 : 1}::float8 AS value,
         count(*)::int AS samples FROM totals GROUP BY 1,2 ORDER BY 1,2`);
   }
   const field = (key: ShelfAxis) =>
     isTimeField(key)
-      ? sql`to_char(date_bin(make_interval(secs=>${Number(key.slice(5))}::int),at,'2000-01-01'::timestamptz) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`
+      ? sql`to_char(date_bin(make_interval(secs=>${Number(key.slice(5))}::int),at,'2000-01-01T00:00:00Z'::timestamptz) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`
       : isAttribute(key)
         ? sql`coalesce(attrs->>${key.slice(5)},'')`
         : key === "measure"
@@ -264,7 +265,9 @@ export async function series(
           ? metricAggregate
           : sql.raw("count(*)");
   const units =
-    pivot && p.measure === "metric" ? sql`min(unit) AS "metricUnit",` : sql``;
+    (pivot || p.fieldUnits?.["metric/" + p.metric]) && p.measure === "metric"
+      ? sql`min(unit) AS "metricUnit",`
+      : sql``;
   const hasFacet = shelfFields(pivot?.series).length > 0;
   const wantsCpu =
     p.measure === "metric" &&

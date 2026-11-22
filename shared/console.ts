@@ -35,7 +35,12 @@ export const timeBuckets = {
 export type TimeField = keyof typeof timeBuckets;
 export const isTimeField = (key: string): key is TimeField =>
   Object.hasOwn(timeBuckets, key);
-export const worksheetTimeBuckets = { ...timeBuckets, day: axes.day };
+export type TimeZone = "JST" | "UTC";
+export function fieldZone(pivot: Pivot | undefined, field: string): TimeZone {
+  if (field === "day") return "JST";
+  if (field === "time:86400") return "UTC";
+  return pivot?.timeZones?.[field] ?? "JST";
+}
 export const isTemporalField = (key: string): key is TimeField | "day" =>
   key === "day" || isTimeField(key);
 export const cpuPercent = "derived:cpu.percent";
@@ -91,6 +96,7 @@ export const styleChannels = {
 export type StyleChannel = keyof typeof styleChannels;
 export type StyleRule = { channel: StyleChannel; value: string; index: number };
 export type Pivot = {
+  timeZones?: Record<string, TimeZone>;
   styleRules?: StyleRule[];
   encoding?: Partial<Record<StyleChannel, ShelfAxis>>;
   row: ShelfFields;
@@ -132,6 +138,7 @@ export interface FilterOptions {
   max: number | null;
 }
 export interface Panel extends Filter {
+  fieldUnits?: Record<string, string>;
   styleDefaults?: Partial<Record<StyleChannel, number>>;
   fixedStyle?: Partial<Record<StyleChannel, number>>;
   conditions?: FieldCondition[];

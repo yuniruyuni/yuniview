@@ -13,6 +13,7 @@ import {
   slotTotalChoice,
 } from "../../../shared/console";
 import { clock, Feedback, number, useQuery } from "../api";
+import { displayField, displayPoints } from "./fieldDisplay";
 import { dashPatterns, lineWidths, PointSymbol, palette } from "./SeriesStyle";
 import { WorksheetPlot } from "./WorksheetPlot";
 
@@ -211,6 +212,7 @@ const colors = [
   "#6b852c",
 ];
 export function Chart({
+  seriesLabel = (value) => value,
   fixedStyle,
   legendAction,
   formatTime = clock,
@@ -220,6 +222,7 @@ export function Chart({
   end,
   choose,
 }: {
+  seriesLabel?: (value: string) => string;
   fixedStyle?: Panel["fixedStyle"];
   legendAction?: React.ReactNode;
   gapMs?: number;
@@ -302,7 +305,8 @@ export function Chart({
                       r={3}
                     >
                       <title>
-                        {formatTime(p.bucket)} · {g} · {number(p.value)}
+                        {formatTime(p.bucket)} · {seriesLabel(g)} ·{" "}
+                        {number(p.value)}
                       </title>
                     </PointSymbol>
                   );
@@ -356,7 +360,7 @@ export function Chart({
                 />
                 <PointSymbol shape={shape} x={16} y={6} r={3} />
               </svg>
-              {g || "未指定"}
+              {seriesLabel(g) || "未指定"}
             </button>
           ))}
       </div>
@@ -393,13 +397,18 @@ export function PanelView({
       </button>
     </div>
   );
-  const { data, error } = useQuery<Point[]>("series", {
+  const { data: rawPoints, error } = useQuery<Point[]>("series", {
     panel: {
       ...panel,
       fixedStyle: undefined,
       styleDefaults: undefined,
       pivot: panel.pivot
-        ? { ...panel.pivot, encoding: undefined, styleRules: undefined }
+        ? {
+            ...panel.pivot,
+            encoding: undefined,
+            styleRules: undefined,
+            timeZones: undefined,
+          }
         : undefined,
       wide: undefined,
       title: "プレビュー",
@@ -407,6 +416,15 @@ export function PanelView({
     end,
     buckets: panel.display === "chart",
   });
+  const data = rawPoints && displayPoints(panel, rawPoints);
+  const unit =
+    panel.fieldUnits?.[
+      panel.measure === "metric" ? "metric/" + panel.metric : panel.measure
+    ] ?? panel.unit;
+  const seriesLabel = (value: string) =>
+    panel.fieldUnits?.["field/" + panel.group]
+      ? value + " " + panel.fieldUnits["field/" + panel.group]
+      : value;
   return (
     <article className="card">
       <div className="cardhead">
@@ -429,7 +447,7 @@ export function PanelView({
       </div>
       <small>
         {measures[panel.measure]} · {panel.source || "全サービス"} ·{" "}
-        {panel.minutes}分 {panel.unit ?? ""}
+        {panel.minutes}分 {!panel.pivot?.metrics?.length && unit}
         {panel.group === "slot_total" &&
           ` · ${(panel.totalSlots ?? defaultTotalSlots).join(" + ")}（全スロットを観測した分のみ）`}
       </small>
@@ -452,6 +470,7 @@ export function PanelView({
         />
       ) : panel.display === "chart" ? (
         <Chart
+          seriesLabel={seriesLabel}
           legendAction={legendAction}
           fixedStyle={{ ...panel.fixedStyle, ...panel.styleDefaults }}
           points={data}
@@ -469,7 +488,7 @@ export function PanelView({
           {data.map((p) => (
             <div key={p.series}>
               <strong>{number(p.value)}</strong>
-              <small>{p.series}</small>
+              <small>{seriesLabel(p.series)}</small>
             </div>
           ))}
         </div>
@@ -485,7 +504,7 @@ export function PanelView({
           <tbody>
             {data.map((p) => (
               <tr key={p.series}>
-                <td>{p.series}</td>
+                <td>{seriesLabel(p.series)}</td>
                 <td>{number(p.value)}</td>
                 <td>{p.samples}</td>
               </tr>
@@ -603,7 +622,11 @@ function FacetTable({
         <section key={key}>
           <h4>
             {axis.map(shelfName).join(" › ")} ·{" "}
-            {rows[0].facetPath?.join(" › ") || key || "未指定"}
+            {axis
+              .map((f, i) =>
+                displayField(panel, f, rows[0].facetPath?.[i] ?? key),
+              )
+              .join(" › ") || "未指定"}
           </h4>
           <PivotTable panel={panel} points={rows} end={end} />
         </section>
@@ -735,7 +758,8 @@ function PivotTable({
                     scope={level === columnDepth - 1 ? "col" : "colgroup"}
                     colSpan={c.spans[level]}
                   >
-                    {c.values[level] || "未指定"}
+                    {displayField(panel, colFields[level], c.values[level]) ||
+                      "未指定"}
                   </th>
                 ))}
             </tr>
@@ -752,7 +776,7 @@ function PivotTable({
                       scope="row"
                       rowSpan={r.spans[i]}
                     >
-                      {v || "未指定"}
+                      {displayField(panel, rowFields[i], v) || "未指定"}
                     </th>
                   ),
               )}

@@ -71,6 +71,7 @@ export const panel = filter
   .extend({
     id: z.uuid().optional(),
     wide: z.boolean().optional(),
+    fieldUnits: z.record(label, z.string().trim().min(1).max(32)).optional(),
     fixedStyle: styles,
     styleDefaults: styles,
     conditions: z
@@ -115,6 +116,12 @@ export const panel = filter
     display: z.enum(["chart", "value", "table", "pivot"]),
     pivot: z
       .object({
+        timeZones: z
+          .record(
+            z.string().regex(/^time:(1|10|60|300|3600)$/),
+            z.enum(["UTC", "JST"]),
+          )
+          .optional(),
         styleRules: z
           .array(
             z

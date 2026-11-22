@@ -9,6 +9,7 @@ import {
   type Distinct,
   type FieldCondition,
   type FilterField,
+  fieldZone,
   type Identifier,
   isAttribute,
   isTemporalField,
@@ -25,16 +26,67 @@ import {
   slotTotalChoice,
   styleChannels,
   type TimeField,
+  type TimeZone,
+  timeBuckets,
   usesLogRecords,
-  worksheetTimeBuckets,
 } from "../../../shared/console";
 import { useQuery } from "../api";
 import { FilterShelf } from "./FilterShelf";
+import { compatibleUnits, nativeUnit } from "./fieldDisplay";
 import { LegendStyleDialog } from "./LegendStyleDialog";
 import { PanelView, Select } from "./Panels";
 import { styleNames } from "./SeriesStyle";
 import { ShelfPicker } from "./ShelfPicker";
 import { useDropPreview } from "./useDropPreview";
+
+function UnitInput({
+  source,
+  value,
+  write,
+}: {
+  source: string;
+  value: string;
+  write: (value: string) => void;
+}) {
+  const id = useId();
+  const units = compatibleUnits(source);
+  return (
+    <label htmlFor={id}>
+      表示単位
+      {units ? (
+        <select id={id} value={value} onChange={(e) => write(e.target.value)}>
+          <option value="">自動（{source}）</option>
+          {Object.keys(units).map((unit) => (
+            <option key={unit}>{unit}</option>
+          ))}
+        </select>
+      ) : (
+        <input
+          id={id}
+          key={value}
+          maxLength={32}
+          defaultValue={value}
+          placeholder={source || "単位なし"}
+          onBlur={(e) => {
+            if (e.target.value.trim() !== value) write(e.target.value);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+          }}
+        />
+      )}
+    </label>
+  );
+}
+
+function intervalName(field: TimeField | "day") {
+  return field === "day" || field === "time:86400"
+    ? "1日"
+    : timeBuckets[field].slice(3, -1);
+}
 
 type Props = {
   back: () => void;
@@ -406,6 +458,82 @@ export function PanelBuilder({
       },
     };
   }
+  function unitInput(key: string, source = "") {
+    const value = p.fieldUnits?.[key] ?? "";
+    function write(text: string) {
+      const fieldUnits = { ...p.fieldUnits };
+      if (text.trim()) fieldUnits[key] = text.trim();
+      else delete fieldUnits[key];
+      change({ ...p, fieldUnits });
+    }
+    return <UnitInput source={source} value={value} write={write} />;
+  }
+  function timeSettings(id: Shelf, field: TimeField | "day", label: string) {
+    if (!pivot) return;
+    const interval = field === "day" ? "time:86400" : field;
+    const zone = fieldZone(pivot, field);
+    const fields = pivotFields(pivot);
+    const storedField = (grain: TimeField, tz: TimeZone) =>
+      grain === "time:86400" && tz === "JST" ? "day" : grain;
+    const alreadyAssigned = (grain: TimeField, tz: TimeZone) => {
+      const next = storedField(grain, tz);
+      return next !== field && fields.includes(next);
+    };
+    const update = (grain: TimeField, zone: TimeZone) => {
+      const next = storedField(grain, zone);
+      const timeZones = { ...pivot.timeZones };
+      delete timeZones[field];
+      if (next !== "day" && next !== "time:86400") timeZones[next] = zone;
+      const encoding = { ...pivot.encoding };
+      for (const ch of Object.keys(encoding) as StyleChannel[])
+        if (encoding[ch] === field) encoding[ch] = next;
+      change({
+        ...p,
+        pivot: {
+          ...pivot,
+          timeZones,
+          encoding,
+          [id]: shelfFields(pivot[id]).map((k) => (k === field ? next : k)),
+        },
+      });
+    };
+    return (
+      <>
+        <label>
+          区間単位
+          <select
+            aria-label={label + "の時刻の粒度"}
+            value={interval}
+            disabled={daily}
+            onChange={(e) => update(e.target.value as TimeField, zone)}
+          >
+            {(Object.keys(timeBuckets) as TimeField[])
+              .filter((k) => !daily || k === "time:86400")
+              .map((k) => (
+                <option key={k} value={k} disabled={alreadyAssigned(k, zone)}>
+                  {intervalName(k)}
+                </option>
+              ))}
+          </select>
+        </label>
+        <label>
+          タイムゾーン
+          <select
+            aria-label={label + "のタイムゾーン"}
+            value={zone}
+            disabled={daily}
+            onChange={(e) => update(interval, e.target.value as TimeZone)}
+          >
+            {(["JST", "UTC"] as const).map((z) => (
+              <option key={z} disabled={alreadyAssigned(interval, z)}>
+                {z}
+              </option>
+            ))}
+          </select>
+        </label>
+      </>
+    );
+  }
   function metricMenu(metric: string) {
     const id = worksheetId + "-aggregation-" + encodeURIComponent(metric);
     return (
@@ -415,6 +543,7 @@ export function PanelBuilder({
         className="metric-menu"
         aria-label={metricName(metric) + "の集計"}
       >
+        {unitInput("metric/" + metric, nativeUnit(p, metric))}
         <span>集計</span>
         {(Object.keys(aggregationNames) as Panel["aggregation"][])
           .filter((k) => p.group !== "slot_total" || k !== "sum")
@@ -1054,6 +1183,23 @@ export function PanelBuilder({
                         {aggregationNames[aggregation(p.metric)]}
                       </button>
                     )}
+                    {!pivot && id === "row" && p.measure !== "metric" && (
+                      <>
+                        <button
+                          type="button"
+                          {...metricTrigger("implicit-unit")}
+                        >
+                          表示単位
+                        </button>
+                        <fieldset
+                          className="metric-menu"
+                          popover="auto"
+                          id={metricTrigger("implicit-unit").popoverTarget}
+                        >
+                          {unitInput(p.measure, nativeUnit(p, p.metric))}
+                        </fieldset>
+                      </>
+                    )}
                     {((!pivot && id === "row") ||
                       assigned.includes("measure")) &&
                       p.measure === "metric" &&
@@ -1083,7 +1229,7 @@ export function PanelBuilder({
                         {assigned.map((field, i) => (
                           <span
                             className="shelf-chip"
-                            key={field}
+                            key={isTemporalField(field) ? "time-" + i : field}
                             data-drop={
                               item?.kind === "placed" ? id + "/" + i : undefined
                             }
@@ -1093,12 +1239,12 @@ export function PanelBuilder({
                               className="drag-source"
                               title={
                                 field === "measure" && p.measure === "metric"
-                                  ? "クリックして集計を変更"
-                                  : "ドラッグまたは Alt＋左右矢印で移動"
+                                  ? "クリックして集計・表示単位を変更"
+                                  : "クリックして表示設定を変更"
                               }
                               {...(field === "measure" && p.measure === "metric"
                                 ? metricTrigger(p.metric)
-                                : {})}
+                                : metricTrigger(id + "/" + i))}
                               onPointerDown={(e) =>
                                 drag.start(e, { kind: "placed", key: field })
                               }
@@ -1133,54 +1279,31 @@ export function PanelBuilder({
                                 {aggregationNames[aggregation(p.metric)]}
                               </small>
                             )}
-                            {isTemporalField(field) && (
-                              <select
-                                aria-label={label + "の時刻の粒度"}
-                                value={field}
-                                disabled={daily}
-                                onChange={(e) => {
-                                  const grain = e.target
-                                    .value as keyof typeof worksheetTimeBuckets;
-                                  const encoding = { ...pivot.encoding };
-                                  for (const channel of Object.keys(
-                                    encoding,
-                                  ) as StyleChannel[])
-                                    if (encoding[channel] === field)
-                                      encoding[channel] = grain;
-                                  change({
-                                    ...p,
-                                    pivot: {
-                                      ...pivot,
-                                      encoding,
-                                      [id]: assigned.map((k) =>
-                                        k === field ? grain : k,
-                                      ),
-                                    },
-                                  });
-                                }}
+                            {!(
+                              field === "measure" && p.measure === "metric"
+                            ) && (
+                              <fieldset
+                                popover="auto"
+                                className="metric-menu"
+                                id={metricTrigger(id + "/" + i).popoverTarget}
                               >
-                                {(
-                                  Object.entries(
-                                    daily
-                                      ? { day: axes.day }
-                                      : worksheetTimeBuckets,
-                                  ) as [
-                                    keyof typeof worksheetTimeBuckets,
-                                    string,
-                                  ][]
-                                ).map(([key, name]) => (
-                                  <option
-                                    key={key}
-                                    value={key}
-                                    disabled={
-                                      key !== field &&
-                                      pivotFields(pivot).includes(key)
-                                    }
-                                  >
-                                    {name.slice(3, -1)}
-                                  </option>
-                                ))}
-                              </select>
+                                {isTemporalField(field)
+                                  ? timeSettings(id, field, label)
+                                  : unitInput(
+                                      field === "measure"
+                                        ? p.measure
+                                        : "field/" + field,
+                                      field === "measure"
+                                        ? nativeUnit(p, p.metric)
+                                        : "",
+                                    )}
+                              </fieldset>
+                            )}
+                            {isTemporalField(field) && (
+                              <small>
+                                {intervalName(field)} ·{" "}
+                                {fieldZone(pivot, field)}
+                              </small>
                             )}
                             {!daily && (
                               <button
@@ -1253,6 +1376,20 @@ export function PanelBuilder({
                     </button>
                   )}
                   {p.measure === "metric" && metricMenu(p.metric)}
+                  {p.measure !== "metric" && (
+                    <>
+                      <button type="button" {...metricTrigger("value-unit")}>
+                        表示単位
+                      </button>
+                      <fieldset
+                        className="metric-menu"
+                        popover="auto"
+                        id={metricTrigger("value-unit").popoverTarget}
+                      >
+                        {unitInput(p.measure, nativeUnit(p, p.metric))}
+                      </fieldset>
+                    </>
+                  )}
                   {picker === "measure" && (
                     <ShelfPicker
                       label="値"
@@ -1289,7 +1426,9 @@ export function PanelBuilder({
                       select={(v) =>
                         change(changeGroup(p, v as Panel["group"]))
                       }
-                    />
+                    >
+                      {p.group !== "all" && unitInput("field/" + p.group)}
+                    </ShelfPicker>
                   )}
                 </div>
               )}
@@ -1360,7 +1499,11 @@ export function PanelBuilder({
                           select={(v) =>
                             change(withStyle(channel, v as ShelfAxis))
                           }
-                        />
+                        >
+                          {field &&
+                            field !== "measure" &&
+                            unitInput("field/" + field)}
+                        </ShelfPicker>
                       )}
                     </div>
                   );

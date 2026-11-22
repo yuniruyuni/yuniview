@@ -1375,6 +1375,14 @@ main:has(.worksheet) {
   background: white;
   box-shadow: 0 4px 18px #14343729;
 }
+.metric-menu label {
+  min-width: 0;
+  padding: 3px;
+}
+.metric-menu label :is(select, input) {
+  width: 100%;
+  min-width: 0;
+}
 .metric-menu > span {
   padding: 0 5px;
   font-size: 12px;

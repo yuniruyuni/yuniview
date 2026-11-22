@@ -3,11 +3,13 @@ import { useEffect, useRef, useState } from "react";
 export function ShelfPicker({
   label,
   choices,
+  children,
   select,
   close,
 }: {
   label: string;
   choices: [string, string][];
+  children?: React.ReactNode;
   select: (value: string) => void;
   close: () => void;
 }) {
@@ -39,6 +41,7 @@ export function ShelfPicker({
           閉じる
         </button>
       </div>
+      {children}
       {choices.length > 0 && (
         <>
           <label>
