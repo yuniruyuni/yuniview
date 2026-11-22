@@ -915,21 +915,6 @@ export function PanelBuilder({
             >
               設定
             </button>
-            {pivot && visibleAxes.length > 0 && (
-              <button
-                type="button"
-                onClick={() =>
-                  change({
-                    ...p,
-                    pivot: { ...pivot, row: pivot.column, column: pivot.row },
-                  })
-                }
-              >
-                {format === "table"
-                  ? "行と列を入れ替え"
-                  : "横軸と縦軸を入れ替え"}
-              </button>
-            )}
             <button
               type="button"
               disabled={!undo.length}
