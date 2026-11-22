@@ -746,6 +746,36 @@ export function PanelBuilder({
             {fieldName}
           </span>
         )}
+        <div className="worksheet-format">
+          <Select
+            label="表示形式"
+            value={format}
+            choices={
+              daily
+                ? [
+                    ["table", "ピボット表"],
+                    ["line", "折れ線"],
+                  ]
+                : [
+                    ...(format === "mixed"
+                      ? [["mixed", "保存済みの複合表示"] as [string, string]]
+                      : []),
+                    ["auto", "自動"],
+                    ["line", "折れ線"],
+                    ["bar", "棒"],
+                    ["stacked_area", "積み上げ面"],
+                    ["table", "ピボット表"],
+                    ...(multiple
+                      ? []
+                      : ([
+                          ["summary", "集計表"],
+                          ["value", "数値"],
+                        ] as [string, string][])),
+                  ]
+            }
+            change={setFormat}
+          />
+        </div>
         <div className="field-catalog">
           <label>
             フィールドを検索
@@ -908,42 +938,7 @@ export function PanelBuilder({
           aria-label="パネル設定"
           data-open={settingsOpen || undefined}
         >
-          <div className="format-setup">
-            <div className="options-heading">
-              <Select
-                label="表示形式"
-                value={format}
-                choices={
-                  daily
-                    ? [
-                        ["table", "ピボット表"],
-                        ["line", "折れ線"],
-                      ]
-                    : [
-                        ...(format === "mixed"
-                          ? [
-                              ["mixed", "保存済みの複合表示"] as [
-                                string,
-                                string,
-                              ],
-                            ]
-                          : []),
-                        ["auto", "自動"],
-                        ["line", "折れ線"],
-                        ["bar", "棒"],
-                        ["stacked_area", "積み上げ面"],
-                        ["table", "ピボット表"],
-                        ...(multiple
-                          ? []
-                          : ([
-                              ["summary", "集計表"],
-                              ["value", "数値"],
-                            ] as [string, string][])),
-                      ]
-                }
-                change={setFormat}
-              />
-            </div>
+          <div className="assignment-pane">
             <fieldset
               className="worksheet-shelves"
               aria-label="フィールドの割り当て"

@@ -800,6 +800,26 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
     [375, 667],
   ]) {
     await page.setViewportSize({ width, height });
+    const format = await form.locator(".worksheet-format").boundingBox();
+    const catalog = await form.locator(".field-catalog").boundingBox();
+    const zones = await form
+      .locator(".worksheet-shelves > [data-drop]")
+      .evaluateAll((els) =>
+        els.map((el) => {
+          const { left, top, bottom, width } = el.getBoundingClientRect();
+          return { left, top, bottom, width };
+        }),
+      );
+    if (!format || !catalog || zones.length !== 6)
+      throw Error("Missing worksheet controls");
+    expect(format.x).toBeCloseTo(catalog.x);
+    expect(format.y + format.height).toBeLessThanOrEqual(catalog.y);
+    expect(zones[0].left).toBeGreaterThanOrEqual(catalog.x + catalog.width);
+    zones.slice(1).forEach((zone, i) => {
+      expect(zone.left).toBeCloseTo(zones[0].left);
+      expect(zone.width).toBeCloseTo(zones[0].width);
+      expect(zone.top).toBeGreaterThanOrEqual(zones[i].bottom);
+    });
     for (const element of [
       form.getByRole("button", { name: "配置に戻る", exact: true }),
       form.locator(".field-catalog"),

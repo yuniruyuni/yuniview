@@ -794,7 +794,8 @@ main:has(.worksheet) {
       17vw,
       235px
     );
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "format preview options" "catalog preview options";
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
   margin: 0;
 }
@@ -805,7 +806,31 @@ main:has(.worksheet) {
   border: 1px solid #cededb;
   border-radius: 8px;
 }
+.worksheet-format {
+  grid-area: format;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #cededb;
+  border-radius: 8px;
+}
+.worksheet-format label {
+  display: grid;
+  gap: 4px;
+  font-weight: 600;
+}
+.worksheet-format select {
+  width: 100%;
+  min-width: 0;
+}
+.worksheet .builder-main {
+  grid-area: preview;
+}
+.worksheet-options {
+  grid-area: options;
+}
 .worksheet .field-catalog {
+  grid-area: catalog;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -854,7 +879,7 @@ main:has(.worksheet) {
 }
 .worksheet-shelves {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
   max-height: 24dvh;
 }
@@ -1242,7 +1267,9 @@ main:has(.worksheet) {
 }
 
 .worksheet-shelves .style-target {
-  display: grid;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   text-align: left;
   width: 100%;
   padding: 2px 4px;
@@ -1362,31 +1389,21 @@ main:has(.worksheet) {
 }
 @media (max-width: 1150px) {
   .worksheet .builder {
-    grid-template-areas: "catalog format" "catalog preview";
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-  .worksheet .field-catalog {
-    grid-area: catalog;
-  }
-  .worksheet .builder-main {
-    grid-area: preview;
+    grid-template-columns: minmax(145px, 18%) minmax(0, 1fr) minmax(160px, 21%);
   }
   .worksheet .worksheet-options,
   .worksheet .worksheet-options[data-open] {
     display: contents;
   }
-  .format-setup {
-    grid-area: format;
+  .assignment-pane {
+    contain: size;
+    grid-area: options;
     min-width: 0;
-    max-height: 35dvh;
-    overflow: auto;
+    min-height: 0;
   }
-  .format-setup .options-heading > label {
-    display: flex;
-    align-items: center;
-  }
-  .format-setup .worksheet-shelves {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .assignment-pane .worksheet-shelves {
+    max-height: 100%;
+    margin: 0;
   }
   .other-settings {
     display: none;
@@ -1403,10 +1420,24 @@ main:has(.worksheet) {
     border: 1px solid #cededb;
   }
 }
-@media (max-width: 640px) {
+@media (max-width: 800px) {
   .worksheet .builder {
-    grid-template-areas: "catalog" "format" "preview";
-    grid-template-rows: minmax(0, 19%) auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "format options" "catalog options" "preview preview";
+    grid-template-rows: auto minmax(0, 30%) minmax(0, 1fr);
+  }
+  .worksheet-format {
+    padding: 4px 6px;
+  }
+  .worksheet-format label {
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+  }
+  .worksheet .field-catalog > label {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
