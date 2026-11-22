@@ -14,6 +14,7 @@ import {
   slotTotalChoice,
 } from "../../../shared/console";
 import { clock, Feedback, number, useQuery } from "../api";
+import { dashPatterns, lineWidths, PointSymbol, palette } from "./SeriesStyle";
 import { WorksheetPlot } from "./WorksheetPlot";
 
 export function Select({
@@ -211,6 +212,7 @@ const colors = [
   "#6b852c",
 ];
 export function Chart({
+  fixedStyle,
   formatTime = clock,
   gapMs = Infinity,
   points,
@@ -218,6 +220,7 @@ export function Chart({
   end,
   choose,
 }: {
+  fixedStyle?: Panel["fixedStyle"];
   gapMs?: number;
   formatTime?: (stamp: string) => string;
   points: Point[];
@@ -225,6 +228,13 @@ export function Chart({
   end: number;
   choose?: (p: Point) => string;
 }) {
+  const color = (i: number) =>
+    fixedStyle?.color === undefined
+      ? colors[i % colors.length]
+      : palette[fixedStyle.color];
+  const strokeWidth = lineWidths[fixedStyle?.width ?? 1],
+    dash = dashPatterns[fixedStyle?.dash ?? 0],
+    shape = fixedStyle?.shape ?? 0;
   const id = useId();
   const groups = Array.from(new Set(points.map((p) => p.series)));
   const [active, setActive] = useState("");
@@ -262,10 +272,12 @@ export function Chart({
           {groups.map((g, i) => {
             const ps = shown.filter((p) => p.series === g);
             return (
-              <g key={g} stroke={colors[i % colors.length]}>
+              <g key={g} stroke={color(i)} fill={color(i)}>
                 <path
                   fill="none"
-                  strokeWidth="2"
+                  strokeWidth={strokeWidth}
+                  strokeDasharray={dash}
+                  strokeLinecap="round"
                   d={ps
                     .map((p, i) => {
                       const move =
@@ -278,17 +290,17 @@ export function Chart({
                 />
                 {ps.map((p) => {
                   const mark = (
-                    <circle
+                    <PointSymbol
                       key={p.bucket}
-                      cx={x(p)}
-                      cy={y(p)}
-                      r="3"
-                      fill={colors[i % colors.length]}
+                      shape={shape}
+                      x={x(p)}
+                      y={y(p)}
+                      r={3}
                     >
                       <title>
                         {formatTime(p.bucket)} · {g} · {number(p.value)}
                       </title>
-                    </circle>
+                    </PointSymbol>
                   );
                   return choose ? (
                     <a
@@ -316,10 +328,28 @@ export function Chart({
           <button
             type="button"
             key={g}
-            style={{ borderLeftColor: colors[i % colors.length] }}
+            style={{ borderLeftColor: color(i) }}
             aria-pressed={active === g}
             onClick={() => setActive(active === g ? "" : g)}
           >
+            <svg
+              aria-hidden="true"
+              className="legend-key"
+              viewBox="0 0 32 12"
+              fill={color(i)}
+            >
+              <line
+                x1="1"
+                y1="6"
+                x2="31"
+                y2="6"
+                stroke={color(i)}
+                strokeWidth={strokeWidth}
+                strokeDasharray={dash}
+                strokeLinecap="round"
+              />
+              <PointSymbol shape={shape} x={16} y={6} r={3} />
+            </svg>
             {g || "未指定"}
           </button>
         ))}
@@ -347,6 +377,7 @@ export function PanelView({
   const { data, error } = useQuery<Point[]>("series", {
     panel: {
       ...panel,
+      fixedStyle: undefined,
       pivot: panel.pivot
         ? { ...panel.pivot, encoding: undefined, styleRules: undefined }
         : undefined,
@@ -401,6 +432,7 @@ export function PanelView({
         />
       ) : panel.display === "chart" ? (
         <Chart
+          fixedStyle={panel.fixedStyle}
           points={data}
           gapMs={
             panel.group === "slot_total"

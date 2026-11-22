@@ -13,62 +13,15 @@ import {
   styleChannels,
 } from "../../../shared/console";
 import { number } from "../api";
+import {
+  dashPatterns,
+  lineWidths,
+  PointSymbol,
+  palette,
+  styleNames,
+} from "./SeriesStyle";
 
-const palette = [
-  "#007f84",
-  "#ac541e",
-  "#7461a8",
-  "#357aa8",
-  "#a34e75",
-  "#687e29",
-  "#33475c",
-];
 const ticks = [0, 0.25, 0.5, 0.75, 1];
-function PointSymbol({
-  shape,
-  x,
-  y,
-  r,
-  children,
-}: {
-  shape: number;
-  x: number;
-  y: number;
-  r: number;
-  children?: React.ReactNode;
-}) {
-  if (shape === 1)
-    return (
-      <rect x={x - r} y={y - r} width={r * 2} height={r * 2}>
-        {children}
-      </rect>
-    );
-  if (shape === 2)
-    return (
-      <polygon
-        points={[
-          [x, y - r * 1.3],
-          [x + r * 1.2, y + r],
-          [x - r * 1.2, y + r],
-        ]
-          .map((pair) => pair.join(","))
-          .join(" ")}
-      >
-        {children}
-      </polygon>
-    );
-  return (
-    <circle cx={x} cy={y} r={r}>
-      {children}
-    </circle>
-  );
-}
-const styleNames: Record<StyleChannel, string[]> = {
-  color: ["青緑", "橙", "紫", "青", "赤紫", "緑", "紺"],
-  dash: ["実線", "点線", "破線"],
-  width: ["細い", "通常", "太い"],
-  shape: ["丸", "四角", "三角"],
-};
 function StyleAssignments({
   domains,
   rules,
@@ -257,10 +210,19 @@ export function WorksheetPlot({
     all.map(([key, g], i) => [
       key,
       {
-        color: palette[(colorScale?.(g.dimensions) ?? i) % palette.length],
-        dash: [undefined, "1 4", "7 4"][(dashScale?.(g.dimensions) ?? 0) % 3],
-        width: widthScale ? [1, 2, 3.5][widthScale(g.dimensions) % 3] : 2,
-        shape: (shapeScale?.(g.dimensions) ?? 0) % 3,
+        color:
+          palette[
+            (colorScale?.(g.dimensions) ?? panel.fixedStyle?.color ?? i) %
+              palette.length
+          ],
+        dash: dashPatterns[
+          (dashScale?.(g.dimensions) ?? panel.fixedStyle?.dash ?? 0) % 3
+        ],
+        width:
+          lineWidths[
+            (widthScale?.(g.dimensions) ?? panel.fixedStyle?.width ?? 1) % 3
+          ],
+        shape: (shapeScale?.(g.dimensions) ?? panel.fixedStyle?.shape ?? 0) % 3,
       },
     ]),
   );

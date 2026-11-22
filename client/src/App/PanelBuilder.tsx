@@ -33,6 +33,7 @@ import {
 import { useQuery } from "../api";
 import { FilterShelf } from "./FilterShelf";
 import { PanelView, Select } from "./Panels";
+import { styleNames } from "./SeriesStyle";
 import { ShelfPicker } from "./ShelfPicker";
 import { useDropPreview } from "./useDropPreview";
 
@@ -1130,44 +1131,78 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
               </>
             )}
           </div>
-          {stylePivot && !!valueSide && (
+          {(p.display === "chart" || !!valueSide) && (
             <fieldset className="series-encoding">
               <legend>系列のスタイル</legend>
               {(Object.entries(styleChannels) as [StyleChannel, string][]).map(
-                ([channel, label]) => (
-                  <Select
-                    key={channel}
-                    dropTarget={"style-" + channel}
-                    label={label}
-                    value={
-                      styleFields.includes(
-                        stylePivot.encoding?.[channel] as ShelfAxis,
-                      )
-                        ? (stylePivot.encoding?.[channel] ?? "")
-                        : ""
-                    }
-                    choices={[
-                      [
-                        "",
-                        {
-                          color: "系列ごと",
-                          dash: "実線",
-                          width: "通常",
-                          shape: "丸",
-                        }[channel],
-                      ],
-                      ...styleFields.map((f): [string, string] => [
-                        f,
-                        shelfName(f),
-                      ]),
-                    ]}
-                    change={(v) =>
-                      change(
-                        withStyle(channel, v ? (v as ShelfAxis) : undefined),
-                      )
-                    }
-                  />
-                ),
+                ([channel, label]) => {
+                  const mapped = !!stylePivot?.encoding?.[channel];
+                  return (
+                    <Select
+                      key={channel}
+                      label={label}
+                      dropTarget={"style-" + channel}
+                      value={
+                        mapped
+                          ? "mapped"
+                          : String(
+                              p.fixedStyle?.[channel] ??
+                                { color: "", dash: 0, width: 1, shape: 0 }[
+                                  channel
+                                ],
+                            )
+                      }
+                      choices={[
+                        ...(mapped
+                          ? [["mapped", "属性別"] as [string, string]]
+                          : []),
+                        ...(channel === "color"
+                          ? [["", "自動配色"] as [string, string]]
+                          : []),
+                        ...styleNames[channel].map(
+                          (name, i): [string, string] => [String(i), name],
+                        ),
+                      ]}
+                      change={(v) => {
+                        if (v === "mapped") return;
+                        const next = mapped ? withStyle(channel) : p;
+                        change({
+                          ...next,
+                          fixedStyle: {
+                            ...p.fixedStyle,
+                            [channel]: v === "" ? undefined : Number(v),
+                          },
+                        });
+                      }}
+                    />
+                  );
+                },
+              )}
+              {stylePivot && valueSide && (
+                <details className="style-bindings">
+                  <summary>属性で分ける</summary>
+                  {(
+                    Object.entries(styleChannels) as [StyleChannel, string][]
+                  ).map(([channel, label]) => (
+                    <Select
+                      key={channel}
+                      label={label + "を分ける属性"}
+                      value={stylePivot.encoding?.[channel] ?? ""}
+                      choices={[
+                        ["", "指定なし"],
+                        ...styleFields.map((f): [string, string] => [
+                          f,
+                          shelfName(f),
+                        ]),
+                      ]}
+                      change={(v) =>
+                        change(
+                          withStyle(channel, v ? (v as ShelfAxis) : undefined),
+                        )
+                      }
+                    />
+                  ))}
+                </details>
               )}
             </fieldset>
           )}

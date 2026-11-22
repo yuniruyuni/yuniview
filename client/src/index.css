@@ -1244,3 +1244,13 @@ main:has(.worksheet) {
   color: #617373;
   font-size: 12px;
 }
+
+.style-bindings {
+  grid-column: 1 / -1;
+}
+.style-bindings summary {
+  cursor: pointer;
+}
+.style-bindings label {
+  margin-top: 6px;
+}

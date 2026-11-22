@@ -660,18 +660,40 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await expect(
     plot.locator("circle title").filter({ hasText: "CPU 使用率" }),
   ).toHaveCount(3);
+  const shape = form.getByRole("combobox", { name: "点の形", exact: true });
+  await expect(shape.locator("option")).toHaveText(["丸", "四角", "三角"]);
+  await shape.selectOption({ label: "三角" });
   await form
     .getByRole("combobox", { name: "色", exact: true })
+    .selectOption({ label: "橙" });
+  await form
+    .getByRole("combobox", { name: "線種", exact: true })
+    .selectOption({ label: "破線" });
+  await form
+    .getByRole("combobox", { name: "線の太さ", exact: true })
+    .selectOption({ label: "太い" });
+  await expect(
+    plot
+      .getByRole("img")
+      .locator(
+        'path[stroke="#ac541e"][stroke-dasharray="7 4"][stroke-width="3.5"]',
+      ),
+  ).toHaveCount(6);
+  await expect(plot.getByRole("img").locator("polygon")).toHaveCount(12);
+  await expect(plot.locator(".legend-key polygon")).toHaveCount(6);
+  await form.getByText("属性で分ける", { exact: true }).click();
+  await form
+    .getByRole("combobox", { name: "色を分ける属性", exact: true })
     .selectOption("slot");
   await form
     .locator(".field-catalog")
     .getByRole("button", { name: "リビジョン", exact: true })
     .dragTo(form.locator('[data-drop="style-dash"]'));
   await form
-    .getByRole("combobox", { name: "線の太さ", exact: true })
+    .getByRole("combobox", { name: "線の太さを分ける属性", exact: true })
     .selectOption("slot");
   await form
-    .getByRole("combobox", { name: "点の形", exact: true })
+    .getByRole("combobox", { name: "点の形を分ける属性", exact: true })
     .selectOption("revision");
   await expect(
     plot.getByRole("img").locator('path[stroke-dasharray="1 4"]'),
@@ -699,6 +721,11 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await expect(plot.locator(".legend-key polygon")).toHaveCount(4);
   await plot.getByText("値ごとのスタイル", { exact: true }).click();
   await expect(form.locator('[data-drop="filter"] select')).toHaveCount(0);
+  await shape.selectOption({ label: "四角" });
+  await expect(plot.getByRole("img").locator("rect")).toHaveCount(12);
+  await expect(
+    form.getByRole("combobox", { name: "点の形を分ける属性" }),
+  ).toHaveValue("");
   await memFormat.selectOption("auto");
   await cpuFormat.selectOption("auto");
   await form.getByRole("button", { name: "時刻（10秒） を列から外す" }).click();
@@ -737,7 +764,7 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await expect(form.locator(".worksheet-shelves select")).toHaveCount(0);
   await expect(
     form.getByRole("combobox", { name: "点の形", exact: true }),
-  ).toHaveValue("revision");
+  ).toHaveValue("1");
 });
 
 test("worksheet shows only panel controls and fits inside the viewport", async ({

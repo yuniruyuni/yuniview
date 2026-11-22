@@ -63,6 +63,14 @@ export const panel = filter
   .extend({
     id: z.uuid().optional(),
     wide: z.boolean().optional(),
+    fixedStyle: z
+      .object({
+        color: z.number().int().min(0).max(6).optional(),
+        dash: z.number().int().min(0).max(2).optional(),
+        width: z.number().int().min(0).max(2).optional(),
+        shape: z.number().int().min(0).max(2).optional(),
+      })
+      .optional(),
     conditions: z
       .array(condition)
       .max(32)
