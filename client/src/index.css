@@ -1159,7 +1159,6 @@ main:has(.worksheet) {
 }
 .worksheet-shelves .shelf-chips,
 .worksheet-shelves .shelf-chip,
-.worksheet-shelves .metric-menu,
 .worksheet-shelves > div > button:not(.shelf-target) {
   position: relative;
 }
@@ -1297,16 +1296,84 @@ main:has(.worksheet) {
   font-size: 12px;
   color: #617373;
 }
-.style-target span[data-assigned] {
-  color: #154c46;
-  background: #e1f2ef;
-  border-radius: 3px;
-  padding: 0 3px;
+.style-assignment {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 2px 4px;
 }
-.worksheet-shelves .style-remove {
+.style-chip {
+  display: inline-flex;
+  align-items: stretch;
+  max-width: 100%;
+  min-width: 0;
+}
+.style-chip[data-assigned] {
+  background: #e1f2ef;
+  color: #154c46;
+  border: 1px solid #8eb9b1;
+  border-radius: 6px;
+}
+.style-chip button {
+  min-width: 0;
+  padding: 3px 5px;
+  font-size: 12px;
   border: 0;
   background: transparent;
-  padding: 2px 4px;
+  color: inherit;
+}
+.style-chip button:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.style-chip .style-remove {
+  flex: none;
+  min-width: 22px;
+}
+.metric-menu:popover-open {
+  position: fixed;
+  inset: auto;
+  left: clamp(4px, var(--trigger-left), calc(100vw - 108px));
+  top: clamp(4px, calc(var(--trigger-bottom) + 4px), calc(100dvh - 175px));
+  margin: 0;
+  display: grid;
+  gap: 2px;
+  width: 104px;
+  padding: 6px;
+  border: 1px solid #a6bfba;
+  border-radius: 7px;
+  background: white;
+  box-shadow: 0 4px 18px #14343729;
+}
+.metric-menu > span {
+  padding: 0 5px;
+  font-size: 12px;
+}
+.metric-menu button {
+  text-align: left;
+  padding: 4px 8px;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+}
+.metric-menu button[aria-pressed="true"],
+.metric-menu button:hover {
+  background: #e1f2ef;
+  color: #154c46;
+}
+@supports (position-area: bottom) {
+  .metric-menu:popover-open {
+    inset: auto;
+    position-area: bottom span-right;
+    position-try-fallbacks:
+      flip-inline,
+      flip-block,
+      flip-block flip-inline;
+    margin: 3px 0;
+    position-visibility: anchors-visible;
+  }
 }
 .options-heading > label {
   flex: 1;
@@ -1449,13 +1516,4 @@ main:has(.worksheet) {
     flex-direction: column;
     align-items: stretch;
   }
-}
-
-.worksheet-shelves > div:has(.style-remove) {
-  padding-right: 22px;
-}
-.worksheet-shelves > div > .style-remove {
-  position: absolute;
-  right: 2px;
-  top: 2px;
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   type Axis,
   axes,
@@ -370,7 +370,7 @@ export function PanelBuilder({
     });
   }
   const multiple = pivot && !!pivot.metrics?.length;
-  const [editingMetric, editMetric] = useState<string>();
+  const worksheetId = useId();
   const aggregationNames: Record<Panel["aggregation"], string> = {
     avg: "平均",
     max: "最大",
@@ -384,41 +384,60 @@ export function PanelBuilder({
       p.aggregation
     );
   }
+  function metricTrigger(metric: string) {
+    const id = worksheetId + "-aggregation-" + encodeURIComponent(metric);
+    return {
+      popoverTarget: id,
+      onClick: (e: React.MouseEvent<HTMLButtonElement>) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const menu = document.getElementById(id);
+        menu?.style.setProperty("--trigger-left", rect.left + "px");
+        menu?.style.setProperty("--trigger-bottom", rect.bottom + "px");
+      },
+    };
+  }
   function metricMenu(metric: string) {
-    if (editingMetric !== metric) return null;
+    const id = worksheetId + "-aggregation-" + encodeURIComponent(metric);
     return (
       <fieldset
+        id={id}
+        popover="auto"
         className="metric-menu"
         aria-label={metricName(metric) + "の集計"}
       >
-        <Select
-          label="集計"
-          value={aggregation(metric)}
-          choices={Object.entries(aggregationNames).filter(
-            ([k]) => p.group !== "slot_total" || k !== "sum",
-          )}
-          change={(value) => {
-            const aggregation = value as Panel["aggregation"];
-            if (multiple && pivot) {
-              const options = pivot.metricOptions ?? [];
-              change({
-                ...p,
-                pivot: {
-                  ...pivot,
-                  metricOptions: [
-                    ...options.filter((o) => o.metric !== metric),
-                    {
-                      ...options.find((o) => o.metric === metric),
-                      metric,
-                      aggregation,
+        <span>集計</span>
+        {(Object.keys(aggregationNames) as Panel["aggregation"][])
+          .filter((k) => p.group !== "slot_total" || k !== "sum")
+          .map((value) => (
+            <button
+              type="button"
+              key={value}
+              aria-pressed={aggregation(metric) === value}
+              popoverTarget={id}
+              popoverTargetAction="hide"
+              onClick={() => {
+                if (multiple && pivot) {
+                  const options = pivot.metricOptions ?? [];
+                  change({
+                    ...p,
+                    pivot: {
+                      ...pivot,
+                      metricOptions: [
+                        ...options.filter((o) => o.metric !== metric),
+                        {
+                          ...options.find((o) => o.metric === metric),
+                          metric,
+                          aggregation: value,
+                        },
+                      ],
                     },
-                  ],
-                },
-              });
-            } else change({ ...p, aggregation });
-            editMetric(undefined);
-          }}
-        />
+                  });
+                } else change({ ...p, aggregation: value });
+              }}
+            >
+              {aggregationNames[value]}
+            </button>
+          ))}
       </fieldset>
     );
   }
@@ -986,14 +1005,7 @@ export function PanelBuilder({
                         )}
                     </button>
                     {!pivot && id === "row" && p.measure === "metric" && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          editMetric(
-                            editingMetric === p.metric ? undefined : p.metric,
-                          )
-                        }
-                      >
+                      <button type="button" {...metricTrigger(p.metric)}>
                         {metricName(p.metric)} ·{" "}
                         {aggregationNames[aggregation(p.metric)]}
                       </button>
@@ -1040,16 +1052,9 @@ export function PanelBuilder({
                                   ? "クリックして集計を変更"
                                   : "ドラッグまたは Alt＋左右矢印で移動"
                               }
-                              onClick={
-                                field === "measure" && p.measure === "metric"
-                                  ? () =>
-                                      editMetric(
-                                        editingMetric === p.metric
-                                          ? undefined
-                                          : p.metric,
-                                      )
-                                  : undefined
-                              }
+                              {...(field === "measure" && p.measure === "metric"
+                                ? metricTrigger(p.metric)
+                                : {})}
                               onPointerDown={(e) =>
                                 drag.start(e, { kind: "placed", key: field })
                               }
@@ -1146,12 +1151,7 @@ export function PanelBuilder({
                       pivot &&
                       pivot.metrics?.map((m) => (
                         <div className="shelf-chip" key={m}>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              editMetric(editingMetric === m ? undefined : m)
-                            }
-                          >
+                          <button type="button" {...metricTrigger(m)}>
                             {metricName(m)} · {aggregationNames[aggregation(m)]}
                           </button>
                           {metricMenu(m)}
@@ -1198,18 +1198,11 @@ export function PanelBuilder({
                     </span>
                   </button>
                   {p.measure === "metric" && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        editMetric(
-                          editingMetric === p.metric ? undefined : p.metric,
-                        )
-                      }
-                    >
+                    <button type="button" {...metricTrigger(p.metric)}>
                       {aggregationNames[aggregation(p.metric)]}
                     </button>
                   )}
-                  {metricMenu(p.metric)}
+                  {p.measure === "metric" && metricMenu(p.metric)}
                   {picker === "measure" && (
                     <ShelfPicker
                       label="値"
@@ -1255,6 +1248,8 @@ export function PanelBuilder({
                   const target = "style-" + channel;
                   const field = encoding[channel];
                   const index = p.fixedStyle?.[channel];
+                  const removable =
+                    !!field || (channel === "color" && index !== undefined);
                   return (
                     <div
                       key={channel}
@@ -1265,36 +1260,48 @@ export function PanelBuilder({
                       }
                       data-preview={hovered?.id === target || undefined}
                     >
-                      <button
-                        type="button"
-                        className="style-target"
-                        disabled={channel === "color" && !styleFields.length}
-                        aria-label={label + "に属性を割り当て"}
-                        title="属性をドロップ、またはクリックして選択"
-                        onClick={() => openPicker(channel)}
-                      >
-                        <strong>{label}</strong>
-                        <span data-assigned={!!field || undefined}>
-                          {field
-                            ? shelfName(field)
-                            : index !== undefined
-                              ? styleNames[channel][index]
-                              : styleFields.length
-                                ? "属性をドロップ"
-                                : "既定"}
-                        </span>
-                      </button>
-                      {(field ||
-                        (channel === "color" && index !== undefined)) && (
-                        <button
-                          type="button"
-                          className="style-remove"
-                          aria-label={label + "の割り当てを外す"}
-                          onClick={() => change(withStyle(channel))}
+                      <div className="style-assignment">
+                        <label htmlFor={worksheetId + target}>
+                          <strong>{label}</strong>
+                        </label>
+                        <span
+                          className="style-chip"
+                          data-assigned={removable || undefined}
                         >
-                          ×
-                        </button>
-                      )}
+                          <button
+                            type="button"
+                            id={worksheetId + target}
+                            disabled={
+                              channel === "color" && !styleFields.length
+                            }
+                            aria-label={label + "に属性を割り当て"}
+                            title={
+                              field
+                                ? shelfName(field)
+                                : "属性をドロップ、またはクリックして選択"
+                            }
+                            onClick={() => openPicker(channel)}
+                          >
+                            {field
+                              ? shelfName(field)
+                              : index !== undefined
+                                ? styleNames[channel][index]
+                                : styleFields.length
+                                  ? "属性をドロップ"
+                                  : "既定"}
+                          </button>
+                          {removable && (
+                            <button
+                              type="button"
+                              className="style-remove"
+                              aria-label={label + "の割り当てを外す"}
+                              onClick={() => change(withStyle(channel))}
+                            >
+                              ×
+                            </button>
+                          )}
+                        </span>
+                      </div>
                       {picker === channel && (
                         <ShelfPicker
                           label={label}

@@ -632,22 +632,31 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await expect(
     form.locator('.worksheet-shelves [data-drop^="style-"]'),
   ).toHaveCount(1);
-  await form
+  const metricButton = form
     .locator(".shelf-chip button")
     .filter({ hasText: "メモリ使用量" })
-    .first()
-    .click();
+    .first();
+  const colorZone = form.locator('[data-drop="style-color"]');
+  const before = await colorZone.boundingBox();
+  await metricButton.click();
+  const control = await metricButton.boundingBox();
+  const menu = await form.locator(".metric-menu:popover-open").boundingBox();
+  if (!control || !menu) throw Error("Missing aggregation popup");
+  expect(menu.y).toBeGreaterThanOrEqual(control.y + control.height - 1);
+  expect(await colorZone.boundingBox()).toEqual(before);
   await form
-    .getByRole("combobox", { name: "集計", exact: true })
-    .selectOption("max");
+    .locator(".metric-menu:popover-open")
+    .getByRole("button", { name: "最大", exact: true })
+    .click();
   await form
     .locator(".shelf-chip button")
     .filter({ hasText: "CPU 使用率" })
     .first()
     .click();
   await form
-    .getByRole("combobox", { name: "集計", exact: true })
-    .selectOption("min");
+    .locator(".metric-menu:popover-open")
+    .getByRole("button", { name: "最小", exact: true })
+    .click();
   await format.selectOption("stacked_area");
   await expect(
     form.getByText("積み上げ面には同じ単位の指標を配置してください。"),
