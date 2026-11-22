@@ -314,8 +314,9 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await form.getByLabel("パネル名").fill("First");
   await form.getByRole("button", { name: "＋ パネル追加" }).click();
   await form.getByLabel("パネル名").fill("Second");
-  const titles = form.locator(".layout-tile strong");
-  const tiles = form.locator(".layout-tile");
+  await form.getByRole("button", { name: "設定を閉じる" }).click();
+  const titles = form.locator(".canvas-grid article h3 .handle-text");
+  const tiles = form.locator(".canvas-grid .panel-handle");
   await tiles
     .first()
     .evaluate((tile) =>
@@ -333,6 +334,8 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await expect(titles).toHaveText(["First", "Second"]);
   await tiles.first().dragTo(tiles.last());
   await expect(titles).toHaveText(["Second", "First"]);
+  await expect(form.getByLabel("パネル名")).toHaveCount(0);
+  await form.getByRole("button", { name: "First の設定" }).click();
   await expect(form.getByLabel("パネル名")).toHaveValue("First");
   await form
     .locator(".field-catalog")
@@ -356,6 +359,7 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await expect(
     form.getByRole("combobox", { name: "表示", exact: true }),
   ).toHaveValue("pivot");
+  await form.getByRole("button", { name: "設定を閉じる" }).click();
   await form
     .getByRole("button", { name: "＋ パネル追加" })
     .dragTo(tiles.first());
@@ -372,4 +376,16 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
     "メモリ使用量",
     "First",
   ]);
+  await page.getByRole("button", { name: "編集モード" }).click();
+  await expect(
+    form.getByRole("complementary", { name: "パネル設定" }),
+  ).toHaveCount(0);
+  await expect(form.locator(".canvas-grid article")).toHaveCount(3);
+  await form.getByRole("button", { name: "全幅" }).first().click();
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.locator(".canvas-cell[data-wide] h3")).toHaveText("Second");
+  await page.getByRole("button", { name: "編集モード" }).click();
+  await tiles.first().dragTo(tiles.last());
+  await form.getByRole("button", { name: "キャンセル", exact: true }).click();
+  await expect(page.locator(".canvas-grid h3").first()).toHaveText("Second");
 });

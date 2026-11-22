@@ -31,6 +31,7 @@ export interface Filter {
   minutes: number;
 }
 export interface Panel extends Filter {
+  wide?: boolean;
   id?: string;
   title: string;
   measure: Measure;

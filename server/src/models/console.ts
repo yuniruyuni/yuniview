@@ -24,6 +24,7 @@ const axis = z.enum([
 export const panel = filter
   .extend({
     id: z.uuid().optional(),
+    wide: z.boolean().optional(),
     title: label.pipe(z.string().trim().min(1)),
     measure: z.enum([
       "requests",

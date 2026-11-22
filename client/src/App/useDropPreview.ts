@@ -8,8 +8,12 @@ import {
 
 // Keep the committed model intact until release. Both the preview and the commit
 // use the same destination, resolved from the visible drop zones.
-export function useDropPreview<T>(commit: (item: T, target: string) => void) {
+export function useDropPreview<T>(
+  commit: (item: T, target: string) => void,
+  stableGrid = false,
+) {
   const root = useRef<HTMLDivElement>(null);
+  const cells = useRef<{ id: string; bounds: DOMRect }[]>([]);
   const gesture = useRef<{
     item: T;
     pointer: number;
@@ -42,12 +46,40 @@ export function useDropPreview<T>(commit: (item: T, target: string) => void) {
       window.removeEventListener("blur", cancel);
     };
   }, [cancel]);
-  const target = useCallback((x: number, y: number) => {
-    const el = document
-      .elementFromPoint(x, y)
-      ?.closest<HTMLElement>("[data-drop]");
-    return el && root.current?.contains(el) ? (el.dataset.drop ?? null) : null;
-  }, []);
+  const target = useCallback(
+    (x: number, y: number) => {
+      const el = document
+        .elementFromPoint(x, y)
+        ?.closest<HTMLElement>("[data-drop]");
+      if (stableGrid) {
+        // Cards have different heights and spans. Reflowing the preview must
+        // not move the destination under a stationary pointer.
+        if (el?.classList.contains("layout-end"))
+          return el.dataset.drop ?? null;
+        if (
+          document
+            .elementFromPoint(x, y)
+            ?.closest(".canvas-toolbar, .panel-inspector")
+        )
+          return null;
+        const hit = cells.current.find(
+          ({ bounds: r }) =>
+            x + scrollX >= r.left &&
+            x + scrollX < r.right &&
+            y + scrollY >= r.top &&
+            y + scrollY < r.bottom,
+        );
+        if (hit) return hit.id;
+        return el?.classList.contains("canvas-cell")
+          ? (el.dataset.drop ?? null)
+          : null;
+      }
+      return el && root.current?.contains(el)
+        ? (el.dataset.drop ?? null)
+        : null;
+    },
+    [stableGrid],
+  );
   const dragging = preview !== null;
   useEffect(() => {
     if (!dragging) return;
@@ -79,6 +111,24 @@ export function useDropPreview<T>(commit: (item: T, target: string) => void) {
   }, [dragging, target]);
   function start(e: ReactPointerEvent, item: T) {
     if (!e.isPrimary || e.button !== 0 || gesture.current) return;
+    if (stableGrid)
+      cells.current = Array.from(
+        root.current?.querySelectorAll<HTMLElement>(
+          ".canvas-cell[data-drop]",
+        ) ?? [],
+        (el) => {
+          const r = el.getBoundingClientRect();
+          return {
+            id: el.dataset.drop ?? "",
+            bounds: new DOMRect(
+              r.x + scrollX,
+              r.y + scrollY,
+              r.width,
+              r.height,
+            ),
+          };
+        },
+      );
     suppressClick.current = false;
     gesture.current = {
       item,

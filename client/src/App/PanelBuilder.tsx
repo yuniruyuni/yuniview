@@ -483,7 +483,11 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
           ))}
         </div>
         <div className="preview-head">
-          <h4>プレビュー{hovered && ` · ${fieldName} → ${hovered.label}`}</h4>
+          {hovered && (
+            <h4>
+              {fieldName} → {hovered.label}
+            </h4>
+          )}
           <button
             type="button"
             disabled={!undo.length}
@@ -498,10 +502,12 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
             元に戻す
           </button>
         </div>
-        <PanelView
-          panel={{ ...preview, title: preview.title.trim() || "プレビュー" }}
-          end={end}
-        />
+        {hovered?.panel && (
+          <PanelView
+            panel={{ ...preview, title: preview.title.trim() || "プレビュー" }}
+            end={end}
+          />
+        )}
         <label>
           パネル名
           <input

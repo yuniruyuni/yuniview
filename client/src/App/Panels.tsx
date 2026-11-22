@@ -322,17 +322,19 @@ export function PanelView({
   panel,
   end,
   actions,
+  heading,
   onEdit,
   choose,
 }: {
   panel: Panel;
   end: string;
   actions?: React.ReactNode;
+  heading?: React.ReactNode;
   onEdit?: () => void;
   choose?: (p: Point) => string;
 }) {
   const { data, error } = useQuery<Point[]>("series", {
-    panel: { ...panel, title: "プレビュー" },
+    panel: { ...panel, wide: undefined, title: "プレビュー" },
     end,
     buckets: panel.display === "chart",
   });
@@ -340,18 +342,19 @@ export function PanelView({
     <article className="card">
       <div className="cardhead">
         <h3>
-          {onEdit ? (
-            <button
-              type="button"
-              className="panel-title"
-              aria-label={`${panel.title} を編集`}
-              onClick={onEdit}
-            >
-              {panel.title}
-            </button>
-          ) : (
-            panel.title
-          )}
+          {heading ??
+            (onEdit ? (
+              <button
+                type="button"
+                className="panel-title"
+                aria-label={`${panel.title} を編集`}
+                onClick={onEdit}
+              >
+                {panel.title}
+              </button>
+            ) : (
+              panel.title
+            ))}
         </h3>
         {actions}
       </div>
