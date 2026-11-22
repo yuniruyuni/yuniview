@@ -673,15 +673,19 @@ test("worksheet encodes time or categories on either axis and splits observed se
       .click();
   };
   await constant("点の形", "三角");
-  await constant("色", "橙");
+  await form.getByRole("button", { name: "色に属性を割り当て" }).click();
+  const colorDialog = page.getByRole("dialog", { name: "色に追加" });
+  await expect(colorDialog.getByText("全系列に適用")).toHaveCount(0);
+  await colorDialog
+    .getByRole("button", { name: "スロット", exact: true })
+    .click();
+  await form.getByRole("button", { name: "色の割り当てを外す" }).click();
   await constant("線種", "破線");
   await constant("線の太さ", "太い");
   await expect(
     plot
       .getByRole("img")
-      .locator(
-        'path[stroke="#ac541e"][stroke-dasharray="7 4"][stroke-width="3.5"]',
-      ),
+      .locator('path[stroke-dasharray="7 4"][stroke-width="3.5"]'),
   ).toHaveCount(2);
   const styleShelves = form.getByRole("group", {
     name: "フィールドの割り当て",

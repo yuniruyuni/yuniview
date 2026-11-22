@@ -591,7 +591,11 @@ export function PanelBuilder({
     if (!encoding[ch] && unassigned.length) encoding[ch] = unassigned.shift();
   }
   function withStyle(channel: StyleChannel, field?: ShelfAxis): Panel {
-    if (!stylePivot) return p;
+    const base =
+      channel === "color" && p.fixedStyle?.color !== undefined
+        ? { ...p, fixedStyle: { ...p.fixedStyle, color: undefined } }
+        : p;
+    if (!stylePivot || (!field && !encoding[channel])) return base;
     const mapped = { ...encoding, [channel]: field };
     const axes = [
       ...shelfFields(stylePivot.row),
@@ -606,7 +610,7 @@ export function PanelBuilder({
       ]),
     ];
     return {
-      ...p,
+      ...base,
       display: "pivot",
       pivot: { ...stylePivot, series, encoding: mapped },
     };
@@ -1262,6 +1266,7 @@ export function PanelBuilder({
                       <button
                         type="button"
                         className="style-target"
+                        disabled={channel === "color" && !styleFields.length}
                         aria-label={label + "に属性を割り当て"}
                         title="属性をドロップ、またはクリックして選択"
                         onClick={() => openPicker(channel)}
@@ -1277,7 +1282,8 @@ export function PanelBuilder({
                                 : "既定"}
                         </span>
                       </button>
-                      {field && (
+                      {(field ||
+                        (channel === "color" && index !== undefined)) && (
                         <button
                           type="button"
                           className="style-remove"
@@ -1290,20 +1296,22 @@ export function PanelBuilder({
                       {picker === channel && (
                         <ShelfPicker
                           label={label}
-                          constants={[
-                            ...(channel === "color"
-                              ? [["", "自動配色"] as [string, string]]
-                              : []),
-                            ...styleNames[channel].map(
-                              (name, i): [string, string] => [String(i), name],
-                            ),
-                          ]}
+                          constants={
+                            channel === "color"
+                              ? undefined
+                              : styleNames[channel].map(
+                                  (name, i): [string, string] => [
+                                    String(i),
+                                    name,
+                                  ],
+                                )
+                          }
                           setConstant={(v) =>
                             change({
                               ...(field ? withStyle(channel) : p),
                               fixedStyle: {
                                 ...p.fixedStyle,
-                                [channel]: v === "" ? undefined : Number(v),
+                                [channel]: Number(v),
                               },
                             })
                           }
