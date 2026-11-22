@@ -12,6 +12,7 @@ import type {
   ShelfFields,
 } from "../../../../shared/console";
 import {
+  chartBucketSeconds,
   cpuPercent,
   defaultTotalSlots,
   isAttribute,
@@ -237,7 +238,7 @@ export async function series(
       : field(p.group);
   const period =
     buckets && !pivot
-      ? sql`date_bin(make_interval(secs=>${Math.max(1, Math.ceil((p.minutes * 60) / 40))}::int),at,'2000-01-01'::timestamptz)`
+      ? sql`date_bin(make_interval(secs=>${chartBucketSeconds(p.minutes)}::int),at,'2000-01-01'::timestamptz)`
       : sql`${end}::timestamptz`;
   const filter = distinct
     ? sql`kind=${distinct.dataset}`

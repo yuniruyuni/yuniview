@@ -12,6 +12,7 @@ import {
   shelfName,
 } from "../../../shared/console";
 import { number } from "../api";
+import { countAxis } from "./countAxis";
 import { displayField, nativeUnit } from "./fieldDisplay";
 import { InspectablePlot } from "./InspectablePlot";
 import { dashPatterns, lineWidths, PointSymbol, palette } from "./SeriesStyle";
@@ -219,7 +220,12 @@ export function WorksheetPlot({
         には同じ単位の指標を配置してください。
       </p>
     );
-  const [low, high] = domains.values().next().value ?? [0, 1];
+  const [low, maximum] = domains.values().next().value ?? [0, 1];
+  const counts = !mixed ? countAxis(panel.measure, maximum) : undefined;
+  const high = counts?.maximum ?? maximum;
+  const tickValues =
+    counts?.ticks ??
+    ticks.map((t) => (mixed ? t * 100 : low + t * (high - low || 1)));
   const xy = (c: number, v: number) =>
     horizontal ? [68 + 490 * v, 155 - 125 * c] : [68 + 490 * c, 155 - 125 * v];
   const tickKeys = ordered.filter(
@@ -291,7 +297,8 @@ export function WorksheetPlot({
                     : "系列別の折れ線グラフ"
           }
         >
-          {ticks.map((t) => {
+          {tickValues.map((value) => {
+            const t = mixed ? value / 100 : (value - low) / (high - low || 1);
             const [x, y] = xy(0, t),
               [x2, y2] = xy(1, t);
             return (
@@ -302,9 +309,8 @@ export function WorksheetPlot({
                   y={horizontal ? 173 : y + 3}
                   textAnchor={horizontal ? "middle" : "end"}
                 >
-                  {mixed
-                    ? number(t * 100) + "%"
-                    : number(low + t * (high - low || 1))}
+                  {number(value)}
+                  {mixed && "%"}
                 </text>
               </g>
             );
@@ -342,7 +348,8 @@ export function WorksheetPlot({
                 width: strokeWidth,
                 shape,
               } = styles.get(key)!;
-              const [min, max] = domains.get(g.unit)!;
+              const [min, observedMax] = domains.get(g.unit)!;
+              const max = counts?.maximum ?? observedMax;
               const scale = (v: number) => (v - min) / (max - min || 1);
               const marks = g.marks.sort(
                 (a, b) => coord(a.category) - coord(b.category),

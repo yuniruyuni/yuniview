@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Overview, Panel, Point } from "../../../shared/console";
 import {
   changeGroup,
+  chartBucketSeconds,
   defaultTotalSlots,
   isAttribute,
   isTimeField,
@@ -13,6 +14,7 @@ import {
   slotTotalChoice,
 } from "../../../shared/console";
 import { clock, Feedback, number, useQuery } from "../api";
+import { countAxis } from "./countAxis";
 import { displayField, displayPoints, nativeUnit } from "./fieldDisplay";
 import { InspectablePlot } from "./InspectablePlot";
 import { dashPatterns, lineWidths, PointSymbol, palette } from "./SeriesStyle";
@@ -213,6 +215,7 @@ const colors = [
   "#6b852c",
 ];
 export function Chart({
+  measure,
   unit,
   fixedStyle,
   legendAction,
@@ -223,6 +226,7 @@ export function Chart({
   end,
   choose,
 }: {
+  measure: Panel["measure"];
   unit?: string;
   fixedStyle?: Panel["fixedStyle"];
   legendAction?: React.ReactNode;
@@ -247,7 +251,11 @@ export function Chart({
       ? points.filter((p) => p.series === active)
       : points;
   const low = shown.reduce((v, p) => Math.min(v, p.value), 0);
-  const high = shown.reduce((v, p) => Math.max(v, p.value), low + 1);
+  const maximum = shown.reduce((v, p) => Math.max(v, p.value), low + 1);
+  const counts = countAxis(measure, maximum);
+  const high = counts?.maximum ?? maximum;
+  const labels = counts?.ticks ?? [low, (low + high) / 2, high];
+  const valueY = (value: number) => 135 - (112 * (value - low)) / (high - low);
   const x = (p: Point) =>
     Math.max(
       45,
@@ -262,7 +270,7 @@ export function Chart({
     bucket.set(p.series, p);
     buckets.set(p.bucket, bucket);
   }
-  const y = (p: Point) => 135 - (112 * (p.value - low)) / (high - low);
+  const y = (p: Point) => valueY(p.value);
   return (
     <div className="chart-with-legend">
       <div>
@@ -292,17 +300,17 @@ export function Chart({
             })
           }
         >
-          {[0, 0.5, 1].map((n) => (
+          {labels.map((n) => (
             <g key={n}>
               <line
                 x1="45"
                 x2="595"
-                y1={135 - 112 * n}
-                y2={135 - 112 * n}
+                y1={valueY(n)}
+                y2={valueY(n)}
                 stroke="#dae5e3"
               />
-              <text x="40" y={138 - 112 * n} textAnchor="end">
-                {number(low + n * (high - low))}
+              <text x="40" y={valueY(n) + 3} textAnchor="end">
+                {number(n)}
               </text>
             </g>
           ))}
@@ -482,6 +490,9 @@ export function PanelView({
         {measures[panel.measure]} · {panel.source || "全サービス"} ·{" "}
         {panel.minutes}分{" "}
         {panel.display !== "table" && !panel.pivot?.metrics?.length && unit}
+        {panel.display === "chart" &&
+          panel.measure === "logs" &&
+          ` · ${chartBucketSeconds(panel.minutes)}秒ごとの件数`}
         {panel.group === "slot_total" &&
           ` · ${(panel.totalSlots ?? defaultTotalSlots).join(" + ")}（全スロットを観測した分のみ）`}
       </small>
@@ -504,6 +515,7 @@ export function PanelView({
         />
       ) : panel.display === "chart" ? (
         <Chart
+          measure={panel.measure}
           unit={unit ?? nativeUnit(panel, panel.metric)}
           legendAction={legendAction}
           fixedStyle={{ ...panel.fixedStyle, ...panel.styleDefaults }}

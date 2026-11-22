@@ -1249,6 +1249,25 @@ test("log body is a literal free-text filter, independent of grouping", async ({
     .locator(".field-catalog")
     .getByRole("button", { name: "ログ件数", exact: true })
     .click();
+  const verifyCountAxis = async (name: string) => {
+    const chart = form.getByRole("img", { name, exact: true });
+    const labels = chart.locator(":scope > g > text");
+    await expect(labels).toHaveText(["0", "1", "2", "3"]);
+    const cy = Number(await chart.locator("circle").first().getAttribute("cy"));
+    const grid = Number(
+      await chart
+        .locator(":scope > g")
+        .filter({ has: page.locator("text", { hasText: /^3$/ }) })
+        .locator("line")
+        .getAttribute("y1"),
+    );
+    expect(cy).toBeCloseTo(grid);
+  };
+  await verifyCountAxis("集計値の推移");
+  await catalog
+    .getByRole("button", { name: "時刻", exact: true })
+    .dragTo(form.locator('[data-drop="column"]'));
+  await verifyCountAxis("系列別の折れ線グラフ");
   await form
     .getByRole("combobox", { name: "表示形式", exact: true })
     .selectOption("value");

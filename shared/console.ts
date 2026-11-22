@@ -155,6 +155,9 @@ export interface Panel extends Filter {
   pivot?: Pivot;
   unit?: "MiB";
 }
+export function chartBucketSeconds(minutes: number) {
+  return Math.max(1, Math.ceil((minutes * 60) / 40));
+}
 export const defaultTotalSlots = ["blue", "green"];
 export const slotTotalChoice: [string, string] = [
   "slot_total",
