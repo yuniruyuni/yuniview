@@ -7,101 +7,21 @@ import {
   type Point,
   type ShelfAxis,
   type StyleChannel,
-  type StyleRule,
   shelfFields,
   shelfName,
-  styleChannels,
 } from "../../../shared/console";
 import { number } from "../api";
-import {
-  dashPatterns,
-  lineWidths,
-  PointSymbol,
-  palette,
-  styleNames,
-} from "./SeriesStyle";
+import { dashPatterns, lineWidths, PointSymbol, palette } from "./SeriesStyle";
 
 const ticks = [0, 0.25, 0.5, 0.75, 1];
-function StyleAssignments({
-  domains,
-  rules,
-  save,
-}: {
-  domains: Map<StyleChannel, string[]>;
-  rules: StyleRule[];
-  save: (rules: StyleRule[]) => void;
-}) {
-  const [channelChoice, chooseChannel] = useState<StyleChannel>("color"),
-    [valueChoice, chooseValue] = useState("");
-  const channel = domains.has(channelChoice)
-    ? channelChoice
-    : domains.keys().next().value;
-  if (!channel) return null;
-  const values = domains.get(channel)!;
-  const value = values.includes(valueChoice) ? valueChoice : values[0];
-  const index = rules.find(
-    (r) => r.channel === channel && r.value === value,
-  )?.index;
-  return (
-    <details className="style-assignments">
-      <summary>値ごとのスタイル</summary>
-      <div>
-        <label>
-          変更するスタイル
-          <select
-            value={channel}
-            onChange={(e) => chooseChannel(e.target.value as StyleChannel)}
-          >
-            {Array.from(domains.keys(), (c) => (
-              <option key={c} value={c}>
-                {styleChannels[c]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          属性値
-          <select value={value} onChange={(e) => chooseValue(e.target.value)}>
-            {values.map((v) => (
-              <option key={v} value={v}>
-                {v || "未指定"}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          割り当て
-          <select
-            value={index ?? ""}
-            onChange={(e) => {
-              const next = rules.filter(
-                (r) => r.channel !== channel || r.value !== value,
-              );
-              if (e.target.value !== "")
-                next.push({ channel, value, index: Number(e.target.value) });
-              save(next);
-            }}
-          >
-            <option value="">自動</option>
-            {styleNames[channel].map((n, i) => (
-              <option key={n} value={i}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-    </details>
-  );
-}
 export function WorksheetPlot({
   panel,
   points,
-  onStyleRules,
+  legendAction,
 }: {
   panel: Panel;
   points: Point[];
-  onStyleRules?: (rules: StyleRule[]) => void;
+  legendAction?: React.ReactNode;
 }) {
   const [focused, focus] = useState("");
   const pivot = panel.pivot!;
@@ -193,7 +113,6 @@ export function WorksheetPlot({
         : ((positions.get(key) ?? 0) + 0.5) / ordered.length;
   const all = Array.from(groups.entries());
   // Assign each channel independently so matching field values share the same mark across series.
-  const domainsByChannel = new Map<StyleChannel, string[]>();
   const scale = (channel: StyleChannel) => {
     const field = pivot.encoding?.[channel];
     if (!field || !all.some(([, g]) => g.dimensions.has(field)))
@@ -201,8 +120,9 @@ export function WorksheetPlot({
     const domain = Array.from(
       new Set(all.map(([, g]) => g.dimensions.get(field) ?? "")),
     ).sort();
-    domainsByChannel.set(channel, domain);
-    const indices = new Map(domain.map((v, i) => [v, i]));
+    const indices = new Map(
+      domain.map((v, i) => [v, panel.styleDefaults?.[channel] ?? i]),
+    );
     for (const rule of pivot.styleRules ?? [])
       if (rule.channel === channel) indices.set(rule.value, rule.index);
     return (values: Map<ShelfAxis, string>) =>
@@ -218,17 +138,29 @@ export function WorksheetPlot({
       {
         color:
           palette[
-            (colorScale?.(g.dimensions) ?? panel.fixedStyle?.color ?? i) %
-              palette.length
+            (colorScale?.(g.dimensions) ??
+              panel.styleDefaults?.color ??
+              panel.fixedStyle?.color ??
+              i) % palette.length
           ],
         dash: dashPatterns[
-          (dashScale?.(g.dimensions) ?? panel.fixedStyle?.dash ?? 0) % 3
+          (dashScale?.(g.dimensions) ??
+            panel.styleDefaults?.dash ??
+            panel.fixedStyle?.dash ??
+            0) % 3
         ],
         width:
           lineWidths[
-            (widthScale?.(g.dimensions) ?? panel.fixedStyle?.width ?? 1) % 3
+            (widthScale?.(g.dimensions) ??
+              panel.styleDefaults?.width ??
+              panel.fixedStyle?.width ??
+              1) % 3
           ],
-        shape: (shapeScale?.(g.dimensions) ?? panel.fixedStyle?.shape ?? 0) % 3,
+        shape:
+          (shapeScale?.(g.dimensions) ??
+            panel.styleDefaults?.shape ??
+            panel.fixedStyle?.shape ??
+            0) % 3,
       },
     ]),
   );
@@ -455,6 +387,7 @@ export function WorksheetPlot({
             })}
         </svg>
         <div className="legend">
+          {legendAction}
           {all.map(([k, g]) => {
             const style = styles.get(k)!;
             return (
@@ -499,13 +432,6 @@ export function WorksheetPlot({
           })}
         </div>
       </div>
-      {onStyleRules && domainsByChannel.size > 0 && (
-        <StyleAssignments
-          domains={domainsByChannel}
-          rules={pivot.styleRules ?? []}
-          save={onStyleRules}
-        />
-      )}
     </div>
   );
 }

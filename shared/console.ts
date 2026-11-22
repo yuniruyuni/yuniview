@@ -126,6 +126,7 @@ export interface FilterOptions {
   max: number | null;
 }
 export interface Panel extends Filter {
+  styleDefaults?: Partial<Record<StyleChannel, number>>;
   fixedStyle?: Partial<Record<StyleChannel, number>>;
   conditions?: FieldCondition[];
   wide?: boolean;

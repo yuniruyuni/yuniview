@@ -8,7 +8,6 @@ import {
   measures,
   pivotFields,
   type ShelfAxis,
-  type StyleRule,
   shelfFields,
   shelfName,
   slotTotalChoice,
@@ -213,6 +212,7 @@ const colors = [
 ];
 export function Chart({
   fixedStyle,
+  legendAction,
   formatTime = clock,
   gapMs = Infinity,
   points,
@@ -221,6 +221,7 @@ export function Chart({
   choose,
 }: {
   fixedStyle?: Panel["fixedStyle"];
+  legendAction?: React.ReactNode;
   gapMs?: number;
   formatTime?: (stamp: string) => string;
   points: Point[];
@@ -324,6 +325,7 @@ export function Chart({
         </div>
       </div>
       <div className="legend">
+        {legendAction}
         {groups.map((g, i) => (
           <button
             type="button"
@@ -364,20 +366,34 @@ export function PanelView({
   heading,
   onEdit,
   choose,
-  onStyleRules,
+  renderStyleDialog,
 }: {
   panel: Panel;
   end: string;
   actions?: React.ReactNode;
-  onStyleRules?: (rules: StyleRule[]) => void;
+  renderStyleDialog?: (points: Point[], close: () => void) => React.ReactNode;
   heading?: React.ReactNode;
   onEdit?: () => void;
   choose?: (p: Point) => string;
 }) {
+  const [editingStyles, editStyles] = useState(false);
+  const legendAction = renderStyleDialog && (
+    <div className="legend-tools">
+      <strong>凡例</strong>
+      <button
+        type="button"
+        aria-label="凡例のスタイルを編集"
+        onClick={() => editStyles(true)}
+      >
+        スタイルを編集
+      </button>
+    </div>
+  );
   const { data, error } = useQuery<Point[]>("series", {
     panel: {
       ...panel,
       fixedStyle: undefined,
+      styleDefaults: undefined,
       pivot: panel.pivot
         ? { ...panel.pivot, encoding: undefined, styleRules: undefined }
         : undefined,
@@ -428,11 +444,12 @@ export function PanelView({
           panel={panel}
           points={data}
           end={end}
-          onStyleRules={onStyleRules}
+          legendAction={legendAction}
         />
       ) : panel.display === "chart" ? (
         <Chart
-          fixedStyle={panel.fixedStyle}
+          legendAction={legendAction}
+          fixedStyle={{ ...panel.fixedStyle, ...panel.styleDefaults }}
           points={data}
           gapMs={
             panel.group === "slot_total"
@@ -472,6 +489,9 @@ export function PanelView({
           </tbody>
         </table>
       )}
+      {!data?.length && legendAction}
+      {editingStyles &&
+        renderStyleDialog?.(data ?? [], () => editStyles(false))}
     </article>
   );
 }
@@ -508,12 +528,12 @@ function PivotView({
   panel,
   points,
   end,
-  onStyleRules,
+  legendAction,
 }: {
   panel: Panel;
   points: Point[];
   end: string;
-  onStyleRules?: (rules: StyleRule[]) => void;
+  legendAction?: React.ReactNode;
 }) {
   const pivot = panel.pivot!;
   const row = shelfFields(pivot.row),
@@ -542,7 +562,7 @@ function PivotView({
           <WorksheetPlot
             panel={panel}
             points={plot}
-            onStyleRules={onStyleRules}
+            legendAction={legendAction}
           />
         )}
         {!!table.length && (

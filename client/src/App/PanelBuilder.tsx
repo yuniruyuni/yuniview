@@ -30,6 +30,7 @@ import {
 } from "../../../shared/console";
 import { useQuery } from "../api";
 import { FilterShelf } from "./FilterShelf";
+import { LegendStyleDialog } from "./LegendStyleDialog";
 import { PanelView, Select } from "./Panels";
 import { styleNames } from "./SeriesStyle";
 import { ShelfPicker } from "./ShelfPicker";
@@ -120,7 +121,8 @@ export function PanelBuilder({
       const rules = pivot.styleRules?.filter(
         (r) =>
           encoding[r.channel] &&
-          encoding[r.channel] === p.pivot?.encoding?.[r.channel],
+          (encoding[r.channel] === p.pivot?.encoding?.[r.channel] ||
+            !p.pivot?.styleRules?.includes(r)),
       );
       next = {
         ...next,
@@ -941,10 +943,54 @@ export function PanelBuilder({
             </button>
           </div>
           <PanelView
-            onStyleRules={(rules) => {
-              if (pivot)
-                change({ ...p, pivot: { ...pivot, styleRules: rules } });
-            }}
+            renderStyleDialog={
+              channels.length && (p.display === "chart" || !!valueSide)
+                ? (points, close) => (
+                    <LegendStyleDialog
+                      panel={p}
+                      points={points}
+                      channels={channels}
+                      encoding={encoding}
+                      close={close}
+                      save={(channel, value, index) => {
+                        if (value === undefined) {
+                          const defaults = { ...p.styleDefaults },
+                            legacy = { ...p.fixedStyle };
+                          delete legacy[channel];
+                          if (index === undefined) delete defaults[channel];
+                          else defaults[channel] = index;
+                          change({
+                            ...p,
+                            styleDefaults: defaults,
+                            fixedStyle: legacy,
+                          });
+                        } else {
+                          const base = withStyle(channel, encoding[channel]);
+                          if (!base.pivot) return;
+                          const rules = (base.pivot.styleRules ?? []).filter(
+                            (r) => r.channel !== channel || r.value !== value,
+                          );
+                          if (index !== undefined)
+                            rules.push({ channel, value, index });
+                          change({
+                            ...base,
+                            styleDefaults:
+                              !p.pivot?.encoding?.[channel] &&
+                              p.styleDefaults?.[channel] === undefined &&
+                              p.fixedStyle?.[channel] !== undefined
+                                ? {
+                                    ...p.styleDefaults,
+                                    [channel]: p.fixedStyle[channel],
+                                  }
+                                : p.styleDefaults,
+                            pivot: { ...base.pivot, styleRules: rules },
+                          });
+                        }
+                      }}
+                    />
+                  )
+                : undefined
+            }
             panel={{
               ...preview,
               minutes,
@@ -1249,9 +1295,11 @@ export function PanelBuilder({
                 channels.map(([channel, label]) => {
                   const target = "style-" + channel;
                   const field = encoding[channel];
-                  const index = p.fixedStyle?.[channel];
+                  const index =
+                    p.styleDefaults?.[channel] ?? p.fixedStyle?.[channel];
                   const removable =
-                    !!field || (channel === "color" && index !== undefined);
+                    !!field ||
+                    (channel === "color" && p.fixedStyle?.color !== undefined);
                   return (
                     <div
                       key={channel}
@@ -1273,9 +1321,7 @@ export function PanelBuilder({
                           <button
                             type="button"
                             id={worksheetId + target}
-                            disabled={
-                              channel === "color" && !styleFields.length
-                            }
+                            disabled={!styleFields.length}
                             aria-label={label + "に属性を割り当て"}
                             title={
                               field
@@ -1307,25 +1353,6 @@ export function PanelBuilder({
                       {picker === channel && (
                         <ShelfPicker
                           label={label}
-                          constants={
-                            channel === "color"
-                              ? undefined
-                              : styleNames[channel].map(
-                                  (name, i): [string, string] => [
-                                    String(i),
-                                    name,
-                                  ],
-                                )
-                          }
-                          setConstant={(v) =>
-                            change({
-                              ...(field ? withStyle(channel) : p),
-                              fixedStyle: {
-                                ...p.fixedStyle,
-                                [channel]: Number(v),
-                              },
-                            })
-                          }
                           choices={styleFields.map((f) => [f, shelfName(f)])}
                           close={() => openPicker(undefined)}
                           select={(v) =>

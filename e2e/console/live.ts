@@ -637,7 +637,7 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await expect(
     plot.getByRole("img", { name: "系列別の折れ線グラフ" }),
   ).toBeVisible();
-  await expect(plot.locator(".legend button")).toHaveCount(6);
+  await expect(plot.locator(".legend button[aria-pressed]")).toHaveCount(6);
   const format = form.getByRole("combobox", { name: "表示形式", exact: true });
   await expect(format).toHaveCount(1);
   await format.selectOption("bar");
@@ -684,14 +684,15 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await expect(
     plot.locator("circle title").filter({ hasText: "CPU 使用率" }),
   ).toHaveCount(3);
+  const dialog = page.getByRole("dialog", { name: "凡例のスタイルを編集" });
+  const editStyles = async (label: string) => {
+    await form.getByRole("button", { name: "凡例のスタイルを編集" }).click();
+    await dialog.getByRole("button", { name: label, exact: true }).click();
+  };
   const constant = async (role: string, name: string) => {
-    await form
-      .getByRole("button", { name: role + "に属性を割り当て", exact: true })
-      .click();
-    await page
-      .getByRole("dialog")
-      .getByRole("button", { name, exact: true })
-      .click();
+    await editStyles(role);
+    await dialog.getByLabel("全項目の割り当て").selectOption({ label: name });
+    await dialog.getByRole("button", { name: "閉じる" }).click();
   };
   await constant("点の形", "三角");
   await form.getByRole("button", { name: "色に属性を割り当て" }).click();
@@ -707,7 +708,7 @@ test("worksheet encodes time or categories on either axis and splits observed se
     plot
       .getByRole("img")
       .locator('path[stroke-dasharray="7 4"][stroke-width="3.5"]'),
-  ).toHaveCount(2);
+  ).toHaveCount(4);
   const styleShelves = form.getByRole("group", {
     name: "フィールドの割り当て",
     exact: true,
@@ -736,6 +737,9 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await expect(styleShelves.locator('[data-drop="style-shape"]')).toContainText(
     "三角",
   );
+  await constant("線種", "自動");
+  await constant("線の太さ", "自動");
+  await constant("点の形", "自動");
   await assignStyle("スロット", "shape");
   await assignStyle("リビジョン", "shape");
   await expect(
@@ -751,24 +755,27 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await expect(
     plot.locator('.legend-key line[stroke-dasharray="1 4"]'),
   ).toHaveCount(4);
-  await plot.getByText("値ごとのスタイル", { exact: true }).click();
-  const rules = plot.locator(".style-assignments");
-  await rules
-    .getByRole("combobox", { name: "変更するスタイル" })
-    .selectOption("shape");
-  await rules.getByRole("combobox", { name: "属性値" }).selectOption("B");
-  await rules
-    .getByRole("combobox", { name: "割り当て" })
-    .selectOption({ label: "三角" });
+  await editStyles("点の形");
+  await dialog.getByLabel("B の個別指定").selectOption({ label: "三角" });
+  await dialog.getByRole("button", { name: "閉じる" }).click();
   await expect(plot.getByRole("img").locator("polygon")).toHaveCount(8);
   await expect(plot.locator(".legend-key polygon")).toHaveCount(4);
-  await plot.getByText("値ごとのスタイル", { exact: true }).click();
   await expect(form.locator('[data-drop="filter"] select')).toHaveCount(0);
   await constant("点の形", "四角");
-  await expect(plot.getByRole("img").locator("rect")).toHaveCount(12);
+  await expect(plot.getByRole("img").locator("rect")).toHaveCount(4);
+  await expect(plot.getByRole("img").locator("polygon")).toHaveCount(8);
   await expect(styleShelves.locator('[data-drop="style-shape"]')).toContainText(
-    "四角",
+    "リビジョン",
   );
+  await page.reload();
+  await editStyles("点の形");
+  await expect(dialog.getByLabel("全項目の割り当て")).toHaveValue("1");
+  await expect(dialog.getByLabel("B の個別指定")).toHaveValue("2");
+  await dialog
+    .getByLabel("B の個別指定")
+    .selectOption({ label: "全項目に従う" });
+  await dialog.getByRole("button", { name: "閉じる" }).click();
+  await expect(plot.getByRole("img").locator("rect")).toHaveCount(12);
   await format.selectOption("auto");
   await form
     .getByRole("button", { name: "時刻（10秒） を横軸から外す" })

@@ -1255,20 +1255,46 @@ main:has(.worksheet) {
   flex-wrap: wrap;
   max-width: 100%;
 }
-.style-assignments {
-  margin-top: 8px;
-}
-.style-assignments summary {
-  cursor: pointer;
-}
-.style-assignments > div {
+.legend-tools,
+.style-channels {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  align-items: center;
   flex-wrap: wrap;
 }
-.style-assignments select {
-  max-width: 14rem;
+.legend-tools {
+  justify-content: space-between;
 }
+.style-channels {
+  margin: 10px 0;
+}
+.style-channels [aria-pressed="true"] {
+  background: #e1f2ef;
+  border-color: #327d75;
+}
+.legend-style-dialog .legend-style-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(7rem, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+}
+.legend-style-entry span {
+  overflow-wrap: anywhere;
+}
+.legend-style-entry .style-sample {
+  vertical-align: middle;
+  margin-right: 5px;
+}
+.style-value-list {
+  max-height: 50dvh;
+  overflow: auto;
+}
+.legend-style-dialog fieldset {
+  min-width: 0;
+  margin-top: 10px;
+}
+
 .filter-target span {
   font-weight: 400;
   color: #617373;
@@ -1458,12 +1484,7 @@ main:has(.worksheet) {
 .worksheet-shelves strong {
   font-size: 13px;
 }
-.constant-options {
-  display: flex;
-  gap: 5px;
-  flex-wrap: wrap;
-  margin: 8px 0;
-}
+
 @media (max-width: 1150px) {
   .worksheet .builder {
     grid-template-columns: minmax(145px, 18%) minmax(0, 1fr) minmax(160px, 21%);
