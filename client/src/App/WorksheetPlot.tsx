@@ -39,7 +39,7 @@ export function WorksheetPlot({
   const groups = new Map<
     string,
     {
-      label: string;
+      labelParts: string[];
       unit: string;
       marks: Mark[];
       format: string;
@@ -57,7 +57,7 @@ export function WorksheetPlot({
     const categoryKey = JSON.stringify(category);
     const unit = panel.unit ?? p.metricUnit ?? "";
     if (!groups.has(key)) {
-      const label = [
+      const labelParts = [
         ...values.map((v, i) =>
           valueFields[i] === "measure"
             ? panel.measure === "metric"
@@ -68,7 +68,7 @@ export function WorksheetPlot({
         ...facets.map(
           (field, i) => shelfName(field) + "=" + (facet[i] || "未指定"),
         ),
-      ].join(" · ");
+      ];
       const metric = values[valueFields.indexOf("measure")];
       const mark =
         pivot.metricOptions?.find((o) => o.metric === metric)?.mark ??
@@ -82,7 +82,7 @@ export function WorksheetPlot({
       facets.forEach((f, i) => {
         dimensions.set(f, facet[i]);
       });
-      groups.set(key, { label, unit, marks: [], format, dimensions });
+      groups.set(key, { labelParts, unit, marks: [], format, dimensions });
     }
     groups.get(key)!.marks.push({ category: categoryKey, value: p.value });
     categories.set(categoryKey, category.join(" › ") || "未指定");
@@ -114,6 +114,14 @@ export function WorksheetPlot({
         ? (time(key) - first) / (last - first)
         : ((positions.get(key) ?? 0) + 0.5) / ordered.length;
   const all = Array.from(groups.entries());
+  const legendFields = [...valueFields, ...facets];
+  const varyingParts = legendFields.map((field) =>
+    all.some(
+      ([, group]) =>
+        group.dimensions.get(field) !== all[0][1].dimensions.get(field),
+    ),
+  );
+  const units = new Set(all.map(([, group]) => group.unit));
   // Assign each channel independently so matching field values share the same mark across series.
   const scale = (channel: StyleChannel) => {
     const field = pivot.encoding?.[channel];
@@ -227,6 +235,7 @@ export function WorksheetPlot({
       <small>
         横軸 {columns.map(shelfName).join(" › ")}　縦軸{" "}
         {rows.map(shelfName).join(" › ")}
+        {units.size === 1 && all[0][1].unit && "　単位 " + all[0][1].unit}
         {mixed ? "　単位ごとに目盛を正規化" : ""}
       </small>
       <div className="chart-with-legend">
@@ -386,8 +395,8 @@ export function WorksheetPlot({
                     const offset = (index - barGroups.length / 2) * width;
                     const title = (
                       <title key={m.category}>
-                        {formatCategory(m.category)} · {g.label} ·{" "}
-                        {number(m.value)} {g.unit}
+                        {formatCategory(m.category)} ·{" "}
+                        {g.labelParts.join(" · ")} · {number(m.value)} {g.unit}
                       </title>
                     );
                     if (stacked) {
@@ -395,8 +404,9 @@ export function WorksheetPlot({
                       const total = totals.get(m.category)!;
                       const observed = (
                         <title key={m.category}>
-                          {formatCategory(m.category)} · {g.label} ·{" "}
-                          {number(m.value)} {g.unit} ／ 観測合計{" "}
+                          {formatCategory(m.category)} ·{" "}
+                          {g.labelParts.join(" · ")} · {number(m.value)}{" "}
+                          {g.unit} ／ 観測合計{" "}
                           {number(total.positive + total.negative)} {g.unit}
                         </title>
                       );
@@ -460,57 +470,58 @@ export function WorksheetPlot({
         </svg>
         <div className="legend">
           {legendAction}
-          {all.map(([k, g]) => {
-            const style = styles.get(k)!;
-            return (
-              <button
-                type="button"
-                key={k}
-                style={{ borderLeftColor: style.color }}
-                aria-pressed={focused === k}
-                onClick={() => focus(focused === k ? "" : k)}
-              >
-                <svg
-                  className="legend-key"
-                  aria-hidden="true"
-                  viewBox="0 0 32 12"
-                  fill={style.color}
+          {all.length > 1 &&
+            all.map(([k, g]) => {
+              const style = styles.get(k)!;
+              return (
+                <button
+                  type="button"
+                  key={k}
+                  style={{ borderLeftColor: style.color }}
+                  aria-pressed={focused === k}
+                  onClick={() => focus(focused === k ? "" : k)}
                 >
-                  {g.format === "line" || g.format === "area" ? (
-                    <>
-                      {g.format === "area" && (
-                        <rect
-                          x="1"
-                          y="6"
-                          width="30"
-                          height="6"
-                          fillOpacity={0.25}
+                  <svg
+                    className="legend-key"
+                    aria-hidden="true"
+                    viewBox="0 0 32 12"
+                    fill={style.color}
+                  >
+                    {g.format === "line" || g.format === "area" ? (
+                      <>
+                        {g.format === "area" && (
+                          <rect
+                            x="1"
+                            y="6"
+                            width="30"
+                            height="6"
+                            fillOpacity={0.25}
+                          />
+                        )}
+                        <line
+                          x1="1"
+                          x2="31"
+                          y1="6"
+                          y2="6"
+                          stroke={style.color}
+                          strokeWidth={style.width}
+                          strokeDasharray={style.dash}
+                          strokeLinecap="round"
                         />
-                      )}
-                      <line
-                        x1="1"
-                        x2="31"
-                        y1="6"
-                        y2="6"
-                        stroke={style.color}
-                        strokeWidth={style.width}
-                        strokeDasharray={style.dash}
-                        strokeLinecap="round"
-                      />
-                      <PointSymbol shape={style.shape} x={16} y={6} r={3} />
-                    </>
-                  ) : (
-                    <rect x="3" y="2" width="26" height="8" />
-                  )}
-                </svg>
-                {g.label}
-                {g.unit && " (" + g.unit + ")"}
-                {mixed &&
-                  domains.has(g.unit) &&
-                  " " + domains.get(g.unit)!.map(number).join("–")}
-              </button>
-            );
-          })}
+                        <PointSymbol shape={style.shape} x={16} y={6} r={3} />
+                      </>
+                    ) : (
+                      <rect x="3" y="2" width="26" height="8" />
+                    )}
+                  </svg>
+                  {g.labelParts.filter((_, i) => varyingParts[i]).join(" · ")}
+                  {units.size > 1 && g.unit && " (" + g.unit + ")"}
+                  {mixed &&
+                    domains.has(g.unit) &&
+                    " " + domains.get(g.unit)!.map(number).join("–")}
+                </button>
+              );
+            })}
         </div>
       </div>
     </div>

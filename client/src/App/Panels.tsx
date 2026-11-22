@@ -239,7 +239,10 @@ export function Chart({
   const id = useId();
   const groups = Array.from(new Set(points.map((p) => p.series)));
   const [active, setActive] = useState("");
-  const shown = points.filter((p) => !active || p.series === active);
+  const shown =
+    active && groups.includes(active)
+      ? points.filter((p) => p.series === active)
+      : points;
   const low = shown.reduce((v, p) => Math.min(v, p.value), 0);
   const high = shown.reduce((v, p) => Math.max(v, p.value), low + 1);
   const x = (p: Point) =>
@@ -326,35 +329,36 @@ export function Chart({
       </div>
       <div className="legend">
         {legendAction}
-        {groups.map((g, i) => (
-          <button
-            type="button"
-            key={g}
-            style={{ borderLeftColor: color(i) }}
-            aria-pressed={active === g}
-            onClick={() => setActive(active === g ? "" : g)}
-          >
-            <svg
-              aria-hidden="true"
-              className="legend-key"
-              viewBox="0 0 32 12"
-              fill={color(i)}
+        {groups.length > 1 &&
+          groups.map((g, i) => (
+            <button
+              type="button"
+              key={g}
+              style={{ borderLeftColor: color(i) }}
+              aria-pressed={active === g}
+              onClick={() => setActive(active === g ? "" : g)}
             >
-              <line
-                x1="1"
-                y1="6"
-                x2="31"
-                y2="6"
-                stroke={color(i)}
-                strokeWidth={strokeWidth}
-                strokeDasharray={dash}
-                strokeLinecap="round"
-              />
-              <PointSymbol shape={shape} x={16} y={6} r={3} />
-            </svg>
-            {g || "未指定"}
-          </button>
-        ))}
+              <svg
+                aria-hidden="true"
+                className="legend-key"
+                viewBox="0 0 32 12"
+                fill={color(i)}
+              >
+                <line
+                  x1="1"
+                  y1="6"
+                  x2="31"
+                  y2="6"
+                  stroke={color(i)}
+                  strokeWidth={strokeWidth}
+                  strokeDasharray={dash}
+                  strokeLinecap="round"
+                />
+                <PointSymbol shape={shape} x={16} y={6} r={3} />
+              </svg>
+              {g || "未指定"}
+            </button>
+          ))}
       </div>
     </div>
   );

@@ -365,6 +365,11 @@ test("slot totals align gauge samples and exclude incomplete minutes", async ({
   const format = form.getByRole("combobox", { name: "表示形式", exact: true });
   await format.selectOption("area");
   const area = form.getByRole("img", { name: "全系列のエリアグラフ" });
+  const entries = form.locator(".worksheet-plot .legend button[aria-pressed]");
+  await expect(entries).toHaveText(["スロット=blue", "スロット=green"]);
+  await entries.first().click();
+  await expect(entries).toHaveText(["スロット=blue", "スロット=green"]);
+  await entries.first().click();
   await expect(area.locator("polyline")).toHaveCount(2);
   const curves = await area
     .locator("polyline")
