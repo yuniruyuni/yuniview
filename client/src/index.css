@@ -769,6 +769,12 @@ main:has(.worksheet) {
   margin-bottom: 10px;
   padding: 4px 0 12px;
 }
+.worksheet-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
 .worksheet-heading h2 {
   font-size: 18px;
 }
@@ -954,9 +960,13 @@ main:has(.worksheet) {
 }
 @media (max-width: 640px) {
   .worksheet-heading {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
     padding: 5px 0;
     gap: 5px;
+  }
+  .worksheet-heading-actions {
+    grid-column: 1 / -1;
   }
   .worksheet-heading h2 {
     font-size: 15px;

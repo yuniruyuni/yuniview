@@ -804,6 +804,25 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
     [375, 667],
   ]) {
     await page.setViewportSize({ width, height });
+    const header = form.locator(".worksheet-heading");
+    const controls = await Promise.all(
+      [
+        header.getByRole("heading", { name: "パネル編集" }),
+        header.getByRole("textbox", { name: "パネル名" }),
+        header.getByRole("button", { name: "ダッシュボードの期間" }),
+        header.getByRole("button", { name: "配置に戻る" }),
+      ].map((control) => control.boundingBox()),
+    );
+    for (const i of [0, 2]) {
+      const left = controls[i],
+        right = controls[i + 1];
+      if (!left || !right) throw Error("Missing worksheet header control");
+      expect(left.x + left.width).toBeLessThanOrEqual(right.x);
+      expect(left.y + left.height / 2).toBeCloseTo(
+        right.y + right.height / 2,
+        0,
+      );
+    }
     const format = await form.locator(".worksheet-format").boundingBox();
     const catalog = await form.locator(".field-catalog").boundingBox();
     const zones = await form

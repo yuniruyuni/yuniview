@@ -725,7 +725,6 @@ export function PanelBuilder({
     <>
       <div className="worksheet-heading">
         <h2>パネル編集</h2>
-        {timeControl}
         <label className="sheet-title">
           パネル名
           <input
@@ -735,14 +734,17 @@ export function PanelBuilder({
             onChange={(e) => update("title", e.target.value)}
           />
         </label>
-        <button
-          className="primary"
-          type="button"
-          title="変更を下書きに反映して配置に戻る"
-          onClick={back}
-        >
-          配置に戻る
-        </button>
+        <div className="worksheet-heading-actions">
+          {timeControl}
+          <button
+            className="primary"
+            type="button"
+            title="変更を下書きに反映して配置に戻る"
+            onClick={back}
+          >
+            配置に戻る
+          </button>
+        </div>
       </div>
       <div className="builder" {...drag.bind}>
         {item && (
