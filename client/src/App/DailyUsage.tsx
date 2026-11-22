@@ -2,6 +2,12 @@ import { Feedback, useQuery } from "../api";
 
 import { Chart } from "./Panels";
 
+const jstDate = new Intl.DateTimeFormat("ja-JP", {
+  timeZone: "Asia/Tokyo",
+  month: "2-digit",
+  day: "2-digit",
+});
+
 type Row = { day: string; source: string; kind: string; users: number };
 export function DailyUsage({ version }: { version: number }) {
   const { data, error } = useQuery<Row[]>("dailyUsage", undefined, version);
@@ -41,6 +47,7 @@ export function DailyUsage({ version }: { version: number }) {
                 {kind === "account" ? "ログインアカウント数" : "訪問ブラウザ数"}
               </h3>
               <Chart
+                formatTime={(stamp) => jstDate.format(new Date(stamp))}
                 points={points}
                 start={Date.parse(days[29] + "T00:00:00+09:00")}
                 end={Date.parse(today + "T00:00:00+09:00")}

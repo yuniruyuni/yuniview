@@ -174,11 +174,13 @@ const colors = [
   "#6b852c",
 ];
 export function Chart({
+  formatTime = clock,
   points,
   start,
   end,
   choose,
 }: {
+  formatTime?: (stamp: string) => string;
   points: Point[];
   start: number;
   end: number;
@@ -236,7 +238,7 @@ export function Chart({
                     fill={colors[i % colors.length]}
                   >
                     <title>
-                      {clock(p.bucket)} · {g} · {number(p.value)}
+                      {formatTime(p.bucket)} · {g} · {number(p.value)}
                     </title>
                   </circle>
                 );
@@ -244,7 +246,7 @@ export function Chart({
                   <a
                     key={p.bucket}
                     href={choose(p)}
-                    aria-label={`${clock(p.bucket)} のログ`}
+                    aria-label={`${formatTime(p.bucket)} のログ`}
                   >
                     {mark}
                   </a>
@@ -257,8 +259,8 @@ export function Chart({
         })}
       </svg>
       <div className="range">
-        <span>{clock(new Date(start).toISOString())}</span>
-        <span>{clock(new Date(end).toISOString())}</span>
+        <span>{formatTime(new Date(start).toISOString())}</span>
+        <span>{formatTime(new Date(end).toISOString())}</span>
       </div>
       <div className="legend">
         {groups.map((g, i) => (
