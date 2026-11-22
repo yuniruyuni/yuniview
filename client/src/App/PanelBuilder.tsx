@@ -917,137 +917,7 @@ export function PanelBuilder({
             {fieldName}
           </span>
         )}
-        <div className="worksheet-format">
-          <Select
-            label="表示形式"
-            value={format}
-            choices={
-              daily
-                ? [
-                    ["table", "ピボット表"],
-                    ["line", "折れ線"],
-                  ]
-                : [
-                    ...(format === "mixed"
-                      ? [["mixed", "保存済みの複合表示"] as [string, string]]
-                      : []),
-                    ["auto", "自動"],
-                    ["line", "折れ線"],
-                    ["bar", "棒"],
-                    ["area", "エリアグラフ"],
-                    ["stacked_area", "積み上げ面"],
-                    ["table", "ピボット表"],
-                    ...(multiple
-                      ? []
-                      : ([
-                          ["summary", "集計表"],
-                          ["value", "数値"],
-                        ] as [string, string][])),
-                  ]
-            }
-            change={setFormat}
-          />
-        </div>
-        <div className="field-catalog">
-          <label>
-            フィールドを検索
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => find(e.target.value)}
-              placeholder="名前・メトリクス名"
-            />
-          </label>
-          <div className="catalog-list">
-            <h4>指標</h4>
-            {choices
-              .filter(([k, v]) =>
-                (k + v).toLowerCase().includes(search.toLowerCase()),
-              )
-              .map(([k, v]) => (
-                <button
-                  type="button"
-                  key={k}
-                  className="drag-source"
-                  onPointerDown={(e) =>
-                    drag.start(e, { kind: "measure", key: k })
-                  }
-                  aria-pressed={selected === k}
-                  onClick={() => pick(k)}
-                >
-                  {v}
-                </button>
-              ))}
-            <h4>属性</h4>
-            {"ログ log".includes(search.toLowerCase()) && (
-              <button
-                type="button"
-                className="drag-source"
-                disabled={!logs}
-                title={
-                  logs
-                    ? "ログ本文をフィルター"
-                    : "ログ件数・ログ属性のユニーク数で使用できます"
-                }
-                onPointerDown={(e) =>
-                  drag.start(e, { kind: "log", key: "log" })
-                }
-                onClick={() => addFilter("log")}
-              >
-                ログ
-              </button>
-            )}
-            {fields
-              .filter(([k, v]) => (k + v).includes(search))
-              .map(([k, v]) => (
-                <button
-                  key={k}
-                  type="button"
-                  className="drag-source"
-                  onPointerDown={(e) =>
-                    drag.start(e, { kind: "dimension", key: k })
-                  }
-                  onClick={() => {
-                    if (grouped) {
-                      if (!isTemporalField(k)) change(changeGroup(p, k));
-                    } else if (visibleAxes.length)
-                      change(
-                        assign(p, format === "table" ? "row" : "column", k),
-                      );
-                  }}
-                >
-                  {v}
-                </button>
-              ))}
-          </div>
-        </div>
         <div className="builder-main">
-          <FilterShelf
-            panel={{
-              ...p,
-              minutes,
-              ...Object.fromEntries(
-                identifiers.filter((k) => k === openFilter).map((k) => [k, ""]),
-              ),
-            }}
-            end={end}
-            items={conditions}
-            fields={filterFields}
-            open={openFilter}
-            setOpen={openConditions}
-            add={addFilter}
-            change={(c) => writeFilter(c.field, c)}
-            changeTimeField={(previous, next) => {
-              writeFilter(previous, next);
-              openConditions(next.field);
-            }}
-            remove={(k) => {
-              writeFilter(k);
-              if (openFilter === k) openConditions(undefined);
-            }}
-            ready={targets.some((t) => t.id === "filter")}
-            hover={targetRole === "filter"}
-          />
           <div className="preview-head">
             {hovered ? (
               <h4>
@@ -1143,6 +1013,34 @@ export function PanelBuilder({
           data-open={settingsOpen || undefined}
         >
           <div className="assignment-pane">
+            <FilterShelf
+              panel={{
+                ...p,
+                minutes,
+                ...Object.fromEntries(
+                  identifiers
+                    .filter((k) => k === openFilter)
+                    .map((k) => [k, ""]),
+                ),
+              }}
+              end={end}
+              items={conditions}
+              fields={filterFields}
+              open={openFilter}
+              setOpen={openConditions}
+              add={addFilter}
+              change={(c) => writeFilter(c.field, c)}
+              changeTimeField={(previous, next) => {
+                writeFilter(previous, next);
+                openConditions(next.field);
+              }}
+              remove={(k) => {
+                writeFilter(k);
+                if (openFilter === k) openConditions(undefined);
+              }}
+              ready={targets.some((t) => t.id === "filter")}
+              hover={targetRole === "filter"}
+            />
             <fieldset
               className="worksheet-shelves"
               aria-label="フィールドの割り当て"
@@ -1594,6 +1492,110 @@ export function PanelBuilder({
             )}
           </div>
         </section>
+        <div className="worksheet-format">
+          <Select
+            label="表示形式"
+            value={format}
+            choices={
+              daily
+                ? [
+                    ["table", "ピボット表"],
+                    ["line", "折れ線"],
+                  ]
+                : [
+                    ...(format === "mixed"
+                      ? [["mixed", "保存済みの複合表示"] as [string, string]]
+                      : []),
+                    ["auto", "自動"],
+                    ["line", "折れ線"],
+                    ["bar", "棒"],
+                    ["area", "エリアグラフ"],
+                    ["stacked_area", "積み上げ面"],
+                    ["table", "ピボット表"],
+                    ...(multiple
+                      ? []
+                      : ([
+                          ["summary", "集計表"],
+                          ["value", "数値"],
+                        ] as [string, string][])),
+                  ]
+            }
+            change={setFormat}
+          />
+        </div>
+        <div className="field-catalog">
+          <label>
+            フィールドを検索
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => find(e.target.value)}
+              placeholder="名前・メトリクス名"
+            />
+          </label>
+          <div className="catalog-list">
+            <h4>指標</h4>
+            {choices
+              .filter(([k, v]) =>
+                (k + v).toLowerCase().includes(search.toLowerCase()),
+              )
+              .map(([k, v]) => (
+                <button
+                  type="button"
+                  key={k}
+                  className="drag-source"
+                  onPointerDown={(e) =>
+                    drag.start(e, { kind: "measure", key: k })
+                  }
+                  aria-pressed={selected === k}
+                  onClick={() => pick(k)}
+                >
+                  {v}
+                </button>
+              ))}
+            <h4>属性</h4>
+            {"ログ log".includes(search.toLowerCase()) && (
+              <button
+                type="button"
+                className="drag-source"
+                disabled={!logs}
+                title={
+                  logs
+                    ? "ログ本文をフィルター"
+                    : "ログ件数・ログ属性のユニーク数で使用できます"
+                }
+                onPointerDown={(e) =>
+                  drag.start(e, { kind: "log", key: "log" })
+                }
+                onClick={() => addFilter("log")}
+              >
+                ログ
+              </button>
+            )}
+            {fields
+              .filter(([k, v]) => (k + v).includes(search))
+              .map(([k, v]) => (
+                <button
+                  key={k}
+                  type="button"
+                  className="drag-source"
+                  onPointerDown={(e) =>
+                    drag.start(e, { kind: "dimension", key: k })
+                  }
+                  onClick={() => {
+                    if (grouped) {
+                      if (!isTemporalField(k)) change(changeGroup(p, k));
+                    } else if (visibleAxes.length)
+                      change(
+                        assign(p, format === "table" ? "row" : "column", k),
+                      );
+                  }}
+                >
+                  {v}
+                </button>
+              ))}
+          </div>
+        </div>
       </div>
     </>
   );

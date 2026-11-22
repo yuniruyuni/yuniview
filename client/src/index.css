@@ -825,12 +825,12 @@ main:has(.worksheet) {
   position: relative;
   flex: 1;
   min-height: 0;
-  grid-template-columns: clamp(150px, 16vw, 220px) minmax(0, 1fr) clamp(
-      175px,
-      17vw,
-      235px
+  grid-template-columns: minmax(0, 1fr) clamp(200px, 19vw, 265px) clamp(
+      150px,
+      16vw,
+      220px
     );
-  grid-template-areas: "format preview options" "catalog preview options";
+  grid-template-areas: "preview options format" "preview options catalog";
   grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
   margin: 0;
@@ -910,7 +910,7 @@ main:has(.worksheet) {
 .worksheet .builder-main {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   align-content: start;
 }
 .worksheet-shelves {
@@ -1074,19 +1074,17 @@ main:has(.worksheet) {
   vertical-align: top;
 }
 .worksheet .builder-main {
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
 }
 .filter-shelf {
-  position: relative;
-  display: flex;
-  gap: 8px;
-  align-items: center;
+  display: grid;
+  gap: 4px;
   min-width: 0;
-  padding: 5px 8px;
-  margin-top: 5px;
-  border: 1px dashed #a6bfba;
+  padding: 6px;
+  margin-bottom: 10px;
+  border: 1px dashed #9bbab5;
   border-radius: 6px;
-  background: white;
+  background: #f5faf9;
 }
 .filter-shelf[data-ready] {
   border-color: #327d75;
@@ -1103,31 +1101,26 @@ main:has(.worksheet) {
   display: flex;
   gap: 4px;
   min-width: 0;
-  overflow: auto;
+  flex-wrap: wrap;
+}
+.filter-chips:empty {
+  display: none;
 }
 .filter-chips .shelf-chip {
-  flex-shrink: 0;
+  max-width: 100%;
   margin: 0;
 }
 .filter-chips .shelf-chip button:first-child {
-  max-width: 13rem;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .filter-editor {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 3;
-  width: min(22rem, 100%);
-  padding: 10px;
-  background: white;
-  border: 1px solid #a6bfba;
-  border-radius: 6px;
-  box-shadow: 0 4px 12px #14343726;
-  max-height: 34dvh;
-  overflow: auto;
+  min-width: 0;
+  padding-top: 6px;
+  border-top: 1px solid #cededb;
+  overflow-wrap: anywhere;
 }
 .filter-editor .options-heading {
   margin-bottom: 6px;
@@ -1142,7 +1135,7 @@ main:has(.worksheet) {
 }
 .filter-range {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
   align-items: end;
 }
@@ -1151,14 +1144,7 @@ main:has(.worksheet) {
 }
 
 .filter-chips [aria-expanded="true"] {
-  anchor-name: --selected-filter;
   background: #cce8e3;
-}
-@supports (left: anchor(left)) {
-  .filter-editor {
-    position-anchor: --selected-filter;
-    left: clamp(0px, anchor(left), max(0px, 100% - 22rem));
-  }
 }
 .worksheet-shelves > div {
   position: relative;
@@ -1527,7 +1513,7 @@ main:has(.worksheet) {
 
 @media (max-width: 1150px) {
   .worksheet .builder {
-    grid-template-columns: minmax(145px, 18%) minmax(0, 1fr) minmax(160px, 21%);
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 22%) minmax(145px, 18%);
   }
   .worksheet .worksheet-options,
   .worksheet .worksheet-options[data-open] {
@@ -1535,12 +1521,13 @@ main:has(.worksheet) {
   }
   .assignment-pane {
     contain: size;
+    overflow: auto;
     grid-area: options;
     min-width: 0;
     min-height: 0;
   }
   .assignment-pane .worksheet-shelves {
-    max-height: 100%;
+    max-height: none;
     margin: 0;
   }
   .other-settings {
@@ -1561,7 +1548,7 @@ main:has(.worksheet) {
 @media (max-width: 800px) {
   .worksheet .builder {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas: "format options" "catalog options" "preview preview";
+    grid-template-areas: "options format" "options catalog" "preview preview";
     grid-template-rows: auto minmax(0, 30%) minmax(0, 1fr);
   }
   .worksheet-format {

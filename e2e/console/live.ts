@@ -980,7 +980,17 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
       throw Error("Missing worksheet controls");
     expect(format.x).toBeCloseTo(catalog.x);
     expect(format.y + format.height).toBeLessThanOrEqual(catalog.y);
-    expect(zones[0].left).toBeGreaterThanOrEqual(catalog.x + catalog.width);
+    const filter = await form
+      .locator(".assignment-pane .filter-shelf")
+      .boundingBox();
+    const preview = await form.locator(".builder-main").boundingBox();
+    if (!filter || !preview) throw Error("Missing filter or preview");
+    expect(filter.x).toBeCloseTo(zones[0].left);
+    expect(filter.y + filter.height).toBeLessThanOrEqual(zones[0].top);
+    expect(zones[0].left + zones[0].width).toBeLessThanOrEqual(catalog.x);
+    if (width > 800)
+      expect(preview.x + preview.width).toBeLessThanOrEqual(filter.x);
+    else expect(preview.y).toBeGreaterThanOrEqual(catalog.y + catalog.height);
     zones.slice(1).forEach((zone, i) => {
       expect(zone.left).toBeCloseTo(zones[0].left);
       expect(zone.width).toBeCloseTo(zones[0].width);
@@ -989,7 +999,7 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
     for (const element of [
       form.getByRole("button", { name: "配置に戻る", exact: true }),
       form.locator(".field-catalog"),
-      form.locator(".worksheet-shelves"),
+      form.locator(".assignment-pane"),
       form.locator(".builder-main > .card"),
     ]) {
       await expect(element).toBeInViewport({ ratio: 1 });
