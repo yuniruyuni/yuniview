@@ -57,6 +57,7 @@ function styleTargets(format: string, pivot?: Pivot) {
       : [];
   const line =
     format === "line" ||
+    format === "area" ||
     format === "mixed" ||
     (format === "auto" &&
       category.length === 1 &&
@@ -798,6 +799,7 @@ export function PanelBuilder({
                     ["auto", "自動"],
                     ["line", "折れ線"],
                     ["bar", "棒"],
+                    ["area", "エリアグラフ"],
                     ["stacked_area", "積み上げ面"],
                     ["table", "ピボット表"],
                     ...(multiple

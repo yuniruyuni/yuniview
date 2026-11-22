@@ -70,7 +70,13 @@ export function pivotFields(p: Pivot) {
     ...shelfFields(p.series),
   ];
 }
-export type WorksheetMark = "auto" | "table" | "line" | "bar" | "stacked_area";
+export type WorksheetMark =
+  | "auto"
+  | "table"
+  | "line"
+  | "bar"
+  | "area"
+  | "stacked_area";
 export interface MetricOption {
   metric: string;
   aggregation?: Panel["aggregation"];

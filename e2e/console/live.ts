@@ -362,6 +362,36 @@ test("slot totals align gauge samples and exclude incomplete minutes", async ({
   await expect(form.getByRole("group", { name: "固定スタイル" })).toHaveCount(
     0,
   );
+  const format = form.getByRole("combobox", { name: "表示形式", exact: true });
+  await format.selectOption("area");
+  const area = form.getByRole("img", { name: "全系列のエリアグラフ" });
+  await expect(area.locator("polyline")).toHaveCount(2);
+  const curves = await area
+    .locator("polyline")
+    .evaluateAll((lines) =>
+      lines.map((line) =>
+        Array.from((line as SVGPolylineElement).points, ({ x, y }) => [x, y]),
+      ),
+    );
+  const bands = await area
+    .locator('polygon[fill-opacity="0.25"]')
+    .evaluateAll((polygons) =>
+      polygons.map((polygon) =>
+        Array.from((polygon as SVGPolygonElement).points, ({ x, y }) => [x, y]),
+      ),
+    );
+  for (const [i, curve] of curves.entries()) {
+    expect(bands[i].slice(0, curve.length)).toEqual(curve);
+    expect(bands[i]).toHaveLength(2 * curve.length);
+  }
+  // The second band starts exactly at the first band's cumulative line.
+  expect(bands[1].slice(curves[1].length).reverse()).toEqual(
+    curves[0].slice(0, curves[1].length),
+  );
+  await expect(
+    area.locator("title").filter({ hasText: "観測合計 60 MiB" }),
+  ).toHaveCount(2);
+  await format.selectOption("stacked_area");
   await form.getByRole("button", { name: "配置に戻る" }).click();
   await form.getByLabel("名前", { exact: true }).fill("Stacked memory");
   await form.getByRole("button", { name: "保存", exact: true }).click();

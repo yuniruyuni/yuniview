@@ -58,7 +58,7 @@ const condition = z
   );
 const shelf = shelfField.or(z.array(shelfField).max(32));
 const aggregation = z.enum(["avg", "max", "min", "sum"]);
-const mark = z.enum(["auto", "table", "line", "bar", "stacked_area"]);
+const mark = z.enum(["auto", "table", "line", "bar", "area", "stacked_area"]);
 const styles = z
   .object({
     color: z.number().int().min(0).max(6).optional(),

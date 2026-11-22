@@ -14,6 +14,8 @@ import { number } from "../api";
 import { dashPatterns, lineWidths, PointSymbol, palette } from "./SeriesStyle";
 
 const ticks = [0, 0.25, 0.5, 0.75, 1];
+const isStacked = (format: string) =>
+  format === "stacked_area" || format === "area";
 export function WorksheetPlot({
   panel,
   points,
@@ -103,7 +105,7 @@ export function WorksheetPlot({
     ? bucketMs / (last - first + bucketMs)
     : 1 / ordered.length;
   const formats = new Set(Array.from(groups.values(), (g) => g.format));
-  const stacked = formats.has("stacked_area"),
+  const stacked = formats.has("stacked_area") || formats.has("area"),
     bars = formats.has("bar");
   const coord = (key: string) =>
     temporal && (stacked || bars)
@@ -175,7 +177,7 @@ export function WorksheetPlot({
     const domain = domains.get(g.unit) ?? [0, 0];
     for (const m of g.marks) {
       let edge = m.value;
-      if (g.format === "stacked_area") {
+      if (isStacked(g.format)) {
         const total = totals.get(m.category) ?? { positive: 0, negative: 0 };
         const sign = m.value < 0 ? "negative" : "positive";
         baselines.set(m, total[sign]);
@@ -191,13 +193,14 @@ export function WorksheetPlot({
   const mixed = domains.size > 1;
   if (
     new Set(
-      visible
-        .filter(([, g]) => g.format === "stacked_area")
-        .map(([, g]) => g.unit),
+      visible.filter(([, g]) => isStacked(g.format)).map(([, g]) => g.unit),
     ).size > 1
   )
     return (
-      <p role="status">積み上げ面には同じ単位の指標を配置してください。</p>
+      <p role="status">
+        {formats.has("area") ? "エリアグラフ" : "積み上げ面"}
+        には同じ単位の指標を配置してください。
+      </p>
     );
   const [low, high] = domains.values().next().value ?? [0, 1];
   const xy = (c: number, v: number) =>
@@ -233,11 +236,13 @@ export function WorksheetPlot({
           aria-label={
             formats.size > 1
               ? "複合グラフ"
-              : stacked
-                ? "全系列の積み上げ面グラフ"
-                : bars
-                  ? "カテゴリ別の棒グラフ"
-                  : "系列別の折れ線グラフ"
+              : formats.has("area")
+                ? "全系列のエリアグラフ"
+                : stacked
+                  ? "全系列の積み上げ面グラフ"
+                  : bars
+                    ? "カテゴリ別の棒グラフ"
+                    : "系列別の折れ線グラフ"
           }
         >
           {ticks.map((t) => {
@@ -279,13 +284,12 @@ export function WorksheetPlot({
             .sort(
               ([, a], [, b]) =>
                 Number(a.format === "line") - Number(b.format === "line") ||
-                Number(b.format === "stacked_area") -
-                  Number(a.format === "stacked_area"),
+                Number(isStacked(b.format)) - Number(isStacked(a.format)),
             )
             .map(([key, g]) => {
               const index = barGroups.findIndex(([k]) => k === key);
               const bars = g.format === "bar",
-                stacked = g.format === "stacked_area";
+                stacked = isStacked(g.format);
               const {
                 color,
                 dash,
@@ -297,6 +301,28 @@ export function WorksheetPlot({
               const marks = g.marks.sort(
                 (a, b) => coord(a.category) - coord(b.category),
               );
+              const runs: Mark[][] = [];
+              if (g.format === "area") {
+                for (const mark of marks) {
+                  const run = runs.at(-1);
+                  const prev = run?.at(-1);
+                  const adjacent =
+                    prev &&
+                    (temporal
+                      ? time(mark.category) - time(prev.category) === bucketMs
+                      : positions.get(mark.category)! -
+                          positions.get(prev.category)! ===
+                        1);
+                  if (
+                    run &&
+                    prev &&
+                    adjacent &&
+                    prev.value < 0 === mark.value < 0
+                  )
+                    run.push(mark);
+                  else runs.push([mark]);
+                }
+              }
               const width =
                 ((horizontal ? 125 : 490) * band * 0.78) /
                 Math.max(1, barGroups.length);
@@ -308,6 +334,35 @@ export function WorksheetPlot({
                     stacked && groups.has(focused) && focused !== key ? 0.3 : 1
                   }
                 >
+                  {runs.map((run) => {
+                    const edge = (m: Mark, upper: boolean) =>
+                      xy(
+                        coord(m.category),
+                        scale(baselines.get(m)! + (upper ? m.value : 0)),
+                      ).join(",");
+                    const top = run.map((m) => edge(m, true)).join(" ");
+                    const bottom = run
+                      .map((m) => edge(m, false))
+                      .reverse()
+                      .join(" ");
+                    return (
+                      <g key={run[0].category}>
+                        <polygon
+                          points={top + " " + bottom}
+                          fillOpacity={0.25}
+                        />
+                        <polyline
+                          points={top}
+                          fill="none"
+                          stroke={color}
+                          strokeWidth={strokeWidth}
+                          strokeDasharray={dash}
+                          strokeLinejoin="round"
+                          strokeLinecap="round"
+                        />
+                      </g>
+                    );
+                  })}
                   {!bars && !stacked && (
                     <path
                       fill="none"
@@ -338,7 +393,28 @@ export function WorksheetPlot({
                     if (stacked) {
                       const base = baselines.get(m) ?? 0;
                       const total = totals.get(m.category)!;
+                      const observed = (
+                        <title key={m.category}>
+                          {formatCategory(m.category)} · {g.label} ·{" "}
+                          {number(m.value)} {g.unit} ／ 観測合計{" "}
+                          {number(total.positive + total.negative)} {g.unit}
+                        </title>
+                      );
                       const c = coord(m.category);
+                      if (g.format === "area") {
+                        const [x, y] = xy(c, scale(base + m.value));
+                        return (
+                          <PointSymbol
+                            key={m.category}
+                            shape={shape}
+                            x={x}
+                            y={y}
+                            r={marks.length > 200 ? 1 : 2.5}
+                          >
+                            {observed}
+                          </PointSymbol>
+                        );
+                      }
                       const start = c - band / 2,
                         end = c + band / 2;
                       const polygon = [
@@ -352,11 +428,7 @@ export function WorksheetPlot({
                           key={m.category}
                           points={polygon.map((p) => p.join(",")).join(" ")}
                         >
-                          <title>
-                            {formatCategory(m.category)} · {g.label} ·{" "}
-                            {number(m.value)} {g.unit} ／ 観測合計{" "}
-                            {number(total.positive + total.negative)} {g.unit}
-                          </title>
+                          {observed}
                         </polygon>
                       );
                     }
@@ -404,8 +476,17 @@ export function WorksheetPlot({
                   viewBox="0 0 32 12"
                   fill={style.color}
                 >
-                  {g.format === "line" ? (
+                  {g.format === "line" || g.format === "area" ? (
                     <>
+                      {g.format === "area" && (
+                        <rect
+                          x="1"
+                          y="6"
+                          width="30"
+                          height="6"
+                          fillOpacity={0.25}
+                        />
+                      )}
                       <line
                         x1="1"
                         x2="31"
