@@ -60,7 +60,11 @@ export function displayPoints(panel: Panel, points: Point[]) {
       panel.unit ?? p.metricUnit ?? nativeUnit(panel, metric ?? panel.metric);
     const scale = compatibleUnits(source);
     if (!unit || !scale || !Object.hasOwn(scale, unit))
-      return panel.unit ? { ...p, metricUnit: panel.unit } : p;
+      return source &&
+        source !== p.metricUnit &&
+        (panel.unit || panel.display === "table" || panel.display === "pivot")
+        ? { ...p, metricUnit: source }
+        : p;
     return {
       ...p,
       metricUnit: unit,

@@ -363,6 +363,41 @@ test("slot totals align gauge samples and exclude incomplete minutes", async ({
     0,
   );
   const format = form.getByRole("combobox", { name: "表示形式", exact: true });
+  await format.selectOption("summary");
+  await expect(
+    form.getByRole("columnheader", { name: "値（MiB）" }),
+  ).toBeVisible();
+  const reading = form
+    .locator(".builder-main table tbody tr")
+    .first()
+    .locator("td")
+    .nth(1);
+  const mib = Number((await reading.innerText()).replaceAll(",", ""));
+  await form.locator('[data-drop="measure"] .shelf-chip button').click();
+  await form
+    .locator(".metric-menu:popover-open")
+    .getByLabel("表示単位")
+    .selectOption("KiB");
+  await page.keyboard.press("Escape");
+  await expect(
+    form.getByRole("columnheader", { name: "値（KiB）" }),
+  ).toBeVisible();
+  expect(Number((await reading.innerText()).replaceAll(",", ""))).toBeCloseTo(
+    mib * 1024,
+    -1,
+  );
+  await form.locator('[data-drop="measure"] .shelf-chip button').click();
+  await form
+    .locator(".metric-menu:popover-open")
+    .getByLabel("表示単位")
+    .selectOption("MiB");
+  await page.keyboard.press("Escape");
+  await format.selectOption("stacked_area");
+  await form.getByRole("button", { name: "色に属性を割り当て" }).click();
+  await page
+    .getByRole("dialog", { name: "色に追加" })
+    .getByRole("button", { name: "スロット", exact: true })
+    .click();
   await format.selectOption("area");
   const area = form.getByRole("img", { name: "全系列のエリアグラフ" });
   const entries = form.locator(".worksheet-plot .legend button[aria-pressed]");
@@ -516,6 +551,12 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   ).toBeVisible();
   await expect(
     form.getByRole("rowheader", { name: "cpu.usage" }),
+  ).toBeVisible();
+  await expect(
+    form.getByRole("cell").filter({ hasText: / B$/ }).first(),
+  ).toBeVisible();
+  await expect(
+    form.getByRole("cell").filter({ hasText: / µs$/ }).first(),
   ).toBeVisible();
   await page.reload();
   await expect(

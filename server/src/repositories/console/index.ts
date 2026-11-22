@@ -214,7 +214,7 @@ export async function series(
         GROUP BY 1,2,3 HAVING count(*)=${slots.length}::int
       )
       SELECT ${bucket} AS bucket, source || '/' || workload AS series,
-        ${p.fieldUnits?.["metric/" + p.metric] ? sql`min(unit) AS "metricUnit",` : sql``}
+        ${p.display === "table" || p.fieldUnits?.["metric/" + p.metric] ? sql`min(unit) AS "metricUnit",` : sql``}
         ${sql.raw(p.aggregation)}(total) / ${p.unit === "MiB" ? 1048576 : 1}::float8 AS value,
         count(*)::int AS samples FROM totals GROUP BY 1,2 ORDER BY 1,2`);
   }
@@ -265,7 +265,8 @@ export async function series(
           ? metricAggregate
           : sql.raw("count(*)");
   const units =
-    (pivot || p.fieldUnits?.["metric/" + p.metric]) && p.measure === "metric"
+    (pivot || p.display === "table" || p.fieldUnits?.["metric/" + p.metric]) &&
+    p.measure === "metric"
       ? sql`min(unit) AS "metricUnit",`
       : sql``;
   const hasFacet = shelfFields(pivot?.series).length > 0;

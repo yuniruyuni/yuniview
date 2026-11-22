@@ -396,6 +396,15 @@ export function Chart({
     </div>
   );
 }
+function commonTableUnit(points: Point[]) {
+  const unit = points[0]?.metricUnit;
+  return unit && points.every((p) => p.metricUnit === unit) ? unit : "";
+}
+function tableValue(point: Point, commonUnit: string) {
+  return [number(point.value), commonUnit ? "" : point.metricUnit]
+    .filter(Boolean)
+    .join(" ");
+}
 export function PanelView({
   panel,
   end,
@@ -446,6 +455,8 @@ export function PanelView({
     buckets: panel.display === "chart",
   });
   const data = rawPoints && displayPoints(panel, rawPoints);
+  const tableUnit =
+    panel.display === "table" && data ? commonTableUnit(data) : "";
   const unit = data?.[0]?.metricUnit ?? panel.unit;
   return (
     <article className="card">
@@ -469,7 +480,8 @@ export function PanelView({
       </div>
       <small>
         {measures[panel.measure]} · {panel.source || "全サービス"} ·{" "}
-        {panel.minutes}分 {!panel.pivot?.metrics?.length && unit}
+        {panel.minutes}分{" "}
+        {panel.display !== "table" && !panel.pivot?.metrics?.length && unit}
         {panel.group === "slot_total" &&
           ` · ${(panel.totalSlots ?? defaultTotalSlots).join(" + ")}（全スロットを観測した分のみ）`}
       </small>
@@ -519,7 +531,7 @@ export function PanelView({
           <thead>
             <tr>
               <th>系列</th>
-              <th>値</th>
+              <th>{tableUnit ? `値（${tableUnit}）` : "値"}</th>
               <th>サンプル</th>
             </tr>
           </thead>
@@ -527,7 +539,7 @@ export function PanelView({
             {data.map((p) => (
               <tr key={p.series}>
                 <td>{p.series}</td>
-                <td>{number(p.value)}</td>
+                <td>{tableValue(p, tableUnit)}</td>
                 <td>{p.samples}</td>
               </tr>
             ))}
@@ -667,6 +679,7 @@ function PivotTable({
 }) {
   const pivot = panel.pivot;
   if (!pivot) return null;
+  const tableUnit = commonTableUnit(points);
   const rowFields = shelfFields(pivot.row),
     colFields = shelfFields(pivot.column);
   const rows = new Map<string, Map<string, Point>>();
@@ -770,6 +783,7 @@ function PivotTable({
                 >
                   {rowFields.map(shelfName).join(" › ") || "合計"} ／{" "}
                   {colFields.map(shelfName).join(" › ") || "合計"}
+                  {tableUnit && <small>値（{tableUnit}）</small>}
                 </th>
               )}
               {colHeaders
@@ -804,9 +818,7 @@ function PivotTable({
               )}
               {colHeaders.map((c) => {
                 const p = rows.get(r.key)?.get(c.key);
-                const value = p
-                  ? [number(p.value), p.metricUnit].filter(Boolean).join(" ")
-                  : "—";
+                const value = p ? tableValue(p, tableUnit) : "—";
                 return (
                   <td key={c.key}>
                     {p &&
