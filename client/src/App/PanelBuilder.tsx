@@ -3,10 +3,13 @@ import {
   type Axis,
   axes,
   blankPanel,
+  changeGroup,
   type Distinct,
+  defaultTotalSlots,
   measures,
   type Overview,
   type Panel,
+  slotTotalChoice,
 } from "../../../shared/console";
 import { PanelView, Select } from "./Panels";
 
@@ -74,6 +77,8 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
           : p.title,
       metric,
       distinct: undefined,
+      group:
+        p.group === "slot_total" && measure !== "metric" ? "source" : p.group,
       measure,
       unit: metric === "memory.current" ? "MiB" : undefined,
     };
@@ -95,7 +100,12 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
     const other = which === "row" ? "column" : "row";
     if (pair[other] === key) pair[other] = pair[which];
     pair[which] = key;
-    change({ ...p, display: "pivot", pivot: pair });
+    change({
+      ...p,
+      group: p.group === "slot_total" ? "source" : p.group,
+      display: "pivot",
+      pivot: pair,
+    });
   }
   function drop(e: React.DragEvent, action: (key: Axis) => void) {
     e.preventDefault();
@@ -107,7 +117,16 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
   const [filterKey, filterBy] = useState<Axis | "text">("source");
   const fieldKeys = daily
     ? (["source"] as const)
-    : (["source", "slot", "workload", "revision", "instance", "text"] as const);
+    : p.group === "slot_total"
+      ? (["source", "workload", "revision", "text"] as const)
+      : ([
+          "source",
+          "slot",
+          "workload",
+          "revision",
+          "instance",
+          "text",
+        ] as const);
   const active = fieldKeys.filter((k) => p[k] || k === filterKey);
   const times = Array.from(
     new Set([
@@ -233,6 +252,10 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
               change({
                 ...p,
                 display: v as Panel["display"],
+                group:
+                  v === "pivot" && p.group === "slot_total"
+                    ? "source"
+                    : p.group,
                 pivot:
                   v === "pivot"
                     ? daily
@@ -250,7 +273,9 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
                 ["avg", "平均"],
                 ["max", "最大"],
                 ["min", "最小"],
-                ["sum", "合計"],
+                ...(p.group === "slot_total"
+                  ? []
+                  : [["sum", "合計"] as [string, string]]),
               ]}
               change={(v) => update("aggregation", v as Panel["aggregation"])}
             />
@@ -294,10 +319,44 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
               value={p.group}
               choices={[
                 ["all", "全体"],
+                ...(p.measure === "metric" ? [slotTotalChoice] : []),
                 ...fields.filter(([k]) => k !== "day"),
               ]}
-              change={(k) => update("group", k as Panel["group"])}
+              change={(k) => change(changeGroup(p, k as Panel["group"]))}
             />
+          )}
+          {p.group === "slot_total" && (
+            <fieldset>
+              <legend>合計するスロット</legend>
+              {Array.from(
+                new Set([
+                  ...(p.totalSlots ?? defaultTotalSlots),
+                  ...meta.slots,
+                ]),
+              ).map((slot) => {
+                const selected = p.totalSlots ?? defaultTotalSlots;
+                return (
+                  <label key={slot} className="inline">
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(slot)}
+                      disabled={
+                        selected.length === 1 && selected.includes(slot)
+                      }
+                      onChange={(e) =>
+                        update(
+                          "totalSlots",
+                          e.target.checked
+                            ? [...selected, slot]
+                            : selected.filter((s) => s !== slot),
+                        )
+                      }
+                    />
+                    {slot}
+                  </label>
+                );
+              })}
+            </fieldset>
           )}
           <Select
             onDrop={(e) =>

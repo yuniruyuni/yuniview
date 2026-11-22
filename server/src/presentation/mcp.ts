@@ -55,7 +55,7 @@ export function managementMcp(ctx: Context) {
       "preview_panel",
       {
         description:
-          "Evaluate a dashboard or monitor query against recent telemetry before saving. Pivot panels return row (series), column and value per cell. For distinct counts specify dataset and field. Daily sets support day/source pivots or daily charts grouped by source.",
+          "Evaluate a dashboard or monitor query against recent telemetry before saving. Pivot panels return row (series), column and value per cell. For distinct counts specify dataset and field. Daily sets support day/source pivots or daily charts grouped by source. For gauge totals use group slot_total and totalSlots (default blue and green). Each complete minute sums per-slot means.",
         inputSchema: z.object({ panel }),
         annotations: readOnly,
       },

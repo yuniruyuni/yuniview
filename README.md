@@ -48,6 +48,9 @@ YUNIVIEW_ACCESS_TOKEN="$(cloudflared access token --app=https://yuniview.yuniruy
 
 たとえば「web の直近60分のメモリ使用量をプレビューし、blue・green 別のダッシュボードとして保存して」と依頼できます。サービス名や指標名は `list_telemetry`、既存設定と版は `list_configuration`、集計の試行は `preview_panel` で取得します。`save_dashboard` と `save_monitor` には完全な定義と `expectedVersion` を渡します。新規作成時は新しい UUID と null を使い、更新時は取得した版を指定します。競合時は設定を読み直し、変更を反映してください。
 
+メモリなどのゲージは「系列 → スロット合計（サービス別）」で合算できます。対象スロットの既定は blue と green です。サービス・ワークロードごとに各スロットの1分平均を足し、すべての対象スロットに観測値がある分を使います。「集計 → 最大」はその分合計の最大値です。
+
+
 [Cloudflare Access の CLI 認証](https://developers.cloudflare.com/cloudflare-one/tutorials/cli/) · [Codex の MCP 設定](https://developers.openai.com/codex/mcp/)
 
 ## モニターと保持期間

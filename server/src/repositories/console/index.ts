@@ -6,6 +6,7 @@ import type {
   Point,
   RouteRow,
 } from "../../../../shared/console";
+import { defaultTotalSlots } from "../../../../shared/console";
 import type { Database } from "../../infra/db";
 import { sql } from "../../infra/db";
 import { events } from "../../models/events";
@@ -66,6 +67,26 @@ export async function series(
     return db.queryAll<Point>(
       sql`SELECT ${pivot ? sql`${end}::timestamptz` : sql`day::timestamp AT TIME ZONE 'Asia/Tokyo'`} AS bucket,${row} AS series,${pivot ? sql`${pivot.column === "day" ? day : sql`source`} AS "column",` : sql``} ${count} AS value,${count} AS samples FROM daily_sets WHERE field=${distinct.field} AND day BETWEEN (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date - ${Math.ceil(p.minutes / 1440) - 1}::int AND (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date AND ${p.source ? sql`source=${p.source}` : sql`true`} GROUP BY ${pivot ? sql`1,2,3` : sql`1,2`} ORDER BY ${pivot ? sql`1,2,3` : sql`1,2`}`,
     );
+  }
+  if (p.group === "slot_total") {
+    // Agents sample independently. Average within each minute before adding the two gauges.
+    const slots = p.totalSlots ?? defaultTotalSlots;
+    const bucket = buckets
+      ? sql`date_bin(make_interval(mins=>${Math.ceil(p.minutes / 40)}::int),minute,'2000-01-01'::timestamptz)`
+      : sql`${end}::timestamptz`;
+    return db.queryAll<Point>(sql`
+      WITH per_slot AS (
+        SELECT date_trunc('minute', at) AS minute, source, workload, slot, avg(value) AS reading
+        FROM telemetry_events WHERE ${matches(p, end)} AND kind='metric' AND name=${p.metric}
+          AND value IS NOT NULL AND slot IN (${sql.list(slots)})
+        GROUP BY 1,2,3,4
+      ), totals AS (
+        SELECT minute, source, workload, sum(reading) AS total FROM per_slot
+        GROUP BY 1,2,3 HAVING count(*)=${slots.length}::int
+      )
+      SELECT ${bucket} AS bucket, source || '/' || workload AS series,
+        ${sql.raw(p.aggregation)}(total) / ${p.unit === "MiB" ? 1048576 : 1}::float8 AS value,
+        count(*)::int AS samples FROM totals GROUP BY 1,2 ORDER BY 1,2`);
   }
   const field = (key: NonNullable<Panel["pivot"]>["row"]) =>
     key === "day"

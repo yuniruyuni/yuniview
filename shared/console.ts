@@ -36,11 +36,27 @@ export interface Panel extends Filter {
   measure: Measure;
   distinct?: Distinct;
   metric: string;
+  totalSlots?: string[];
   aggregation: "avg" | "max" | "min" | "sum";
-  group: "all" | Identifier;
+  group: "all" | "slot_total" | Identifier;
   display: "chart" | "value" | "table" | "pivot";
   pivot?: { row: Axis; column: Axis };
   unit?: "MiB";
+}
+export const defaultTotalSlots = ["blue", "green"];
+export const slotTotalChoice: [string, string] = [
+  "slot_total",
+  "スロット合計（サービス別）",
+];
+export function changeGroup(p: Panel, group: Panel["group"]): Panel {
+  if (group !== "slot_total") return { ...p, group };
+  return {
+    ...p,
+    group,
+    slot: "",
+    instance: "",
+    aggregation: p.aggregation === "sum" ? "avg" : p.aggregation,
+  };
 }
 export interface Monitor {
   id: string;

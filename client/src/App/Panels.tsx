@@ -1,6 +1,12 @@
 import { useId, useState } from "react";
 import type { Overview, Panel, Point } from "../../../shared/console";
-import { axes, measures } from "../../../shared/console";
+import {
+  axes,
+  changeGroup,
+  defaultTotalSlots,
+  measures,
+  slotTotalChoice,
+} from "../../../shared/console";
 import { clock, Feedback, number, useQuery } from "../api";
 
 export function Select({
@@ -65,7 +71,12 @@ export function PanelFields({
         value={p.measure}
         choices={Object.entries(measures).filter(([k]) => k !== "distinct")}
         change={(v) =>
-          set({ ...p, measure: v as Panel["measure"], unit: undefined })
+          set({
+            ...p,
+            measure: v as Panel["measure"],
+            group: p.group === "slot_total" ? "source" : p.group,
+            unit: undefined,
+          })
         }
       />
       {p.measure === "metric" && (
@@ -93,7 +104,9 @@ export function PanelFields({
               ["avg", "平均"],
               ["max", "最大"],
               ["min", "最小"],
-              ["sum", "合計"],
+              ...(p.group === "slot_total"
+                ? []
+                : [["sum", "合計"] as [string, string]]),
             ]}
             change={(v) => update("aggregation", v as Panel["aggregation"])}
           />
@@ -105,12 +118,14 @@ export function PanelFields({
         choices={choices(meta.services.map((s) => s.source))}
         change={(v) => update("source", v)}
       />
-      <Select
-        label="系"
-        value={p.slot}
-        choices={choices(meta.slots)}
-        change={(v) => update("slot", v)}
-      />
+      {p.group !== "slot_total" && (
+        <Select
+          label="系"
+          value={p.slot}
+          choices={choices(meta.slots)}
+          change={(v) => update("slot", v)}
+        />
+      )}
       <label>
         ワークロード
         <input
@@ -121,6 +136,7 @@ export function PanelFields({
       <label>
         インスタンス
         <input
+          disabled={p.group === "slot_total"}
           value={p.instance}
           onChange={(e) => update("instance", e.target.value)}
         />
@@ -155,13 +171,14 @@ export function PanelFields({
         value={p.group}
         choices={[
           ["all", "全体"],
+          ...(p.measure === "metric" ? [slotTotalChoice] : []),
           ["source", "サービス"],
           ["slot", "系"],
           ["revision", "リビジョン"],
           ["workload", "ワークロード"],
           ["instance", "インスタンス"],
         ]}
-        change={(v) => update("group", v as Panel["group"])}
+        change={(v) => set(changeGroup(p, v as Panel["group"]))}
       />
       <Select
         label="表示"
@@ -186,11 +203,13 @@ const colors = [
 ];
 export function Chart({
   formatTime = clock,
+  gapMs = Infinity,
   points,
   start,
   end,
   choose,
 }: {
+  gapMs?: number;
   formatTime?: (stamp: string) => string;
   points: Point[];
   start: number;
@@ -234,10 +253,18 @@ export function Chart({
           const ps = shown.filter((p) => p.series === g);
           return (
             <g key={g} stroke={colors[i % colors.length]}>
-              <polyline
+              <path
                 fill="none"
                 strokeWidth="2"
-                points={ps.map((p) => `${x(p)},${y(p)}`).join(" ")}
+                d={ps
+                  .map((p, i) => {
+                    const move =
+                      !i ||
+                      Date.parse(p.bucket) - Date.parse(ps[i - 1].bucket) >
+                        gapMs;
+                    return `${move ? "M" : "L"}${x(p)},${y(p)}`;
+                  })
+                  .join(" ")}
               />
               {ps.map((p) => {
                 const mark = (
@@ -329,6 +356,8 @@ export function PanelView({
       <small>
         {measures[panel.measure]} · {panel.source || "全サービス"} ·{" "}
         {panel.minutes}分 {panel.unit ?? ""}
+        {panel.group === "slot_total" &&
+          ` · ${(panel.totalSlots ?? defaultTotalSlots).join(" + ")}（全スロットを観測した分のみ）`}
       </small>
       {!data ? (
         <p role="status">
@@ -345,6 +374,11 @@ export function PanelView({
       ) : panel.display === "chart" ? (
         <Chart
           points={data}
+          gapMs={
+            panel.group === "slot_total"
+              ? Math.ceil(panel.minutes / 40) * 60000
+              : undefined
+          }
           start={Date.parse(end) - panel.minutes * 60000}
           end={Date.parse(end)}
           choose={choose}

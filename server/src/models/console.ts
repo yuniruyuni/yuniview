@@ -40,8 +40,15 @@ export const panel = filter
       })
       .optional(),
     metric: label,
+    totalSlots: z
+      .array(label.pipe(z.string().min(1)))
+      .min(1)
+      .max(32)
+      .refine((slots) => new Set(slots).size === slots.length)
+      .optional(),
     aggregation: z.enum(["avg", "max", "min", "sum"]),
     group: z.enum([
+      "slot_total",
       "all",
       "source",
       "slot",
@@ -53,6 +60,16 @@ export const panel = filter
     pivot: z.object({ row: axis, column: axis }).optional(),
     unit: z.literal("MiB").optional(),
   })
+  .refine(
+    (p) =>
+      p.group !== "slot_total" ||
+      (p.measure === "metric" &&
+        p.display !== "pivot" &&
+        p.aggregation !== "sum" &&
+        !p.slot &&
+        !p.instance),
+    "スロット合計は両方のスロットを対象とするメトリクスで使用できます",
+  )
   .refine(
     (p) => p.display !== "pivot" || (p.pivot && p.pivot.row !== p.pivot.column),
     "行と列には異なる項目が必要です",

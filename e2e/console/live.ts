@@ -225,3 +225,81 @@ test("agent records → trace and logs → saved panel → monitor and notificat
     hook.close();
   }
 });
+
+test("slot totals align gauge samples and exclude incomplete minutes", async ({
+  request,
+  page,
+}) => {
+  const end = Math.floor(Date.now() / 60000) * 60000;
+  for (const [slot, minutesAgo, mib] of [
+    ["blue", 3, 10],
+    ["blue", 3, 14],
+    ["green", 3, 20],
+    ["blue", 2, 40],
+    ["green", 2, 20],
+    ["blue", 1, 500],
+  ] as const) {
+    const r = await request.post(
+      `http://127.0.0.1:${process.env.INGEST_PORT}/api/agent/v1/batches`,
+      {
+        headers: {
+          Authorization: `Bearer ${slot === "blue" ? process.env.CONSOLE_TOKEN : process.env.GREEN_TEST_TOKEN}`,
+        },
+        data: {
+          id: randomUUID().replaceAll("-", ""),
+          time: new Date(
+            end - minutesAgo * 60000 + ((1000 * mib) % 60000),
+          ).toISOString(),
+          source: {
+            service: "checkout",
+            workload: "app",
+            instance: slot,
+            slot,
+            revision: "total-test",
+          },
+          signal: "resources",
+          payload: { memoryBytes: mib * 1048576 },
+        },
+      },
+    );
+    expect(r.status()).toBe(204);
+  }
+  const panel = {
+    ...blankPanel,
+    minutes: 5,
+    revision: "total-test",
+    measure: "metric",
+    metric: "memory.current",
+    unit: "MiB",
+    group: "slot_total",
+  };
+  for (const [aggregation, buckets, expected] of [
+    ["avg", true, [32, 60]],
+    ["avg", false, [46]],
+    ["max", false, [60]],
+    ["min", false, [32]],
+  ] as const) {
+    const r = await request.get("/api/trpc/series", {
+      params: {
+        input: JSON.stringify({
+          panel: { ...panel, aggregation },
+          end: new Date(end).toISOString(),
+          buckets,
+        }),
+      },
+    });
+    expect(
+      (await r.json()).result.data.map((p: { value: number }) => p.value),
+    ).toEqual(expected);
+  }
+  await page.goto("/#page=dashboards&revision=total-test");
+  await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
+  const form = page.locator("form.editor");
+  await form
+    .getByRole("combobox", { name: "系列", exact: true })
+    .selectOption("slot_total");
+  await form
+    .getByRole("combobox", { name: "表示", exact: true })
+    .selectOption("value");
+  await expect(form.locator(".values strong")).toHaveText("46");
+});
