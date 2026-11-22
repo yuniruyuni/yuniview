@@ -889,6 +889,9 @@ export function PanelBuilder({
         </label>
         <div className="worksheet-heading-actions">
           {timeControl}
+          <button className="panel-cancel" type="button" onClick={cancelPanel}>
+            キャンセル
+          </button>
           <button
             className="primary"
             type="button"
@@ -901,9 +904,6 @@ export function PanelBuilder({
             onClick={savePanel}
           >
             セーブ
-          </button>
-          <button type="button" onClick={cancelPanel}>
-            キャンセル
           </button>
           <button
             type="button"

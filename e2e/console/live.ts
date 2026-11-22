@@ -969,8 +969,8 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
         header.getByRole("heading", { name: "パネル編集" }),
         header.getByRole("textbox", { name: "パネル名" }),
         header.getByRole("button", { name: "ダッシュボードの期間" }),
-        header.getByRole("button", { name: "セーブ" }),
         header.getByRole("button", { name: "キャンセル" }),
+        header.getByRole("button", { name: "セーブ" }),
         header.getByRole("button", { name: "パネル操作" }),
       ].map((control) => control.boundingBox()),
     );

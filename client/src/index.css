@@ -775,6 +775,15 @@ main:has(.worksheet) {
   gap: 8px;
   margin-left: auto;
 }
+.panel-cancel {
+  background: #b42318;
+  border-color: #b42318;
+  color: white;
+}
+.panel-cancel:hover {
+  background: #912018;
+  border-color: #912018;
+}
 .panel-actions-trigger {
   anchor-name: --panel-actions;
   font-weight: 700;
