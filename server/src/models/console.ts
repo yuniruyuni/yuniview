@@ -50,6 +50,8 @@ const condition = z
       c.field.startsWith("time:"),
   );
 const shelf = shelfField.or(z.array(shelfField).max(32));
+const aggregation = z.enum(["avg", "max", "min", "sum"]);
+const mark = z.enum(["auto", "table", "line", "bar", "stacked_area"]);
 export const panel = filter
   .extend({
     id: z.uuid().optional(),
@@ -81,7 +83,7 @@ export const panel = filter
       .max(32)
       .refine((slots) => new Set(slots).size === slots.length)
       .optional(),
-    aggregation: z.enum(["avg", "max", "min", "sum"]),
+    aggregation,
     group: z
       .enum([
         "slot_total",
@@ -99,8 +101,16 @@ export const panel = filter
         row: shelf,
         column: shelf,
         series: shelf.optional(),
-        mark: z
-          .enum(["auto", "table", "line", "bar", "stacked_area"])
+        mark: mark.optional(),
+        metricOptions: z
+          .array(
+            z.object({
+              metric: label,
+              aggregation: aggregation.optional(),
+              mark: mark.optional(),
+            }),
+          )
+          .max(13)
           .optional(),
         metrics: z
           .array(label.pipe(z.string().min(1)))
@@ -129,6 +139,20 @@ export const panel = filter
         new Set(pivotFields(p.pivot)).size === pivotFields(p.pivot).length),
     "行・列・系列には異なるフィールドを指定してください",
   )
+  .refine((p) => {
+    const opts = p.pivot?.metricOptions;
+    return (
+      !opts?.length ||
+      (p.display === "pivot" &&
+        p.measure === "metric" &&
+        !!p.pivot &&
+        pivotFields(p.pivot).includes("measure") &&
+        new Set(opts.map((o) => o.metric)).size === opts.length &&
+        opts.every((o) =>
+          [p.metric, ...(p.pivot?.metrics ?? [])].includes(o.metric),
+        ))
+    );
+  }, "指標設定は棚に配置した指標を指定してください")
   .refine(
     (p) =>
       !p.pivot?.metrics ||

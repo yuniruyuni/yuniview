@@ -205,9 +205,10 @@ test("agent records → trace and logs → saved panel → monitor and notificat
     const details = form.getByRole("link", { name: "checkout blue の詳細" });
     await expect(details).toHaveAttribute("href", /source=checkout/);
     await expect(details).toHaveAttribute("href", /slot=blue/);
-    await form
-      .getByRole("combobox", { name: "行", exact: true })
-      .selectOption("axis/slot");
+    await form.getByRole("button", { name: "行にフィールドを追加" }).dblclick();
+    const picker = page.getByRole("dialog", { name: "行に追加" });
+    await picker.getByRole("searchbox").fill("スロット");
+    await picker.getByRole("button", { name: "スロット", exact: true }).click();
     await expect(
       form.locator(
         '.worksheet-shelves [data-drop="row"] .shelf-chip .drag-source',
@@ -340,8 +341,12 @@ test("slot totals align gauge samples and exclude incomplete minutes", async ({
     .getByRole("combobox", { name: "表示形式", exact: true })
     .selectOption("stacked_area");
   await form
-    .getByRole("combobox", { name: "系列", exact: true })
-    .selectOption("axis/slot");
+    .getByRole("button", { name: "系列にフィールドを追加" })
+    .press("Enter");
+  await page
+    .getByRole("dialog", { name: "系列に追加" })
+    .getByRole("button", { name: "スロット", exact: true })
+    .click();
   const svg = form.getByRole("img", { name: "全系列の積み上げ面グラフ" });
   await expect(
     svg.locator("polygon title").filter({ hasText: "観測合計 32 MiB" }),
@@ -440,9 +445,12 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await catalog
     .getByRole("button", { name: "サービス", exact: true })
     .dragTo(form.locator('.worksheet-shelves [data-drop="series"]'));
-  await form
-    .getByRole("combobox", { name: "表示形式", exact: true })
-    .selectOption("table");
+  for (const metric of ["メモリ使用量", "CPU 使用時間（累積）"]) {
+    await form
+      .getByRole("group", { name: metric, exact: true })
+      .getByLabel("表示形式")
+      .selectOption("table");
+  }
   await expect(
     form.getByRole("heading", { name: "サービス · checkout" }),
   ).toBeVisible();
@@ -619,16 +627,27 @@ test("worksheet encodes time or categories on either axis and splits observed se
     plot.getByRole("img", { name: "系列別の折れ線グラフ" }),
   ).toBeVisible();
   await expect(plot.locator(".legend button")).toHaveCount(6);
-  const format = form.getByRole("combobox", {
-    name: "表示形式",
-    exact: true,
-  });
-  await format.selectOption("stacked_area");
+  const memory = form.getByRole("group", { name: "メモリ使用量", exact: true });
+  const cpu = form.getByRole("group", { name: "CPU 使用率 (%)", exact: true });
+  const memFormat = memory.getByRole("combobox", {
+      name: "表示形式",
+      exact: true,
+    }),
+    cpuFormat = cpu.getByRole("combobox", { name: "表示形式", exact: true });
+  await memFormat.selectOption("bar");
+  await cpuFormat.selectOption("line");
+  await expect(plot.getByRole("img", { name: "複合グラフ" })).toBeVisible();
+  await expect(plot.locator("rect")).toHaveCount(9);
+  await expect(plot.locator("path")).toHaveCount(3);
+  await memory.getByRole("combobox", { name: "集計" }).selectOption("max");
+  await cpu.getByRole("combobox", { name: "集計" }).selectOption("min");
+  await memFormat.selectOption("stacked_area");
+  await cpuFormat.selectOption("stacked_area");
   await expect(
     form.getByText("積み上げ面には同じ単位の指標を配置してください。"),
   ).toBeVisible();
-  await format.selectOption("line");
-
+  await cpuFormat.selectOption("line");
+  await memFormat.selectOption("line");
   await expect(plot.locator(".legend")).toContainText(
     "スロット=green · リビジョン=B",
   );
@@ -638,7 +657,8 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await expect(
     plot.locator("circle title").filter({ hasText: "CPU 使用率" }),
   ).toHaveCount(3);
-  await format.selectOption("auto");
+  await memFormat.selectOption("auto");
+  await cpuFormat.selectOption("auto");
   await form.getByRole("button", { name: "時刻（10秒） を列から外す" }).click();
   await place("ワークロード", "column");
   await expect(
@@ -659,6 +679,18 @@ test("worksheet encodes time or categories on either axis and splits observed se
   ).toBeVisible();
   await page.reload();
   await expect(page.locator(".worksheet-plot rect")).toHaveCount(6);
+  await expect(
+    page.locator("rect title").filter({ hasText: "3,145,728" }),
+  ).toHaveCount(3);
+  await page.locator("button.panel-title").first().click();
+  await expect(memory.getByRole("combobox", { name: "集計" })).toHaveValue(
+    "max",
+  );
+  await expect(cpu.getByRole("combobox", { name: "集計" })).toHaveValue("min");
+  await expect(
+    form.getByRole("combobox", { name: "期間", exact: true }),
+  ).toHaveCount(1);
+  await expect(form.locator(".worksheet-shelves select")).toHaveCount(0);
 });
 
 test("worksheet shows only panel controls and fits inside the viewport", async ({

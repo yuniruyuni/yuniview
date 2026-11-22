@@ -466,12 +466,44 @@ function PivotView({
   const row = shelfFields(pivot.row),
     column = shelfFields(pivot.column);
   if (
-    pivot.mark &&
-    pivot.mark !== "table" &&
-    ((row.includes("measure") && column.length) ||
-      (column.includes("measure") && row.length))
-  )
-    return <WorksheetPlot panel={panel} points={points} />;
+    (row.includes("measure") && column.length) ||
+    (column.includes("measure") && row.length)
+  ) {
+    const measureRow = row.includes("measure"),
+      index = (measureRow ? row : column).indexOf("measure");
+    const plot: Point[] = [],
+      table: Point[] = [];
+    for (const point of points) {
+      const metric = measureRow
+        ? (point.rowPath ?? [point.series])[index]
+        : (point.columnPath ?? [point.column ?? ""])[index];
+      const mark =
+        pivot.metricOptions?.find((o) => o.metric === metric)?.mark ??
+        pivot.mark ??
+        "table";
+      (mark === "table" ? table : plot).push(point);
+    }
+    return (
+      <>
+        {!!plot.length && <WorksheetPlot panel={panel} points={plot} />}
+        {!!table.length && (
+          <FacetTable panel={panel} points={table} end={end} />
+        )}
+      </>
+    );
+  }
+  return <FacetTable panel={panel} points={points} end={end} />;
+}
+function FacetTable({
+  panel,
+  points,
+  end,
+}: {
+  panel: Panel;
+  points: Point[];
+  end: string;
+}) {
+  const pivot = panel.pivot!;
   const axis = shelfFields(pivot.series);
   if (!axis.length)
     return <PivotTable panel={panel} points={points} end={end} />;

@@ -240,6 +240,15 @@ export async function series(
       : p.measure === "metric"
         ? sql`kind='metric' AND name IN (${sql.list([p.metric, ...(pivot?.metrics ?? [])])}) AND value IS NOT NULL`
         : sql.raw("kind='span' AND entry");
+  const metricDefault = sql.raw(`${p.aggregation}(value)`);
+  const overrides = (pivot?.metricOptions ?? []).flatMap((o) =>
+    o.aggregation && o.aggregation !== p.aggregation
+      ? [sql`WHEN ${o.metric}::text THEN ${sql.raw(o.aggregation)}(value)`]
+      : [],
+  );
+  const metricAggregate = overrides.length
+    ? sql`CASE min(name) ${sql.join(overrides, " ")} ELSE ${metricDefault} END`
+    : metricDefault;
   const aggregate = distinct
     ? sql`count(DISTINCT nullif(attrs->>${distinct.field},''))`
     : p.measure === "latency"
@@ -247,7 +256,7 @@ export async function series(
       : p.measure === "errors"
         ? sql.raw("100.0*count(*) FILTER(WHERE failed)/count(*)")
         : p.measure === "metric"
-          ? sql.raw(`${p.aggregation}(value)`)
+          ? metricAggregate
           : sql.raw("count(*)");
   const units =
     pivot && p.measure === "metric" ? sql`min(unit) AS "metricUnit",` : sql``;

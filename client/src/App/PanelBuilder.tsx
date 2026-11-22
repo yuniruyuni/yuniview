@@ -12,6 +12,7 @@ import {
   type Identifier,
   isAttribute,
   isTimeField,
+  type MetricOption,
   measures,
   metricName,
   type Overview,
@@ -24,10 +25,12 @@ import {
   slotTotalChoice,
   type TimeField,
   timeBuckets,
+  type WorksheetMark,
 } from "../../../shared/console";
 import { useQuery } from "../api";
 import { FilterShelf } from "./FilterShelf";
 import { PanelView, Select } from "./Panels";
+import { ShelfPicker } from "./ShelfPicker";
 import { useDropPreview } from "./useDropPreview";
 
 type Props = {
@@ -41,9 +44,28 @@ type Props = {
 const dimensions = Object.entries(axes) as [Axis, string][];
 export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
   const [settingsOpen, showSettings] = useState(false);
+  const [picker, openPicker] = useState<Shelf>();
   const [search, find] = useState("");
   const [undo, remember] = useState<Panel[]>([]);
   function change(next: Panel) {
+    if (next.pivot?.metricOptions) {
+      const pivot = { ...next.pivot };
+      const names =
+        next.measure === "metric" && pivotFields(pivot).includes("measure")
+          ? [next.metric, ...(pivot.metrics ?? [])]
+          : [];
+      const opts =
+        pivot.metricOptions?.filter((o) => names.includes(o.metric)) ?? [];
+      if (names.length === 1 && opts[0]) {
+        pivot.mark = opts[0].mark ?? pivot.mark;
+        next = {
+          ...next,
+          aggregation: opts[0].aggregation ?? next.aggregation,
+        };
+      }
+      pivot.metricOptions = names.length > 1 && opts.length ? opts : undefined;
+      next = { ...next, pivot };
+    }
     remember((items) => [...items.slice(-25), p]);
     set(next);
   }
@@ -125,7 +147,9 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
           : p.title,
       metric,
       distinct: undefined,
-      pivot: p.pivot ? { ...p.pivot, metrics: undefined } : undefined,
+      pivot: p.pivot
+        ? { ...p.pivot, metrics: undefined, metricOptions: undefined }
+        : undefined,
       group:
         metric === cpuPercent && p.group === "slot_total"
           ? "source"
@@ -189,6 +213,24 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
       pivot: pair,
     };
   }
+  function configurePlotAxes(next: Pivot) {
+    const row = shelfFields(next.row),
+      column = shelfFields(next.column);
+    if (!row.includes("measure") && !column.includes("measure")) {
+      next.series = shelfFields(next.series).filter((k) => k !== "measure");
+      if (row.length && !column.length) next.column = "measure";
+      else next.row = ["measure", ...row];
+    }
+    for (const side of ["row", "column"] as const) {
+      if (!shelfFields(next[side]).length) {
+        const other = side === "row" ? "column" : "row";
+        const time = shelfFields(next[other]).find(isTimeField) ?? "time:60";
+        next[other] = shelfFields(next[other]).filter((k) => k !== time);
+        next.series = shelfFields(next.series).filter((k) => k !== time);
+        next[side] = time;
+      }
+    }
+  }
   function setFormat(format: string) {
     if (daily) {
       change({
@@ -225,24 +267,7 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
                   ? []
                   : [p.group],
           };
-    if (format !== "table" && format !== "auto") {
-      const row = shelfFields(next.row),
-        column = shelfFields(next.column);
-      if (!row.includes("measure") && !column.includes("measure")) {
-        next.series = shelfFields(next.series).filter((k) => k !== "measure");
-        if (row.length && !column.length) next.column = "measure";
-        else next.row = ["measure", ...row];
-      }
-      for (const side of ["row", "column"] as const) {
-        if (!shelfFields(next[side]).length) {
-          const other = side === "row" ? "column" : "row";
-          const time = shelfFields(next[other]).find(isTimeField) ?? "time:60";
-          next[other] = shelfFields(next[other]).filter((k) => k !== time);
-          next.series = shelfFields(next.series).filter((k) => k !== time);
-          next[side] = time;
-        }
-      }
-    }
+    if (format !== "table" && format !== "auto") configurePlotAxes(next);
     change({
       ...p,
       display: "pivot",
@@ -250,6 +275,26 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
       totalSlots: undefined,
       pivot: { ...next, mark: format as Pivot["mark"] },
     });
+  }
+  const multiple = pivot && !!pivot.metrics?.length;
+  function configureMetric(
+    metric: string,
+    update: Partial<Omit<MetricOption, "metric">>,
+  ) {
+    if (!pivot) return;
+    const existing = pivot.metricOptions ?? [];
+    const option = {
+      ...existing.find((o) => o.metric === metric),
+      metric,
+      ...update,
+    };
+    const next = {
+      ...pivot,
+      metricOptions: [...existing.filter((o) => o.metric !== metric), option],
+    };
+    if (update.mark && update.mark !== "table" && update.mark !== "auto")
+      configurePlotAxes(next);
+    change({ ...p, pivot: next });
   }
   function without(id: Shelf, field: ShelfAxis) {
     if (!pivot) return;
@@ -498,17 +543,20 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
           <div className="worksheet-shelves">
             {shelves.map((id) => {
               const assigned = pivot ? shelfFields(pivot[id]) : [];
-              const axis = assigned.at(-1);
-              const value =
-                axis === "measure"
-                  ? selected
-                  : axis
-                    ? "axis/" + axis
-                    : !pivot && id === "series"
-                      ? p.group === "all" || p.group === "slot_total"
-                        ? p.group
-                        : "axis/" + p.group
-                      : "";
+              const label = { row: "行", column: "列", series: "系列" }[id];
+              const implicit = !pivot
+                ? id === "row"
+                  ? choices.find(([key]) => key === selected)?.[1]
+                  : id === "column"
+                    ? p.display === "chart"
+                      ? "時刻"
+                      : ""
+                    : p.group === "slot_total"
+                      ? slotTotalChoice[1]
+                      : p.group === "all"
+                        ? "全体"
+                        : shelfName(p.group)
+                : "";
               const allowed = (f: Field) => {
                 if (f.kind === "placed") return true;
                 if (f.kind === "measure")
@@ -519,16 +567,6 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
                   : !!pivot || f.key !== "day";
               };
               const opts: [string, string][] = [
-                [
-                  "",
-                  pivot
-                    ? "フィールドを追加"
-                    : id === "row"
-                      ? "値"
-                      : id === "column"
-                        ? "時間 / カテゴリ"
-                        : "未設定",
-                ],
                 ...(id === "series" && !pivot && !daily
                   ? [
                       ["all", "全体"] as [string, string],
@@ -549,28 +587,45 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
                   }
                   data-preview={hovered?.id === id || undefined}
                 >
-                  <Select
-                    label={{ row: "行", column: "列", series: "系列" }[id]}
-                    value={pivot ? "" : value}
-                    choices={opts}
-                    change={(v) => {
-                      if (!v) return;
-                      if (v === "slot_total" || v === "all") {
-                        change(changeGroup(p, v));
-                        return;
-                      }
-                      const f: Field = v.startsWith("axis/")
-                        ? {
-                            kind: "dimension",
-                            key: v.slice(5) as Dimension | TimeField,
-                          }
-                        : { kind: "measure", key: v };
-                      const next = candidates(f).find(
-                        (c) => c.id === id,
-                      )?.panel;
-                      if (next) change(next);
+                  <button
+                    type="button"
+                    className="shelf-target"
+                    aria-label={label + "にフィールドを追加"}
+                    title="ダブルクリックまたは Enter でフィールドを選択"
+                    onDoubleClick={() => openPicker(id)}
+                    onClick={(e) => {
+                      if (e.detail === 0) openPicker(id);
                     }}
-                  />
+                  >
+                    <strong>{label}</strong>
+                    {!assigned.length && (
+                      <span>{implicit || "ここにドロップ"}</span>
+                    )}
+                  </button>
+                  {picker === id && (
+                    <ShelfPicker
+                      label={label}
+                      choices={opts}
+                      close={() => openPicker(undefined)}
+                      select={(v) => {
+                        if (!v) return;
+                        if (v === "slot_total" || v === "all") {
+                          change(changeGroup(p, v));
+                          return;
+                        }
+                        const f: Field = v.startsWith("axis/")
+                          ? {
+                              kind: "dimension",
+                              key: v.slice(5) as Dimension | TimeField,
+                            }
+                          : { kind: "measure", key: v };
+                        const next = candidates(f).find(
+                          (c) => c.id === id,
+                        )?.panel;
+                        if (next) change(next);
+                      }}
+                    />
+                  )}
                   {pivot && (
                     <div className="shelf-chips">
                       {assigned.map((field, i) => (
@@ -730,11 +785,11 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
         <section
           className="worksheet-options"
           id="worksheet-options"
-          aria-label="表示と絞り込み"
+          aria-label="パネル設定"
           data-open={settingsOpen || undefined}
         >
           <div className="options-heading">
-            <h4>表示と絞り込み</h4>
+            <h4>指標設定</h4>
             <button
               type="button"
               className="settings-toggle"
@@ -744,96 +799,145 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
             </button>
           </div>
           <div className="fields">
-            <Select
-              dropTarget="measure"
-              label="指標"
-              value={selected}
-              choices={choices}
-              change={pick}
-            />
-            {selection && (
+            {multiple && pivot ? (
+              [p.metric, ...(pivot.metrics ?? [])].map((metric) => {
+                const option = pivot.metricOptions?.find(
+                  (o) => o.metric === metric,
+                );
+                return (
+                  <fieldset key={metric} className="metric-settings">
+                    <legend>{metricName(metric)}</legend>
+                    <Select
+                      label="表示形式"
+                      value={option?.mark ?? pivot.mark ?? "table"}
+                      choices={[
+                        ["auto", "自動"],
+                        ["line", "折れ線"],
+                        ["bar", "棒"],
+                        ["stacked_area", "積み上げ面"],
+                        ["table", "ピボット表"],
+                      ]}
+                      change={(v) =>
+                        configureMetric(metric, { mark: v as WorksheetMark })
+                      }
+                    />
+                    <Select
+                      label="集計"
+                      value={option?.aggregation ?? p.aggregation}
+                      choices={[
+                        ["avg", "平均"],
+                        ["max", "最大"],
+                        ["min", "最小"],
+                        ["sum", "合計"],
+                      ]}
+                      change={(v) =>
+                        configureMetric(metric, {
+                          aggregation: v as Panel["aggregation"],
+                        })
+                      }
+                    />
+                  </fieldset>
+                );
+              })
+            ) : (
               <>
                 <Select
-                  label="集計対象"
-                  value={selection.dataset}
-                  choices={[
-                    ["daily", "日次集合"],
-                    ["log", "ログ属性"],
-                    ["span", "スパン属性"],
-                  ]}
-                  change={(v) => {
-                    change(withDataset(p, v as Distinct["dataset"]));
-                  }}
+                  dropTarget="measure"
+                  label="指標"
+                  value={selected}
+                  choices={choices}
+                  change={pick}
                 />
-                <label>
-                  {daily ? "集合名" : "属性キー"}
-                  <input
-                    required
-                    maxLength={256}
-                    list={daily ? "daily-fields" : undefined}
-                    value={selection.field}
-                    onChange={(e) =>
-                      change({
-                        ...p,
-                        distinct: {
-                          dataset: selection.dataset,
-                          field: e.target.value,
-                        },
-                      })
+                {selection && (
+                  <>
+                    <Select
+                      label="集計対象"
+                      value={selection.dataset}
+                      choices={[
+                        ["daily", "日次集合"],
+                        ["log", "ログ属性"],
+                        ["span", "スパン属性"],
+                      ]}
+                      change={(v) => {
+                        change(withDataset(p, v as Distinct["dataset"]));
+                      }}
+                    />
+                    <label>
+                      {daily ? "集合名" : "属性キー"}
+                      <input
+                        required
+                        maxLength={256}
+                        list={daily ? "daily-fields" : undefined}
+                        value={selection.field}
+                        onChange={(e) =>
+                          change({
+                            ...p,
+                            distinct: {
+                              dataset: selection.dataset,
+                              field: e.target.value,
+                            },
+                          })
+                        }
+                      />
+                    </label>
+                    <datalist id="daily-fields">
+                      {meta.dailyFields.map((k) => (
+                        <option key={k} value={k} />
+                      ))}
+                    </datalist>
+                  </>
+                )}
+                <Select
+                  label="表示形式"
+                  value={
+                    pivot
+                      ? (pivot.mark ?? "table")
+                      : p.display === "chart"
+                        ? "line"
+                        : p.display === "table"
+                          ? "summary"
+                          : p.display
+                  }
+                  choices={
+                    daily
+                      ? [
+                          ["table", "ピボット表"],
+                          ["line", "折れ線"],
+                        ]
+                      : [
+                          ["auto", "自動"],
+                          ["line", "折れ線"],
+                          ["bar", "棒"],
+                          ["stacked_area", "積み上げ面"],
+                          ["table", "ピボット表"],
+                          ["summary", "集計表"],
+                          ["value", "数値"],
+                        ]
+                  }
+                  change={setFormat}
+                />
+                {p.measure === "metric" && (
+                  <Select
+                    label="集計"
+                    value={p.aggregation}
+                    choices={[
+                      ["avg", "平均"],
+                      ["max", "最大"],
+                      ["min", "最小"],
+                      ...(p.group === "slot_total"
+                        ? []
+                        : [["sum", "合計"] as [string, string]]),
+                    ]}
+                    change={(v) =>
+                      update("aggregation", v as Panel["aggregation"])
                     }
                   />
-                </label>
-                <datalist id="daily-fields">
-                  {meta.dailyFields.map((k) => (
-                    <option key={k} value={k} />
-                  ))}
-                </datalist>
+                )}
               </>
             )}
-            <Select
-              label="表示形式"
-              value={
-                pivot
-                  ? (pivot.mark ?? "table")
-                  : p.display === "chart"
-                    ? "line"
-                    : p.display === "table"
-                      ? "summary"
-                      : p.display
-              }
-              choices={
-                daily
-                  ? [
-                      ["table", "ピボット表"],
-                      ["line", "折れ線"],
-                    ]
-                  : [
-                      ["auto", "自動"],
-                      ["line", "折れ線"],
-                      ["bar", "棒"],
-                      ["stacked_area", "積み上げ面"],
-                      ["table", "ピボット表"],
-                      ["summary", "集計表"],
-                      ["value", "数値"],
-                    ]
-              }
-              change={setFormat}
-            />
-            {p.measure === "metric" && (
-              <Select
-                label="集計"
-                value={p.aggregation}
-                choices={[
-                  ["avg", "平均"],
-                  ["max", "最大"],
-                  ["min", "最小"],
-                  ...(p.group === "slot_total"
-                    ? []
-                    : [["sum", "合計"] as [string, string]]),
-                ]}
-                change={(v) => update("aggregation", v as Panel["aggregation"])}
-              />
-            )}
+          </div>
+          <h4 className="shared-settings-heading">共通設定</h4>
+          <div className="fields">
             <Select
               label="期間"
               value={String(p.minutes)}

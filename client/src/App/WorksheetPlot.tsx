@@ -37,13 +37,10 @@ export function WorksheetPlot({
     categoryFields = horizontal ? rows : columns;
   const temporal =
     categoryFields.length === 1 && isTimeField(categoryFields[0]);
-  const stacked = pivot.mark === "stacked_area";
-  const bars =
-    pivot.mark === "bar" || (!temporal && pivot.mark !== "line" && !stacked);
   type Mark = { category: string; value: number };
   const groups = new Map<
     string,
-    { label: string; unit: string; marks: Mark[] }
+    { label: string; unit: string; marks: Mark[]; format: string }
   >();
   const categories = new Map<string, string>();
   for (const p of points) {
@@ -68,7 +65,13 @@ export function WorksheetPlot({
           (field, i) => shelfName(field) + "=" + (facet[i] || "未指定"),
         ),
       ].join(" · ");
-      groups.set(key, { label, unit, marks: [] });
+      const metric = values[valueFields.indexOf("measure")];
+      const mark =
+        pivot.metricOptions?.find((o) => o.metric === metric)?.mark ??
+        pivot.mark;
+      const format =
+        !mark || mark === "auto" ? (temporal ? "line" : "bar") : mark;
+      groups.set(key, { label, unit, marks: [], format });
     }
     groups.get(key)!.marks.push({ category: categoryKey, value: p.value });
     categories.set(categoryKey, category.join(" › ") || "未指定");
@@ -84,6 +87,9 @@ export function WorksheetPlot({
   const band = temporal
     ? bucketMs / (last - first + bucketMs)
     : 1 / ordered.length;
+  const formats = new Set(Array.from(groups.values(), (g) => g.format));
+  const stacked = formats.has("stacked_area"),
+    bars = formats.has("bar");
   const coord = (key: string) =>
     temporal && (stacked || bars)
       ? (time(key) - first + bucketMs / 2) / (last - first + bucketMs)
@@ -94,6 +100,7 @@ export function WorksheetPlot({
   const visible = all.filter(
     ([k]) => stacked || !groups.has(focused) || k === focused,
   );
+  const barGroups = visible.filter(([, g]) => g.format === "bar");
   const domains = new Map<string, [number, number]>();
   const totals = new Map<string, { positive: number; negative: number }>();
   const baselines = new Map<Mark, number>();
@@ -101,7 +108,7 @@ export function WorksheetPlot({
     const domain = domains.get(g.unit) ?? [0, 0];
     for (const m of g.marks) {
       let edge = m.value;
-      if (stacked) {
+      if (g.format === "stacked_area") {
         const total = totals.get(m.category) ?? { positive: 0, negative: 0 };
         const sign = m.value < 0 ? "negative" : "positive";
         baselines.set(m, total[sign]);
@@ -115,7 +122,13 @@ export function WorksheetPlot({
     domains.set(g.unit, domain);
   }
   const mixed = domains.size > 1;
-  if (stacked && mixed)
+  if (
+    new Set(
+      visible
+        .filter(([, g]) => g.format === "stacked_area")
+        .map(([, g]) => g.unit),
+    ).size > 1
+  )
     return (
       <p role="status">積み上げ面には同じ単位の指標を配置してください。</p>
     );
@@ -148,11 +161,13 @@ export function WorksheetPlot({
         viewBox="0 0 625 190"
         role="img"
         aria-label={
-          stacked
-            ? "全系列の積み上げ面グラフ"
-            : bars
-              ? "カテゴリ別の棒グラフ"
-              : "系列別の折れ線グラフ"
+          formats.size > 1
+            ? "複合グラフ"
+            : stacked
+              ? "全系列の積み上げ面グラフ"
+              : bars
+                ? "カテゴリ別の棒グラフ"
+                : "系列別の折れ線グラフ"
         }
       >
         {ticks.map((t) => {
@@ -190,98 +205,109 @@ export function WorksheetPlot({
             </text>
           );
         })}
-        {visible.map(([key, g], index) => {
-          const color =
-            palette[all.findIndex(([k]) => k === key) % palette.length];
-          const [min, max] = domains.get(g.unit)!;
-          const scale = (v: number) => (v - min) / (max - min || 1);
-          const marks = g.marks.sort(
-            (a, b) => coord(a.category) - coord(b.category),
-          );
-          const width =
-            ((horizontal ? 125 : 490) * band * 0.78) / visible.length;
-          return (
-            <g
-              key={key}
-              fill={color}
-              opacity={
-                stacked && groups.has(focused) && focused !== key ? 0.3 : 1
-              }
-            >
-              {!bars && !stacked && (
-                <path
-                  fill="none"
-                  stroke={color}
-                  strokeWidth="2"
-                  d={marks
-                    .map((m, i) => {
-                      return (
-                        (i ? "L" : "M") +
-                        xy(coord(m.category), scale(m.value)).join(",")
-                      );
-                    })
-                    .join(" ")}
-                />
-              )}
-              {marks.map((m) => {
-                const [x, y] = xy(coord(m.category), scale(m.value)),
-                  [x0, y0] = xy(coord(m.category), scale(0));
-                const offset = (index - visible.length / 2) * width;
-                const title = (
-                  <title key={m.category}>
-                    {formatCategory(m.category)} · {g.label} · {number(m.value)}{" "}
-                    {g.unit}
-                  </title>
-                );
-                if (stacked) {
-                  const base = baselines.get(m) ?? 0;
-                  const total = totals.get(m.category)!;
-                  const c = coord(m.category);
-                  const start = c - band / 2,
-                    end = c + band / 2;
-                  const polygon = [
-                    xy(start, scale(base)),
-                    xy(start, scale(base + m.value)),
-                    xy(end, scale(base + m.value)),
-                    xy(end, scale(base)),
-                  ];
-                  return (
-                    <polygon
-                      key={m.category}
-                      points={polygon.map((p) => p.join(",")).join(" ")}
-                    >
-                      <title>
-                        {formatCategory(m.category)} · {g.label} ·{" "}
-                        {number(m.value)} {g.unit} ／ 観測合計{" "}
-                        {number(total.positive + total.negative)} {g.unit}
-                      </title>
-                    </polygon>
-                  );
+        {[...visible]
+          .sort(
+            ([, a], [, b]) =>
+              Number(a.format === "line") - Number(b.format === "line") ||
+              Number(b.format === "stacked_area") -
+                Number(a.format === "stacked_area"),
+          )
+          .map(([key, g]) => {
+            const index = barGroups.findIndex(([k]) => k === key);
+            const bars = g.format === "bar",
+              stacked = g.format === "stacked_area";
+            const color =
+              palette[all.findIndex(([k]) => k === key) % palette.length];
+            const [min, max] = domains.get(g.unit)!;
+            const scale = (v: number) => (v - min) / (max - min || 1);
+            const marks = g.marks.sort(
+              (a, b) => coord(a.category) - coord(b.category),
+            );
+            const width =
+              ((horizontal ? 125 : 490) * band * 0.78) /
+              Math.max(1, barGroups.length);
+            return (
+              <g
+                key={key}
+                fill={color}
+                opacity={
+                  stacked && groups.has(focused) && focused !== key ? 0.3 : 1
                 }
-                return bars ? (
-                  <rect
-                    key={m.category}
-                    x={horizontal ? Math.min(x, x0) : x + offset}
-                    y={horizontal ? y + offset : Math.min(y, y0)}
-                    width={horizontal ? Math.abs(x - x0) : width}
-                    height={horizontal ? width : Math.abs(y - y0)}
-                  >
-                    {title}
-                  </rect>
-                ) : (
-                  <circle
-                    key={m.category}
-                    cx={x}
-                    cy={y}
-                    r={marks.length > 200 ? 1 : 2.5}
-                  >
-                    {title}
-                  </circle>
-                );
-              })}
-            </g>
-          );
-        })}
+              >
+                {!bars && !stacked && (
+                  <path
+                    fill="none"
+                    stroke={color}
+                    strokeWidth="2"
+                    d={marks
+                      .map((m, i) => {
+                        return (
+                          (i ? "L" : "M") +
+                          xy(coord(m.category), scale(m.value)).join(",")
+                        );
+                      })
+                      .join(" ")}
+                  />
+                )}
+                {marks.map((m) => {
+                  const [x, y] = xy(coord(m.category), scale(m.value)),
+                    [x0, y0] = xy(coord(m.category), scale(0));
+                  const offset = (index - barGroups.length / 2) * width;
+                  const title = (
+                    <title key={m.category}>
+                      {formatCategory(m.category)} · {g.label} ·{" "}
+                      {number(m.value)} {g.unit}
+                    </title>
+                  );
+                  if (stacked) {
+                    const base = baselines.get(m) ?? 0;
+                    const total = totals.get(m.category)!;
+                    const c = coord(m.category);
+                    const start = c - band / 2,
+                      end = c + band / 2;
+                    const polygon = [
+                      xy(start, scale(base)),
+                      xy(start, scale(base + m.value)),
+                      xy(end, scale(base + m.value)),
+                      xy(end, scale(base)),
+                    ];
+                    return (
+                      <polygon
+                        key={m.category}
+                        points={polygon.map((p) => p.join(",")).join(" ")}
+                      >
+                        <title>
+                          {formatCategory(m.category)} · {g.label} ·{" "}
+                          {number(m.value)} {g.unit} ／ 観測合計{" "}
+                          {number(total.positive + total.negative)} {g.unit}
+                        </title>
+                      </polygon>
+                    );
+                  }
+                  return bars ? (
+                    <rect
+                      key={m.category}
+                      x={horizontal ? Math.min(x, x0) : x + offset}
+                      y={horizontal ? y + offset : Math.min(y, y0)}
+                      width={horizontal ? Math.abs(x - x0) : width}
+                      height={horizontal ? width : Math.abs(y - y0)}
+                    >
+                      {title}
+                    </rect>
+                  ) : (
+                    <circle
+                      key={m.category}
+                      cx={x}
+                      cy={y}
+                      r={marks.length > 200 ? 1 : 2.5}
+                    >
+                      {title}
+                    </circle>
+                  );
+                })}
+              </g>
+            );
+          })}
       </svg>
       <div className="legend">
         {all.map(([k, g], i) => (

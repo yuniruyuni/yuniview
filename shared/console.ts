@@ -66,11 +66,18 @@ export function pivotFields(p: Pivot) {
     ...shelfFields(p.series),
   ];
 }
+export type WorksheetMark = "auto" | "table" | "line" | "bar" | "stacked_area";
+export interface MetricOption {
+  metric: string;
+  aggregation?: Panel["aggregation"];
+  mark?: WorksheetMark;
+}
 export type Pivot = {
   row: ShelfFields;
   column: ShelfFields;
   series?: ShelfFields;
-  mark?: "auto" | "table" | "line" | "bar" | "stacked_area";
+  mark?: WorksheetMark;
+  metricOptions?: MetricOption[];
   metrics?: string[];
 };
 export type Distinct = { dataset: "daily" | "log" | "span"; field: string };
