@@ -26,14 +26,39 @@ const attribute = z
 const axis = z
   .enum(["source", "slot", "revision", "workload", "instance", "day"])
   .or(attribute);
-const shelfField = axis
-  .or(z.literal("measure"))
-  .or(z.enum(Object.keys(timeBuckets) as [TimeField, ...TimeField[]]));
+export const filterField = axis.or(
+  z.enum(Object.keys(timeBuckets) as [TimeField, ...TimeField[]]),
+);
+const shelfField = filterField.or(z.literal("measure"));
+const condition = z
+  .object({
+    field: filterField,
+    values: z.array(label).max(256).optional(),
+    min: z.number().optional(),
+    max: z.number().optional(),
+  })
+  .refine(
+    (c) =>
+      (!c.values || (c.min === undefined && c.max === undefined)) &&
+      (c.min === undefined || c.max === undefined || c.min <= c.max),
+  )
+  .refine(
+    (c) =>
+      (c.min === undefined && c.max === undefined) ||
+      c.field.startsWith("attr:") ||
+      c.field === "day" ||
+      c.field.startsWith("time:"),
+  );
 const shelf = shelfField.or(z.array(shelfField).max(32));
 export const panel = filter
   .extend({
     id: z.uuid().optional(),
     wide: z.boolean().optional(),
+    conditions: z
+      .array(condition)
+      .max(32)
+      .refine((cs) => new Set(cs.map((c) => c.field)).size === cs.length)
+      .optional(),
     title: label.pipe(z.string().trim().min(1)),
     measure: z.enum([
       "requests",
@@ -123,6 +148,8 @@ export const panel = filter
     if (p.measure !== "distinct") return !p.distinct;
     if (!p.distinct) return false;
     if (p.distinct.dataset !== "daily") return true;
+    if (p.conditions?.some((c) => c.field !== "day" && c.field !== "source"))
+      return false;
     if (p.slot || p.instance || p.revision || p.workload || p.text)
       return false;
     if (p.display === "chart") return p.group === "source";

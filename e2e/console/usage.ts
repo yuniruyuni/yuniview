@@ -83,8 +83,8 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
     .click();
   await page.getByRole("button", { name: "編集して追加" }).click();
   await expect(
-    form.getByRole("combobox", { name: "スロット", exact: true }),
-  ).toHaveValue("blue");
+    form.getByRole("button", { name: "スロット · blue", exact: true }),
+  ).toBeVisible();
   await form
     .getByRole("combobox", { name: "表示形式", exact: true })
     .selectOption("table");

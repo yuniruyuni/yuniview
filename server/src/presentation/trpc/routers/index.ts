@@ -1,8 +1,15 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { sql } from "../../../infra/db";
-import { dashboard, filter, monitor, panel } from "../../../models/console";
 import {
+  dashboard,
+  filter,
+  filterField,
+  monitor,
+  panel,
+} from "../../../models/console";
+import {
+  filterOptions,
   listEvents,
   overview,
   routes,
@@ -14,6 +21,24 @@ import { publicProcedure as p, router } from "../init";
 
 const windowInput = filter.extend({ end: z.iso.datetime() });
 export const appRouter = router({
+  worksheetFilterOptions: p
+    .input(
+      z.object({
+        panel,
+        field: filterField,
+        end: z.iso.datetime(),
+        search: z.string().max(512),
+      }),
+    )
+    .query(({ ctx, input }) =>
+      filterOptions(
+        ctx.db,
+        input.panel,
+        input.field,
+        new Date(input.end),
+        input.search,
+      ),
+    ),
   worksheetAttributes: p
     .input(
       z.object({

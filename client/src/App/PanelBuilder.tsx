@@ -7,6 +7,9 @@ import {
   cpuPercent,
   type Dimension,
   type Distinct,
+  type FieldCondition,
+  type FilterField,
+  type Identifier,
   isAttribute,
   isTimeField,
   measures,
@@ -23,6 +26,7 @@ import {
   timeBuckets,
 } from "../../../shared/console";
 import { useQuery } from "../api";
+import { FilterShelf } from "./FilterShelf";
 import { PanelView, Select } from "./Panels";
 import { useDropPreview } from "./useDropPreview";
 
@@ -60,9 +64,11 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
   });
   const keys = new Set([
     ...(observed.data ?? []).map((k) => "attr:" + k),
-    ...[p.group, ...(p.pivot ? pivotFields(p.pivot) : [])].filter(
-      (k) => k && isAttribute(k),
-    ),
+    ...[
+      ...(p.conditions ?? []).map((c) => c.field),
+      p.group,
+      ...(p.pivot ? pivotFields(p.pivot) : []),
+    ].filter((k) => k && isAttribute(k)),
   ]);
   const fields: [Dimension | TimeField, string][] = [
     ...(daily ? [] : (Object.entries(timeBuckets) as [TimeField, string][])),
@@ -92,6 +98,9 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
     if (dataset !== "daily") return next;
     return {
       ...next,
+      conditions: next.conditions?.filter(
+        (c) => c.field === "source" || c.field === "day",
+      ),
       display: "pivot",
       pivot: { row: "day", column: "source" },
       group: "source",
@@ -282,19 +291,35 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
   }
   const update = <K extends keyof Panel>(key: K, value: Panel[K]) =>
     change({ ...p, [key]: value });
-  const [filterKey, filterBy] = useState<Axis | "text">("source");
-  const fieldKeys = daily
-    ? (["source"] as const)
-    : p.group === "slot_total"
-      ? (["source", "workload", "revision", "text"] as const)
-      : ([
-          "source",
-          "slot",
-          "workload",
-          "revision",
-          "instance",
-          "text",
-        ] as const);
+  const [openFilter, openConditions] = useState<FilterField>();
+  const identifiers: Identifier[] = [
+    "source",
+    "slot",
+    "revision",
+    "instance",
+    "workload",
+  ];
+  const conditions: FieldCondition[] = [...(p.conditions ?? [])];
+  for (const k of identifiers)
+    if (p[k] && !conditions.some((c) => c.field === k))
+      conditions.push({ field: k, values: [p[k]] });
+  function writeFilter(field: FilterField, next?: FieldCondition) {
+    const values = [...(p.conditions ?? [])];
+    const index = values.findIndex((c) => c.field === field);
+    if (index >= 0) values.splice(index, 1, ...(next ? [next] : []));
+    else if (next) values.push(next);
+    const panel = { ...p, conditions: values.length ? values : undefined };
+    for (const k of identifiers) if (k === field) panel[k] = "";
+    change(panel);
+  }
+  function addFilter(field: FilterField) {
+    if (!conditions.some((c) => c.field === field))
+      writeFilter(field, { field });
+    openConditions(field);
+  }
+  const filterFields = fields.filter(
+    ([k]) => p.group !== "slot_total" || (k !== "slot" && k !== "instance"),
+  );
   type Field =
     | { kind: "measure"; key: string }
     | { kind: "dimension"; key: Dimension | TimeField }
@@ -304,7 +329,7 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
       id: string;
       label: string;
       panel?: Panel;
-      filter?: Axis;
+      filter?: FilterField;
     }[] = [];
     if (field.kind === "placed") {
       for (const id of shelves)
@@ -319,6 +344,11 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
               position ?? shelfFields(p.pivot?.[id]).length,
             ),
           });
+      if (
+        field.key !== "measure" &&
+        filterFields.some(([k]) => k === field.key)
+      )
+        options.push({ id: "filter", label: "フィルター", filter: field.key });
       return options;
     }
     if (field.kind === "measure") {
@@ -345,8 +375,8 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
       { id: "row", label: "行", panel: assign(p, "row", key) },
       { id: "column", label: "列", panel: assign(p, "column", key) },
     );
-    if (key !== "day" && fieldKeys.some((k) => k === key))
-      options.push({ id: "filter", label: "絞り込み", filter: key as Axis });
+    if (filterFields.some(([k]) => k === key))
+      options.push({ id: "filter", label: "フィルター", filter: key });
     return options;
   }
   const drag = useDropPreview<Field>((field, id) => {
@@ -356,7 +386,7 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
       pos === undefined ? undefined : Number(pos),
     ).find((o) => o.id === role);
     if (option?.panel) change(option.panel);
-    if (option?.filter) filterBy(option.filter);
+    if (option?.filter) addFilter(option.filter);
   });
   const item = drag.preview?.item;
   const [targetRole, targetPosition] = (drag.preview?.target ?? "").split("/");
@@ -372,7 +402,7 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
     item && item.kind !== "measure"
       ? shelfName(item.key)
       : choices.find(([k]) => k === item?.key)?.[1];
-  const active = fieldKeys.filter((k) => p[k] || k === filterKey);
+
   const times = Array.from(
     new Set([
       ...(daily ? [1440, 10080, 43200] : [5, 15, 60, 180, 360, 1440, 10080]),
@@ -627,6 +657,27 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
               );
             })}
           </div>
+          <FilterShelf
+            panel={{
+              ...p,
+              ...Object.fromEntries(
+                identifiers.filter((k) => k === openFilter).map((k) => [k, ""]),
+              ),
+            }}
+            end={end}
+            items={conditions}
+            fields={filterFields}
+            open={openFilter}
+            setOpen={openConditions}
+            add={addFilter}
+            change={(c) => writeFilter(c.field, c)}
+            remove={(k) => {
+              writeFilter(k);
+              if (openFilter === k) openConditions(undefined);
+            }}
+            ready={targets.some((t) => t.id === "filter")}
+            hover={targetRole === "filter"}
+          />
           <div className="preview-head">
             {hovered ? (
               <h4>
@@ -797,46 +848,15 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
               change={(v) => update("minutes", Number(v))}
             />
           </div>
-          <div className="shelves">
-            <Select
-              dropTarget="filter"
-              label="絞り込みを追加"
-              value=""
-              choices={[
-                ["", "項目を選択"],
-                ...fieldKeys.map((k): [string, string] => [
-                  k,
-                  k === "text" ? "検索語" : axes[k],
-                ]),
-              ]}
-              change={(v) => {
-                if (v) filterBy(v as Axis | "text");
-              }}
-            />
-            {active.map((k) => (
-              <label key={k}>
-                {k === "text" ? "検索語" : axes[k]}
-                <input
-                  list={`builder-${k}`}
-                  value={p[k]}
-                  placeholder="すべて"
-                  onChange={(e) => update(k, e.target.value)}
-                />
-                <datalist id={`builder-${k}`}>
-                  {(k === "source"
-                    ? meta.services.map((s) => s.source)
-                    : k === "slot"
-                      ? meta.slots
-                      : k === "revision"
-                        ? meta.revisions
-                        : []
-                  ).map((v) => (
-                    <option key={v} value={v} />
-                  ))}
-                </datalist>
-              </label>
-            ))}
-          </div>
+          {!daily && (
+            <label>
+              検索語
+              <input
+                value={p.text}
+                onChange={(e) => update("text", e.target.value)}
+              />
+            </label>
+          )}
           {actions}
         </section>
       </div>

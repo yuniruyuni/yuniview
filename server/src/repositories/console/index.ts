@@ -1,6 +1,9 @@
 import type {
   EventRow,
+  FieldCondition,
   Filter,
+  FilterField,
+  FilterOptions,
   Overview,
   Panel,
   Point,
@@ -45,8 +48,87 @@ export async function backfill(db: Database) {
     return batches.length;
   });
 }
-function matches(f: Filter, end: Date) {
+function fieldData(field: FilterField, daily: boolean) {
+  if (isTimeField(field))
+    return { text: sql`at::text`, num: sql`extract(epoch from at)*1000` };
+  if (field === "day") {
+    const day = daily ? sql`day` : sql`(at AT TIME ZONE 'Asia/Tokyo')::date`;
+    return {
+      text: sql`${day}::text`,
+      num: sql`(${day}-date '1970-01-01')::float8*86400000`,
+    };
+  }
+  if (isAttribute(field)) {
+    const key = field.slice(5),
+      value = sql`attrs->>${key}`;
+    return {
+      text: sql`CASE WHEN json_typeof(attrs->${key}) IN ('number','boolean','string') THEN ${value} END`,
+      num: sql`CASE WHEN ${value} ~ ${"^[+-]?[0-9]+([.][0-9]+)?([eE][+-]?[0-9]+)?$"} AND pg_input_is_valid(${value},'double precision') THEN (${value})::float8 END`,
+    };
+  }
+  return { text: sql.raw(field), num: sql`null::float8` };
+}
+function conditions(list: FieldCondition[] = [], daily = false) {
+  const predicates = [];
+  for (const c of list) {
+    const { text, num } = fieldData(c.field, daily);
+    if (c.values)
+      predicates.push(
+        c.values.length ? sql`${text} IN (${sql.list(c.values)})` : sql`false`,
+      );
+    if (c.min !== undefined) predicates.push(sql`${num}>=${c.min}::float8`);
+    if (c.max !== undefined) predicates.push(sql`${num}<=${c.max}::float8`);
+  }
+  return predicates.length ? sql.join(predicates, " AND ") : sql`true`;
+}
+function dailyScope(p: Panel, end: Date) {
+  return sql`field=${p.distinct?.field} AND day BETWEEN (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date - ${Math.ceil(p.minutes / 1440) - 1}::int AND (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date AND ${p.source ? sql`source=${p.source}` : sql`true`} AND ${conditions(p.conditions, true)}`;
+}
+export async function filterOptions(
+  db: Database,
+  panel: Panel,
+  field: FilterField,
+  end: Date,
+  search: string,
+): Promise<FilterOptions> {
+  const p = {
+    ...panel,
+    conditions: panel.conditions?.filter((c) => c.field !== field),
+  };
+  const daily = p.distinct?.dataset === "daily";
+  if (daily && field !== "source" && field !== "day")
+    return { values: [], more: false, numeric: false, min: null, max: null };
+  const names = [p.metric, ...(p.pivot?.metrics ?? [])].map((m) =>
+    m === cpuPercent ? "cpu.usage" : m,
+  );
+  const scope = daily
+    ? dailyScope(p, end)
+    : sql`${matches(p, end)} AND ${p.measure === "metric" ? sql`kind='metric' AND name IN (${sql.list(names)})` : p.measure === "logs" || p.distinct?.dataset === "log" ? sql`kind='log'` : p.distinct?.dataset === "span" ? sql`kind='span'` : sql`kind='span' AND entry`}`;
+  const { text, num } = fieldData(field, daily);
+  const relation = daily ? sql`daily_sets` : sql`telemetry_events`;
+  if (field === "day" || isTimeField(field)) {
+    const [range] = await db.queryAll<{
+      min: number | null;
+      max: number | null;
+    }>(
+      sql`SELECT min(${num})::float8 AS min,max(${num})::float8 AS max FROM ${relation} WHERE ${scope}`,
+    );
+    return { ...range, values: [], more: false, numeric: true };
+  }
+  const [r] = await db.queryAll<{
+    values: string[];
+    numeric: boolean;
+    min: number | null;
+    max: number | null;
+  }>(sql`WITH observed AS (
+    SELECT ${text} AS val,${num}::float8 AS n FROM ${relation} WHERE ${scope}
+  ) SELECT ARRAY(SELECT DISTINCT val FROM observed WHERE val IS NOT NULL AND length(val)<=512 AND strpos(lower(val),lower(${search}::text))>0 ORDER BY val LIMIT 61) AS values,
+  coalesce(bool_and(n IS NOT NULL) FILTER(WHERE val IS NOT NULL),false) AS numeric,min(n)::float8 AS min,max(n)::float8 AS max FROM observed`);
+  return { ...r, values: r.values.slice(0, 60), more: r.values.length > 60 };
+}
+function matches(f: Filter & { conditions?: FieldCondition[] }, end: Date) {
   const parts = [
+    conditions(f.conditions),
     sql`at > ${new Date(end.getTime() - 60000 * f.minutes)} AND at <= ${end}`,
   ];
   if (f.source) parts.push(sql`source=${f.source}`);
@@ -106,7 +188,7 @@ export async function series(
     const count = sql`count(DISTINCT nullif(digest,''))::int`;
     return (
       await db.queryAll<GroupPoint>(
-        sql`SELECT ${pivot ? sql`${end}::timestamptz` : sql`day::timestamp AT TIME ZONE 'Asia/Tokyo'`} AS bucket,${row} AS series,${pivot ? sql`${shelfKey(pivot.column, dailyField)} AS "column",` : sql``} ${count} AS value,${count} AS samples FROM daily_sets WHERE field=${distinct.field} AND day BETWEEN (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date - ${Math.ceil(p.minutes / 1440) - 1}::int AND (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date AND ${p.source ? sql`source=${p.source}` : sql`true`} GROUP BY ${pivot ? sql`1,2,3` : sql`1,2`} ORDER BY ${pivot ? sql`1,2,3` : sql`1,2`}`,
+        sql`SELECT ${pivot ? sql`${end}::timestamptz` : sql`day::timestamp AT TIME ZONE 'Asia/Tokyo'`} AS bucket,${row} AS series,${pivot ? sql`${shelfKey(pivot.column, dailyField)} AS "column",` : sql``} ${count} AS value,${count} AS samples FROM daily_sets WHERE ${dailyScope(p, end)} GROUP BY ${pivot ? sql`1,2,3` : sql`1,2`} ORDER BY ${pivot ? sql`1,2,3` : sql`1,2`}`,
       )
     ).map(decodePoint);
   }

@@ -1008,3 +1008,97 @@ main:has(.worksheet) {
   border: 1px solid #d7e5e1;
   vertical-align: top;
 }
+.worksheet .builder-main {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+.filter-shelf {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 5px 8px;
+  margin-top: 5px;
+  border: 1px dashed #a6bfba;
+  border-radius: 6px;
+  background: white;
+}
+.filter-shelf[data-ready] {
+  border-color: #327d75;
+  background: #eff8f5;
+}
+.filter-shelf[data-preview] {
+  outline: 2px solid #167774;
+}
+.filter-shelf > label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.filter-shelf select {
+  max-width: 9rem;
+  min-width: 0;
+}
+.filter-chips {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow: auto;
+}
+.filter-chips .shelf-chip {
+  flex-shrink: 0;
+  margin: 0;
+}
+.filter-chips .shelf-chip button:first-child {
+  max-width: 13rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.filter-editor {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 3;
+  width: min(22rem, 100%);
+  padding: 10px;
+  background: white;
+  border: 1px solid #a6bfba;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px #14343726;
+  max-height: 34dvh;
+  overflow: auto;
+}
+.filter-editor .options-heading {
+  margin-bottom: 6px;
+}
+.filter-editor .filter-values {
+  max-height: 16dvh;
+  overflow: auto;
+}
+.filter-values label {
+  padding: 3px 0;
+  overflow-wrap: anywhere;
+}
+.filter-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  align-items: end;
+}
+.filter-range input {
+  min-width: 0;
+}
+
+.filter-chips [aria-expanded="true"] {
+  anchor-name: --selected-filter;
+  background: #cce8e3;
+}
+@supports (left: anchor(left)) {
+  .filter-editor {
+    position-anchor: --selected-filter;
+    left: clamp(0px, anchor(left), max(0px, 100% - 22rem));
+  }
+}

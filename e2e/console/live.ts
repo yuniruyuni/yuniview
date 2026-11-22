@@ -606,11 +606,14 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await place("スロット", "series");
   await place("リビジョン", "series");
   await form
-    .getByRole("combobox", { name: "絞り込みを追加" })
-    .selectOption("instance");
-  await form
-    .getByRole("combobox", { name: "インスタンス", exact: true })
-    .fill("axis-test");
+    .locator(".field-catalog")
+    .getByRole("button", { name: "インスタンス", exact: true })
+    .dragTo(form.locator('[data-drop="filter"]'));
+  const filterEditor = form.getByRole("region", {
+    name: "インスタンス の条件",
+  });
+  await filterEditor.getByLabel("axis-test", { exact: true }).check();
+  await filterEditor.getByRole("button", { name: "閉じる" }).click();
   const plot = form.locator(".worksheet-plot");
   await expect(
     plot.getByRole("img", { name: "系列別の折れ線グラフ" }),
@@ -700,4 +703,76 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
   await expect(
     form.getByRole("button", { name: "設定", exact: true }),
   ).toHaveAttribute("aria-expanded", "false");
+});
+
+test("filter shelf combines observed choices with numeric and time ranges before aggregation", async ({
+  page,
+}) => {
+  await page.goto("/#page=dashboards");
+  await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
+  const form = page.locator("form.editor"),
+    catalog = form.locator(".field-catalog"),
+    shelf = form.locator('[data-drop="filter"]');
+  await form
+    .getByRole("combobox", { name: "指標", exact: true })
+    .selectOption("requests");
+  await form
+    .getByRole("combobox", { name: "表示形式", exact: true })
+    .selectOption("value");
+  await catalog
+    .getByRole("button", { name: "http.response.status_code", exact: true })
+    .dragTo(shelf);
+  const code = form.getByRole("region", {
+    name: "http.response.status_code の条件",
+  });
+  await code.getByLabel("下限").fill("504");
+  await code.getByRole("button", { name: "範囲を適用" }).click();
+  await expect(form.locator(".builder-main .empty")).toBeVisible();
+  await code.getByLabel("下限").fill("503");
+  await code.getByLabel("上限").fill("503");
+  await code.getByRole("button", { name: "範囲を適用" }).click();
+  await expect(form.locator(".values strong")).toHaveText("1");
+  await code.getByRole("button", { name: "閉じる" }).click();
+  await catalog
+    .getByRole("button", { name: "http.route", exact: true })
+    .dragTo(shelf);
+  await form.getByRole("checkbox", { name: "/pay", exact: true }).check();
+  await form
+    .getByRole("region", { name: "http.route の条件" })
+    .getByRole("button", { name: "閉じる" })
+    .click();
+  await catalog
+    .getByRole("button", { name: "時刻（1秒）", exact: true })
+    .dragTo(shelf);
+  const time = form.getByRole("region", { name: "時刻（1秒） の条件" });
+  await expect(time.getByLabel("上限")).toHaveAttribute(
+    "type",
+    "datetime-local",
+  );
+  await time.getByLabel("上限").fill("2000-01-01T00:00");
+  await time.getByRole("button", { name: "範囲を適用" }).click();
+  await expect(form.locator(".builder-main .empty")).toBeVisible();
+  await form
+    .getByRole("button", { name: "時刻（1秒） のフィルターを外す" })
+    .click();
+  await expect(form.locator(".values strong")).toHaveText("1");
+  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByLabel("名前", { exact: true }).fill("Filtered requests");
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Filtered requests" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.locator(".values strong")).toHaveText("1");
+  await page.locator("button.panel-title").first().click();
+  await expect(
+    page.getByRole("button", { name: "http.route · /pay", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", {
+      name: "http.response.status_code · 503 ～ 503",
+      exact: true,
+    })
+    .click();
+  await expect(page.getByLabel("上限")).toHaveValue("503");
 });

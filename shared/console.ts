@@ -83,7 +83,22 @@ export interface Filter {
   text: string;
   minutes: number;
 }
+export type FilterField = Dimension | TimeField;
+export interface FieldCondition {
+  field: FilterField;
+  values?: string[];
+  min?: number;
+  max?: number;
+}
+export interface FilterOptions {
+  values: string[];
+  more: boolean;
+  numeric: boolean;
+  min: number | null;
+  max: number | null;
+}
 export interface Panel extends Filter {
+  conditions?: FieldCondition[];
   wide?: boolean;
   id?: string;
   title: string;
