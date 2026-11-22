@@ -316,7 +316,11 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await form.getByLabel("パネル名").fill("Second");
   const titles = form.locator(".layout-tile strong");
   const tiles = form.locator(".layout-tile");
-  await tiles.first().scrollIntoViewIfNeeded();
+  await tiles
+    .first()
+    .evaluate((tile) =>
+      tile.scrollIntoView({ block: "center", behavior: "instant" }),
+    );
   const a = await tiles.first().boundingBox(),
     b = await tiles.last().boundingBox();
   if (!a || !b) throw Error("Missing panels");

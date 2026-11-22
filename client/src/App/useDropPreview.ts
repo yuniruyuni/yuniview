@@ -63,7 +63,10 @@ export function useDropPreview<T>(commit: (item: T, target: string) => void) {
         g.y < edge
           ? -Math.min(14, (edge - g.y) / 3)
           : Math.min(14, Math.max(0, (g.y - innerHeight + edge) / 3));
-      if (speed && !overTray) {
+      const bounds = root.current?.getBoundingClientRect();
+      const moreTargets =
+        bounds && (speed < 0 ? bounds.top < 0 : bounds.bottom > innerHeight);
+      if (speed && moreTargets && !overTray) {
         const before = window.scrollY;
         window.scrollBy(0, speed);
         if (window.scrollY !== before)
