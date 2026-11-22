@@ -39,6 +39,34 @@ import { styleNames } from "./SeriesStyle";
 import { ShelfPicker } from "./ShelfPicker";
 import { useDropPreview } from "./useDropPreview";
 
+function ShelfTarget({
+  label,
+  name,
+  hint,
+  disabled,
+  open,
+}: {
+  label: string;
+  name: string;
+  hint?: string;
+  disabled?: boolean;
+  open: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="shelf-target"
+      aria-label={name}
+      disabled={disabled}
+      title="フィールドをドロップ、またはクリックして選択"
+      onClick={open}
+    >
+      <strong>{label}</strong>
+      {hint && <span>{hint}</span>}
+    </button>
+  );
+}
+
 function UnitInput({
   source,
   value,
@@ -525,6 +553,34 @@ export function PanelBuilder({
     p.measure !== "metric" && !!compatibleUnits(measureUnit);
   const hasFieldSettings = (field: ShelfAxis) =>
     isTemporalField(field) || (field === "measure" && measureHasUnits);
+  function valueChip(replace: () => void) {
+    const metric = p.measure === "metric";
+    const trigger = metric
+      ? metricTrigger(p.metric)
+      : measureHasUnits
+        ? metricTrigger("value-unit")
+        : { onClick: replace };
+    return (
+      <>
+        <span className="shelf-chip">
+          <button type="button" {...trigger}>
+            {choices.find(([key]) => key === selected)?.[1] ?? selected}
+          </button>
+          {metric && <small>{aggregationNames[aggregation(p.metric)]}</small>}
+        </span>
+        {metric && metricMenu(p.metric)}
+        {measureHasUnits && (
+          <fieldset
+            className="metric-menu"
+            popover="auto"
+            id={metricTrigger("value-unit").popoverTarget}
+          >
+            {unitInput(p.measure, measureUnit)}
+          </fieldset>
+        )}
+      </>
+    );
+  }
   function metricMenu(metric: string) {
     const id = worksheetId + "-aggregation-" + encodeURIComponent(metric);
     return (
@@ -1080,44 +1136,28 @@ export function PanelBuilder({
                     }
                     data-preview={hovered?.id === id || undefined}
                   >
-                    <button
-                      type="button"
-                      className="shelf-target"
-                      aria-label={label + "にフィールドを追加"}
-                      title="フィールドをドロップ、またはクリックして選択"
-                      onClick={() => openPicker(id)}
-                    >
-                      <strong>{label}</strong>
-                      {!assigned.length &&
-                        !(!pivot && id === "row" && p.measure === "metric") && (
-                          <span>{implicit || "ここにドロップ"}</span>
-                        )}
-                    </button>
-                    {!pivot && id === "row" && p.measure === "metric" && (
-                      <button type="button" {...metricTrigger(p.metric)}>
-                        {metricName(p.metric)} ·{" "}
-                        {aggregationNames[aggregation(p.metric)]}
-                      </button>
-                    )}
-                    {!pivot && id === "row" && measureHasUnits && (
-                      <>
-                        <button
-                          type="button"
-                          {...metricTrigger("implicit-unit")}
-                        >
-                          表示単位
-                        </button>
-                        <fieldset
-                          className="metric-menu"
-                          popover="auto"
-                          id={metricTrigger("implicit-unit").popoverTarget}
-                        >
-                          {unitInput(p.measure, nativeUnit(p, p.metric))}
-                        </fieldset>
-                      </>
-                    )}
-                    {((!pivot && id === "row") ||
-                      assigned.includes("measure")) &&
+                    <ShelfTarget
+                      label={label}
+                      name={label + "にフィールドを追加"}
+                      open={() => openPicker(id)}
+                      hint={
+                        !assigned.length && !implicit
+                          ? "ここにドロップ"
+                          : undefined
+                      }
+                    />
+                    {!pivot &&
+                      implicit &&
+                      (id === "row" ? (
+                        valueChip(() => openPicker(id))
+                      ) : (
+                        <span className="shelf-chip">
+                          <button type="button" onClick={() => openPicker(id)}>
+                            {implicit}
+                          </button>
+                        </span>
+                      ))}
+                    {assigned.includes("measure") &&
                       p.measure === "metric" &&
                       metricMenu(p.metric)}
                     {picker === id && (
@@ -1271,36 +1311,12 @@ export function PanelBuilder({
                   }
                   data-preview={targetRole === "measure" || undefined}
                 >
-                  <button
-                    type="button"
-                    className="style-target"
-                    onClick={() => openPicker("measure")}
-                  >
-                    <strong>値</strong>
-                    <span>
-                      {choices.find(([key]) => key === selected)?.[1]}
-                    </span>
-                  </button>
-                  {p.measure === "metric" && (
-                    <button type="button" {...metricTrigger(p.metric)}>
-                      {aggregationNames[aggregation(p.metric)]}
-                    </button>
-                  )}
-                  {p.measure === "metric" && metricMenu(p.metric)}
-                  {measureHasUnits && (
-                    <>
-                      <button type="button" {...metricTrigger("value-unit")}>
-                        表示単位
-                      </button>
-                      <fieldset
-                        className="metric-menu"
-                        popover="auto"
-                        id={metricTrigger("value-unit").popoverTarget}
-                      >
-                        {unitInput(p.measure, nativeUnit(p, p.metric))}
-                      </fieldset>
-                    </>
-                  )}
+                  <ShelfTarget
+                    label="値"
+                    name="値にフィールドを追加"
+                    open={() => openPicker("measure")}
+                  />
+                  {valueChip(() => openPicker("measure"))}
                   {picker === "measure" && (
                     <ShelfPicker
                       label="値"
@@ -1319,16 +1335,26 @@ export function PanelBuilder({
                   }
                   data-preview={targetRole === "group" || undefined}
                 >
-                  <button
-                    type="button"
-                    className="style-target"
-                    onClick={() => openPicker("group")}
-                  >
-                    <strong>分類</strong>
-                    <span>
-                      {groupChoices.find(([key]) => key === p.group)?.[1]}
-                    </span>
-                  </button>
+                  <ShelfTarget
+                    label="分類"
+                    name="分類にフィールドを追加"
+                    open={() => openPicker("group")}
+                  />
+                  <span className="shelf-chip">
+                    <button type="button" onClick={() => openPicker("group")}>
+                      {groupChoices.find(([key]) => key === p.group)?.[1] ??
+                        p.group}
+                    </button>
+                    {p.group !== "all" && (
+                      <button
+                        type="button"
+                        aria-label="分類の割り当てを外す"
+                        onClick={() => change(changeGroup(p, "all"))}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </span>
                   {picker === "group" && (
                     <ShelfPicker
                       label="分類"
@@ -1360,38 +1386,36 @@ export function PanelBuilder({
                       }
                       data-preview={hovered?.id === target || undefined}
                     >
-                      <div className="style-assignment">
-                        <label htmlFor={worksheetId + target}>
-                          <strong>{label}</strong>
-                        </label>
+                      <ShelfTarget
+                        label={label}
+                        name={label + "に属性を割り当て"}
+                        disabled={!styleFields.length}
+                        open={() => openPicker(channel)}
+                        hint={
+                          !field && index === undefined
+                            ? styleFields.length
+                              ? "ここにドロップ"
+                              : "既定"
+                            : undefined
+                        }
+                      />
+                      {(field || index !== undefined) && (
                         <span
-                          className="style-chip"
+                          className="shelf-chip"
                           data-assigned={removable || undefined}
                         >
                           <button
                             type="button"
-                            id={worksheetId + target}
                             disabled={!styleFields.length}
-                            aria-label={label + "に属性を割り当て"}
-                            title={
-                              field
-                                ? shelfName(field)
-                                : "属性をドロップ、またはクリックして選択"
-                            }
                             onClick={() => openPicker(channel)}
                           >
                             {field
                               ? shelfName(field)
-                              : index !== undefined
-                                ? styleNames[channel][index]
-                                : styleFields.length
-                                  ? "属性をドロップ"
-                                  : "既定"}
+                              : styleNames[channel][index!]}
                           </button>
                           {removable && (
                             <button
                               type="button"
-                              className="style-remove"
                               aria-label={label + "の割り当てを外す"}
                               onClick={() => change(withStyle(channel))}
                             >
@@ -1399,7 +1423,7 @@ export function PanelBuilder({
                             </button>
                           )}
                         </span>
-                      </div>
+                      )}
                       {picker === channel && (
                         <ShelfPicker
                           label={label}

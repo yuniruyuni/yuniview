@@ -1029,6 +1029,33 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
       await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBeLessThanOrEqual(width);
   }
+  const formatSelect = form.getByRole("combobox", {
+    name: "表示形式",
+    exact: true,
+  });
+  for (const format of ["summary", "value"]) {
+    await formatSelect.selectOption(format);
+    const value = form.locator('[data-drop="measure"]');
+    const group = form.locator('[data-drop="group"]');
+    await expect(value.locator(".shelf-target strong")).toHaveText("値");
+    await expect(group.locator(".shelf-target strong")).toHaveText("分類");
+    await value
+      .locator(".shelf-chip")
+      .getByRole("button", { name: "メモリ使用量" })
+      .click();
+    await expect(
+      form.locator(".metric-menu:popover-open").getByLabel("表示単位"),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await group.getByRole("button", { name: "分類にフィールドを追加" }).click();
+    await page
+      .getByRole("dialog", { name: "分類に追加" })
+      .getByRole("button", { name: "サービス", exact: true })
+      .click();
+    await expect(group.locator(".shelf-chip")).toContainText("サービス");
+    await group.getByRole("button", { name: "分類の割り当てを外す" }).click();
+    await expect(group.locator(".shelf-chip")).toHaveText("全体");
+  }
   const range = form.getByRole("button", { name: "ダッシュボードの期間" });
   await range.click();
   await page.getByRole("button", { name: "直近15分", exact: true }).click();
