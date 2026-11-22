@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"time"
+
 	logs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	metrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	traces "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -17,6 +19,10 @@ func (q *queue) accept(signal string, req proto.Message) error {
 	if err == nil {
 		err = q.add(signal, data, nil)
 	}
+	return exportError(err)
+}
+
+func exportError(err error) error {
 	switch {
 	case err == nil:
 		return nil
@@ -40,11 +46,16 @@ func (s traceService) Export(_ context.Context, r *traces.ExportTraceServiceRequ
 
 type logService struct {
 	logs.UnimplementedLogsServiceServer
-	q *queue
+	q      *queue
+	fields map[string]bool
 }
 
 func (s logService) Export(_ context.Context, r *logs.ExportLogsServiceRequest) (*logs.ExportLogsServiceResponse, error) {
-	return &logs.ExportLogsServiceResponse{}, s.q.accept("logs", r)
+	data, err := bufferLogExport(r, s.fields, time.Now())
+	if err == nil {
+		err = s.q.add("logs", data, nil)
+	}
+	return &logs.ExportLogsServiceResponse{}, exportError(err)
 }
 
 type metricService struct {

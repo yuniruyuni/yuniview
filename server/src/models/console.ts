@@ -80,6 +80,7 @@ export const panel = filter
       .optional(),
     title: label.pipe(z.string().trim().min(1)),
     measure: z.enum([
+      "events",
       "requests",
       "errors",
       "latency",
@@ -89,7 +90,7 @@ export const panel = filter
     ]),
     distinct: z
       .object({
-        dataset: z.enum(["daily", "log", "span"]),
+        dataset: z.enum(["event", "daily", "log", "span"]),
         field: label.pipe(z.string().min(1)),
       })
       .optional(),

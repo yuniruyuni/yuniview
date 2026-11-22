@@ -1,7 +1,12 @@
 import type { Measure } from "../../../shared/console";
 
 export function countAxis(measure: Measure, maximum: number) {
-  if (measure !== "logs" && measure !== "requests" && measure !== "distinct")
+  if (
+    measure !== "events" &&
+    measure !== "logs" &&
+    measure !== "requests" &&
+    measure !== "distinct"
+  )
     return;
   const desired = Math.max(1, maximum / 4);
   const magnitude = 10 ** Math.floor(Math.log10(desired));

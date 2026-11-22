@@ -15,6 +15,7 @@ import { PanelView, Select } from "./Panels";
 
 const pages = {
   overview: "サービス一覧",
+  events: "イベント",
   logs: "ログ",
   apm: "APM",
   metrics: "メトリクス",
@@ -37,6 +38,7 @@ function link(params: Record<string, string>) {
   if (params.page && params.page !== p.get("page")) {
     p.delete("sheet");
     p.delete("logContains");
+    p.delete("conditions");
   }
   for (const [k, v] of Object.entries(params)) {
     if (v) p.set(k, v);
@@ -70,6 +72,15 @@ export function App() {
   const page: Page = Object.hasOwn(pages, key) ? (key as Page) : "overview";
   const logContains =
     page === "logs" ? url.get("logContains") || undefined : undefined;
+  let conditions: Panel["conditions"];
+  if (page === "events" && url.has("conditions")) {
+    try {
+      const list = JSON.parse(url.get("conditions") ?? "[]");
+      if (Array.isArray(list)) conditions = list;
+    } catch {
+      /* Ignore malformed links. */
+    }
+  }
   const f: Filter = {
     ...defaults,
     source: url.get("source") ?? "",
@@ -393,21 +404,25 @@ export function App() {
                     ? "metric"
                     : page === "logs"
                       ? "logs"
-                      : "requests";
+                      : page === "events"
+                        ? "events"
+                        : "requests";
                 setIncoming({
                   ...blankPanel,
                   ...f,
                   measure,
                   conditions: logContains
                     ? [{ field: "log", contains: logContains }]
-                    : undefined,
+                    : conditions,
                   metric: measure === "metric" ? metric : "",
                   title:
                     measure === "metric"
                       ? metric
                       : measure === "logs"
                         ? "ログ件数"
-                        : "リクエスト数",
+                        : measure === "events"
+                          ? "イベント実行回数"
+                          : "リクエスト数",
                 });
                 navigate({ page: "dashboards" });
               }}
@@ -434,12 +449,24 @@ export function App() {
               </div>
             )}
             <Explorer
-              key={page + JSON.stringify(f) + end + (logContains ?? "")}
+              key={
+                page +
+                JSON.stringify([f, conditions]) +
+                end +
+                (logContains ?? "")
+              }
+              conditions={conditions}
               logContains={logContains}
               f={f}
               end={end}
               kind={
-                page === "logs" ? "log" : page === "metrics" ? "metric" : "span"
+                page === "events"
+                  ? "event"
+                  : page === "logs"
+                    ? "log"
+                    : page === "metrics"
+                      ? "metric"
+                      : "span"
               }
               showTrace={showTrace}
             />

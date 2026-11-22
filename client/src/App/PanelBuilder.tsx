@@ -232,7 +232,9 @@ export function PanelBuilder({
         ? "metric"
         : p.measure === "logs" || selection?.dataset === "log"
           ? "log"
-          : "span",
+          : p.measure === "events" || selection?.dataset === "event"
+            ? "event"
+            : "span",
     metric: p.metric,
     end,
     minutes,
@@ -1488,6 +1490,7 @@ export function PanelBuilder({
                         choices={[
                           ["daily", "日次集合"],
                           ["log", "ログ属性"],
+                          ["event", "イベント属性"],
                           ["span", "スパン属性"],
                         ]}
                         change={(v) => {

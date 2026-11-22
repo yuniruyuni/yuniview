@@ -1,4 +1,5 @@
 export type Measure =
+  | "events"
   | "requests"
   | "errors"
   | "latency"
@@ -106,7 +107,10 @@ export type Pivot = {
   metricOptions?: MetricOption[];
   metrics?: string[];
 };
-export type Distinct = { dataset: "daily" | "log" | "span"; field: string };
+export type Distinct = {
+  dataset: "event" | "daily" | "log" | "span";
+  field: string;
+};
 export interface Filter {
   source: string;
   instance: string;
@@ -275,6 +279,7 @@ export const blankPanel: Panel = {
 };
 export const measures: Record<Measure, string> = {
   distinct: "ユニーク数",
+  events: "イベント実行回数",
   requests: "リクエスト数",
   errors: "失敗率 (%)",
   latency: "p95 応答時間 (ms)",

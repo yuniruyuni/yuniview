@@ -156,3 +156,88 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
     form.getByRole("combobox", { name: "表示形式", exact: true }),
   ).toHaveValue("table");
 });
+
+test("event panels count occurrences, deduplicate delivery, and open the filtered records", async ({
+  request,
+  page,
+}) => {
+  const { blankPanel } = await import("../../shared/console");
+  const at = new Date().toISOString();
+  const batch = {
+    id: crypto.randomUUID().replaceAll("-", ""),
+    source: {
+      service: "checkout",
+      workload: "app",
+      slot: "blue",
+      instance: "events-test",
+    },
+    time: at,
+    signal: "logs",
+    payload: {
+      bufferedEvents: [
+        { name: "feature.open", at, count: 100, attrs: { feature: "editor" } },
+        { name: "feature.open", at, count: 1, attrs: { feature: "preview" } },
+      ],
+    },
+  };
+  const ingest = (data: unknown) =>
+    request.post(
+      `http://127.0.0.1:${process.env.INGEST_PORT}/api/agent/v1/batches`,
+      {
+        headers: { Authorization: "Bearer " + process.env.CONSOLE_TOKEN },
+        data,
+      },
+    );
+  expect(
+    (
+      await ingest({
+        ...batch,
+        payload: {
+          bufferedEvents: [{ name: "invalid", at, count: -1, attrs: {} }],
+        },
+      })
+    ).status(),
+  ).toBe(400);
+  for (let retry = 0; retry < 2; retry++)
+    expect((await ingest(batch)).status()).toBe(204);
+  const panel = {
+    ...blankPanel,
+    instance: "events-test",
+    group: "all",
+    measure: "events",
+  };
+  const conditions = [{ field: "attr:feature", values: ["preview"] }];
+  for (const [overrides, count] of [
+    [{}, 101],
+    [{ conditions }, 1],
+    [
+      { measure: "distinct", distinct: { dataset: "event", field: "feature" } },
+      2,
+    ],
+  ] as const) {
+    const response = await request.get("/api/trpc/series", {
+      params: {
+        input: JSON.stringify({
+          panel: { ...panel, ...overrides },
+          buckets: false,
+          end: at,
+        }),
+      },
+    });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    expect((await response.json()).result.data[0].value).toBe(count);
+  }
+  await page.goto(
+    "/#" +
+      new URLSearchParams({
+        page: "events",
+        instance: "events-test",
+        conditions: JSON.stringify(conditions),
+        end: at,
+      }),
+  );
+  await expect(page.getByRole("cell", { name: "feature.open" })).toHaveCount(1);
+  await expect(
+    page.getByRole("cell", { name: "1 件", exact: true }),
+  ).toBeVisible();
+});

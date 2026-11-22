@@ -582,21 +582,27 @@ export function investigatePanel(p: Panel, end: string) {
     "#" +
     new URLSearchParams({
       page:
-        p.measure === "distinct"
-          ? p.distinct?.dataset === "log"
-            ? "logs"
-            : "apm"
-          : p.measure === "logs"
-            ? "logs"
-            : p.measure === "metric"
-              ? "metrics"
-              : "apm",
+        p.measure === "events" || p.distinct?.dataset === "event"
+          ? "events"
+          : p.measure === "distinct"
+            ? p.distinct?.dataset === "log"
+              ? "logs"
+              : "apm"
+            : p.measure === "logs"
+              ? "logs"
+              : p.measure === "metric"
+                ? "metrics"
+                : "apm",
       source: p.source,
       slot: p.slot,
       instance: p.instance,
       workload: p.workload,
       revision: p.revision,
       text: p.text,
+      ...(p.conditions?.length &&
+      (p.measure === "events" || p.distinct?.dataset === "event")
+        ? { conditions: JSON.stringify(p.conditions) }
+        : {}),
       ...(logContains ? { logContains } : {}),
       minutes: String(p.minutes),
       metric: p.metric,
@@ -762,7 +768,34 @@ function PivotTable({
       ]);
     });
     for (const [axis, val] of entries) {
-      if (!axis || isAttribute(axis)) continue;
+      if (!axis) continue;
+      if (isAttribute(axis)) {
+        p.conditions = [
+          ...(p.conditions ?? []).filter((c) => c.field !== axis),
+          { field: axis, values: [val] },
+        ];
+        continue;
+      }
+      if (
+        (isTimeField(axis) || axis === "day") &&
+        (p.measure === "events" || p.distinct?.dataset === "event")
+      ) {
+        const start = Date.parse(
+          axis === "day" ? val + "T00:00:00+09:00" : val,
+        );
+        const width = axis === "day" ? 86400000 : Number(axis.slice(5)) * 1000;
+        const field = "time:1";
+        const prior = p.conditions?.find((c) => c.field === field);
+        p.conditions = [
+          ...(p.conditions ?? []).filter((c) => c.field !== field),
+          {
+            field,
+            min: Math.max(start, prior?.min ?? start),
+            max: Math.min(start + width - 1, prior?.max ?? start + width - 1),
+          },
+        ];
+        continue;
+      }
       if (isTimeField(axis)) {
         const seconds = Number(axis.slice(5));
         until = new Date(
@@ -846,7 +879,9 @@ function PivotTable({
                   <td key={c.key}>
                     {p &&
                     (panel.distinct?.dataset === "daily" ||
-                      pivotFields(pivot).some(isAttribute)) ? (
+                      (panel.measure !== "events" &&
+                        panel.distinct?.dataset !== "event" &&
+                        pivotFields(pivot).some(isAttribute))) ? (
                       value
                     ) : p ? (
                       <a

@@ -87,6 +87,9 @@ function conditions(list: FieldCondition[] = [], daily = false) {
   }
   return predicates.length ? sql.join(predicates, " AND ") : sql`true`;
 }
+function eventData(p: Panel) {
+  return p.measure === "events" || p.distinct?.dataset === "event";
+}
 function dailyScope(p: Panel, end: Date) {
   return sql`field=${p.distinct?.field} AND day BETWEEN (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date - ${Math.ceil(p.minutes / 1440) - 1}::int AND (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date AND ${p.source ? sql`source=${p.source}` : sql`true`} AND ${conditions(p.conditions, true)}`;
 }
@@ -109,9 +112,13 @@ export async function filterOptions(
   );
   const scope = daily
     ? dailyScope(p, end)
-    : sql`${matches(p, end)} AND ${p.measure === "metric" ? sql`kind='metric' AND name IN (${sql.list(names)})` : p.measure === "logs" || p.distinct?.dataset === "log" ? sql`kind='log'` : p.distinct?.dataset === "span" ? sql`kind='span'` : sql`kind='span' AND entry`}`;
+    : sql`${matches(p, end)} AND ${eventData(p) ? sql`kind='event'` : p.measure === "metric" ? sql`kind='metric' AND name IN (${sql.list(names)})` : p.measure === "logs" || p.distinct?.dataset === "log" ? sql`kind='log'` : p.distinct?.dataset === "span" ? sql`kind='span'` : sql`kind='span' AND entry`}`;
   const { text, num } = fieldData(field, daily);
-  const relation = daily ? sql`daily_sets` : sql`telemetry_events`;
+  const relation = daily
+    ? sql`daily_sets`
+    : eventData(p)
+      ? sql`analysis_events`
+      : sql`telemetry_events`;
   if (field === "day" || isTimeField(field)) {
     const [range] = await db.queryAll<{
       min: number | null;
@@ -262,11 +269,13 @@ export async function series(
       : sql`${end}::timestamptz`;
   const filter = distinct
     ? sql`kind=${distinct.dataset}`
-    : p.measure === "logs"
-      ? sql.raw("kind='log'")
-      : p.measure === "metric"
-        ? sql`kind='metric' AND name IN (${sql.list([p.metric, ...(pivot?.metrics ?? [])])}) AND value IS NOT NULL`
-        : sql.raw("kind='span' AND entry");
+    : p.measure === "events"
+      ? sql`kind='event'`
+      : p.measure === "logs"
+        ? sql.raw("kind='log'")
+        : p.measure === "metric"
+          ? sql`kind='metric' AND name IN (${sql.list([p.metric, ...(pivot?.metrics ?? [])])}) AND value IS NOT NULL`
+          : sql.raw("kind='span' AND entry");
   const metricDefault = sql.raw(`${p.aggregation}(value)`);
   const overrides = (pivot?.metricOptions ?? []).flatMap((o) =>
     o.aggregation && o.aggregation !== p.aggregation
@@ -278,13 +287,15 @@ export async function series(
     : metricDefault;
   const aggregate = distinct
     ? sql`count(DISTINCT nullif(attrs->>${distinct.field},''))`
-    : p.measure === "latency"
-      ? sql.raw("percentile_cont(0.95) WITHIN GROUP (ORDER BY value)")
-      : p.measure === "errors"
-        ? sql.raw("100.0*count(*) FILTER(WHERE failed)/count(*)")
-        : p.measure === "metric"
-          ? metricAggregate
-          : sql.raw("count(*)");
+    : p.measure === "events"
+      ? sql`sum(value)`
+      : p.measure === "latency"
+        ? sql.raw("percentile_cont(0.95) WITHIN GROUP (ORDER BY value)")
+        : p.measure === "errors"
+          ? sql.raw("100.0*count(*) FILTER(WHERE failed)/count(*)")
+          : p.measure === "metric"
+            ? metricAggregate
+            : sql.raw("count(*)");
   const units =
     (pivot || p.display === "table" || p.fieldUnits?.["metric/" + p.metric]) &&
     p.measure === "metric"
@@ -309,7 +320,7 @@ export async function series(
   const keys = hasFacet ? sql`1,2,3,4` : pivot ? sql`1,2,3` : sql`1,2`;
   return (
     await db.queryAll<GroupPoint>(
-      sql`${readings} SELECT ${period} AS bucket,${group} AS series,${pivot ? sql`${shelfKey(pivot.column, field)} AS "column",` : sql``} ${hasFacet && pivot?.series ? sql`${shelfKey(pivot.series, field)} AS facet,` : sql``} ${units} (${aggregate}::float8 / ${p.unit === "MiB" ? 1048576 : 1}::float8) AS value,count(*)::int AS samples FROM ${wantsCpu ? sql.raw("readings") : sql.raw("telemetry_events")} WHERE ${matches(p, end)} AND ${filter} GROUP BY ${keys} HAVING ${aggregate} IS NOT NULL ORDER BY ${keys}`,
+      sql`${readings} SELECT ${period} AS bucket,${group} AS series,${pivot ? sql`${shelfKey(pivot.column, field)} AS "column",` : sql``} ${hasFacet && pivot?.series ? sql`${shelfKey(pivot.series, field)} AS facet,` : sql``} ${units} (${aggregate}::float8 / ${p.unit === "MiB" ? 1048576 : 1}::float8) AS value,${eventData(p) ? sql`sum(value)` : sql`count(*)::int`} AS samples FROM ${eventData(p) ? sql`analysis_events` : wantsCpu ? sql.raw("readings") : sql.raw("telemetry_events")} WHERE ${matches(p, end)} AND ${filter} GROUP BY ${keys} HAVING ${aggregate} IS NOT NULL ORDER BY ${keys}`,
     )
   ).map(decodePoint);
 }
@@ -331,7 +342,7 @@ export async function listEvents(
         }
       : f;
   return db.queryAll<EventRow>(
-    sql`SELECT ${columns} FROM telemetry_events WHERE ${matches(query, end)} AND kind=${kind} ORDER BY at DESC, source,batch_id,ordinal LIMIT 101 OFFSET ${offset}`,
+    sql`SELECT ${columns} FROM ${kind === "event" ? sql`analysis_events` : sql`telemetry_events`} WHERE ${matches(query, end)} AND kind=${kind} ORDER BY at DESC, source,batch_id,ordinal LIMIT 101 OFFSET ${offset}`,
   );
 }
 export async function traceDetails(db: Database, id: string) {
