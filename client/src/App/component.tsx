@@ -126,6 +126,9 @@ export function App() {
               {title}
             </button>
           ))}
+          <a className="privacy-link" href="/privacy/">
+            プライバシーポリシー
+          </a>
         </nav>
       </aside>
       <main>
