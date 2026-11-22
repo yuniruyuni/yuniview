@@ -64,6 +64,7 @@ export const appRouter = router({
     .input(
       windowInput.extend({
         kind: z.enum(["log", "metric", "span"]),
+        logContains: filter.shape.text.optional(),
         offset: z.number().int().min(0).max(1000000),
       }),
     )

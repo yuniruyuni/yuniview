@@ -84,6 +84,57 @@ function Range({
     </div>
   );
 }
+function LogFilter({
+  condition,
+  change,
+  legacy,
+}: {
+  condition: FieldCondition;
+  change: (c: FieldCondition) => void;
+  legacy: boolean;
+}) {
+  const [term, edit] = useState(condition.contains ?? "");
+  function apply() {
+    change({ field: "log", contains: term || undefined });
+  }
+  return (
+    <>
+      <label>
+        本文に含む文字列
+        <input
+          type="search"
+          maxLength={512}
+          value={term}
+          placeholder="例: timeout"
+          onChange={(e) => edit(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              apply();
+            }
+          }}
+        />
+      </label>
+      {legacy && (
+        <small>
+          保存済みの条件は本文と名前が対象です。適用すると本文の部分一致に切り替わります。
+        </small>
+      )}
+      <button type="button" onClick={apply}>
+        適用
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          edit("");
+          change({ field: "log" });
+        }}
+      >
+        条件をクリア
+      </button>
+    </>
+  );
+}
 function ConditionEditor({
   condition,
   panel,
@@ -256,7 +307,8 @@ export function FilterShelf({
               onClick={() => setOpen(open === c.field ? undefined : c.field)}
             >
               {shelfName(c.field)} ·{" "}
-              {c.values?.join("、") ??
+              {(c.contains || undefined) ??
+                c.values?.join("、") ??
                 (c.min !== undefined || c.max !== undefined
                   ? [
                       inputValue(
@@ -302,13 +354,25 @@ export function FilterShelf({
               閉じる
             </button>
           </div>
-          <ConditionEditor
-            key={active.field}
-            condition={active}
-            panel={panel}
-            end={end}
-            change={change}
-          />
+          {active.field === "log" ? (
+            <LogFilter
+              key={JSON.stringify(active)}
+              condition={active}
+              change={change}
+              legacy={
+                !!panel.text &&
+                !panel.conditions?.some((c) => c.field === "log")
+              }
+            />
+          ) : (
+            <ConditionEditor
+              key={active.field}
+              condition={active}
+              panel={panel}
+              end={end}
+              change={change}
+            />
+          )}
         </section>
       )}
     </section>

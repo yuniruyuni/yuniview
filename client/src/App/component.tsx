@@ -33,7 +33,10 @@ function read() {
 }
 function link(params: Record<string, string>) {
   const p = read();
-  if (params.page && params.page !== p.get("page")) p.delete("sheet");
+  if (params.page && params.page !== p.get("page")) {
+    p.delete("sheet");
+    p.delete("logContains");
+  }
   for (const [k, v] of Object.entries(params)) {
     if (v) p.set(k, v);
     else p.delete(k);
@@ -64,6 +67,8 @@ export function App() {
   const key =
     url.get("page") === "usage" ? "dashboards" : (url.get("page") ?? "");
   const page: Page = Object.hasOwn(pages, key) ? (key as Page) : "overview";
+  const logContains =
+    page === "logs" ? url.get("logContains") || undefined : undefined;
   const f: Filter = {
     ...defaults,
     source: url.get("source") ?? "",
@@ -378,6 +383,9 @@ export function App() {
                   ...blankPanel,
                   ...f,
                   measure,
+                  conditions: logContains
+                    ? [{ field: "log", contains: logContains }]
+                    : undefined,
                   metric: measure === "metric" ? metric : "",
                   title:
                     measure === "metric"
@@ -399,8 +407,20 @@ export function App() {
                 name={url.get("metric") ?? ""}
               />
             )}
+            {logContains && (
+              <div className="tools">
+                <span>ログ本文に含む文字列：{logContains}</span>
+                <button
+                  type="button"
+                  onClick={() => navigate({ logContains: "" })}
+                >
+                  本文条件を外す
+                </button>
+              </div>
+            )}
             <Explorer
-              key={page + JSON.stringify(f) + end}
+              key={page + JSON.stringify(f) + end + (logContains ?? "")}
+              logContains={logContains}
               f={f}
               end={end}
               kind={

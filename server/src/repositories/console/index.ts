@@ -48,7 +48,7 @@ export async function backfill(db: Database) {
     return batches.length;
   });
 }
-function fieldData(field: FilterField, daily: boolean) {
+function fieldData(field: Exclude<FilterField, "log">, daily: boolean) {
   if (isTimeField(field))
     return { text: sql`at::text`, num: sql`extract(epoch from at)*1000` };
   if (field === "day") {
@@ -71,6 +71,11 @@ function fieldData(field: FilterField, daily: boolean) {
 function conditions(list: FieldCondition[] = [], daily = false) {
   const predicates = [];
   for (const c of list) {
+    if (c.field === "log") {
+      if (c.contains)
+        predicates.push(sql`strpos(lower(body),lower(${c.contains}::text))>0`);
+      continue;
+    }
     const { text, num } = fieldData(c.field, daily);
     if (c.values)
       predicates.push(
@@ -87,7 +92,7 @@ function dailyScope(p: Panel, end: Date) {
 export async function filterOptions(
   db: Database,
   panel: Panel,
-  field: FilterField,
+  field: Exclude<FilterField, "log">,
   end: Date,
   search: string,
 ): Promise<FilterOptions> {
@@ -288,13 +293,20 @@ const columns = sql.raw(
 );
 export async function listEvents(
   db: Database,
-  f: Filter,
+  f: Filter & { logContains?: string },
   kind: string,
   end: Date,
   offset: number,
 ) {
+  const query =
+    kind === "log" && f.logContains
+      ? {
+          ...f,
+          conditions: [{ field: "log" as const, contains: f.logContains }],
+        }
+      : f;
   return db.queryAll<EventRow>(
-    sql`SELECT ${columns} FROM telemetry_events WHERE ${matches(f, end)} AND kind=${kind} ORDER BY at DESC, source,batch_id,ordinal LIMIT 101 OFFSET ${offset}`,
+    sql`SELECT ${columns} FROM telemetry_events WHERE ${matches(query, end)} AND kind=${kind} ORDER BY at DESC, source,batch_id,ordinal LIMIT 101 OFFSET ${offset}`,
   );
 }
 export async function traceDetails(db: Database, id: string) {

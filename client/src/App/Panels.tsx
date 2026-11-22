@@ -428,6 +428,7 @@ export function PanelView({
 }
 
 export function investigatePanel(p: Panel, end: string) {
+  const logContains = p.conditions?.find((c) => c.field === "log")?.contains;
   return (
     "#" +
     new URLSearchParams({
@@ -447,6 +448,7 @@ export function investigatePanel(p: Panel, end: string) {
       workload: p.workload,
       revision: p.revision,
       text: p.text,
+      ...(logContains ? { logContains } : {}),
       minutes: String(p.minutes),
       metric: p.metric,
       end,

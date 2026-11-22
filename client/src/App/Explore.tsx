@@ -4,11 +4,13 @@ import { clock, Feedback, number, useQuery } from "../api";
 
 export function Explorer({
   kind,
+  logContains,
   f,
   end,
   showTrace,
 }: {
   kind: "span" | "log" | "metric";
+  logContains?: string;
   f: Filter;
   end: string;
   showTrace: (id: string) => void;
@@ -17,6 +19,7 @@ export function Explorer({
   const [opened, open] = useState("");
   const { data, error } = useQuery<EventRow[]>("events", {
     ...f,
+    logContains,
     end,
     kind,
     offset,

@@ -5,6 +5,7 @@ import {
   shelfFields,
   type TimeField,
   timeBuckets,
+  usesLogRecords,
 } from "../../../shared/console";
 
 const label = z
@@ -32,11 +33,17 @@ export const filterField = axis.or(
 const shelfField = filterField.or(z.literal("measure"));
 const condition = z
   .object({
-    field: filterField,
+    field: filterField.or(z.literal("log")),
+    contains: label.optional(),
     values: z.array(label).max(256).optional(),
     min: z.number().optional(),
     max: z.number().optional(),
   })
+  .refine((c) =>
+    c.field === "log"
+      ? !c.values && c.min === undefined && c.max === undefined
+      : c.contains === undefined,
+  )
   .refine(
     (c) =>
       (!c.values || (c.min === undefined && c.max === undefined)) &&
@@ -121,6 +128,10 @@ export const panel = filter
       .optional(),
     unit: z.literal("MiB").optional(),
   })
+  .refine(
+    (p) => !p.conditions?.some((c) => c.field === "log") || usesLogRecords(p),
+    "ログ本文はログを集計する指標で使用できます",
+  )
   .refine(
     (p) =>
       p.group !== "slot_total" ||

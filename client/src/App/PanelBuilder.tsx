@@ -25,6 +25,7 @@ import {
   slotTotalChoice,
   type TimeField,
   timeBuckets,
+  usesLogRecords,
   type WorksheetMark,
 } from "../../../shared/console";
 import { useQuery } from "../api";
@@ -48,6 +49,14 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
   const [search, find] = useState("");
   const [undo, remember] = useState<Panel[]>([]);
   function change(next: Panel) {
+    if (
+      !usesLogRecords(next) &&
+      next.conditions?.some((c) => c.field === "log")
+    )
+      next = {
+        ...next,
+        conditions: next.conditions.filter((c) => c.field !== "log"),
+      };
     if (next.pivot?.metricOptions) {
       const pivot = { ...next.pivot };
       const names =
@@ -344,7 +353,11 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
     "instance",
     "workload",
   ];
+  const logs = usesLogRecords(p);
+  const legacyLog =
+    logs && !!p.text && !p.conditions?.some((c) => c.field === "log");
   const conditions: FieldCondition[] = [...(p.conditions ?? [])];
+  if (legacyLog) conditions.push({ field: "log", contains: p.text });
   for (const k of identifiers)
     if (p[k] && !conditions.some((c) => c.field === k))
       conditions.push({ field: k, values: [p[k]] });
@@ -355,6 +368,7 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
     else if (next) values.push(next);
     const panel = { ...p, conditions: values.length ? values : undefined };
     for (const k of identifiers) if (k === field) panel[k] = "";
+    if (field === "log" && legacyLog) panel.text = "";
     change(panel);
   }
   function addFilter(field: FilterField) {
@@ -362,10 +376,12 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
       writeFilter(field, { field });
     openConditions(field);
   }
-  const filterFields = fields.filter(
+  const filterFields: [FilterField, string][] = fields.filter(
     ([k]) => p.group !== "slot_total" || (k !== "slot" && k !== "instance"),
   );
+  if (logs) filterFields.push(["log", "ログ"]);
   type Field =
+    | { kind: "log"; key: "log" }
     | { kind: "measure"; key: string }
     | { kind: "dimension"; key: Dimension | TimeField }
     | { kind: "placed"; key: ShelfAxis };
@@ -376,6 +392,11 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
       panel?: Panel;
       filter?: FilterField;
     }[] = [];
+    if (field.kind === "log")
+      return [
+        ...options,
+        { id: "filter", label: "フィルター", filter: "log" as const },
+      ];
     if (field.kind === "placed") {
       for (const id of shelves)
         if (!daily || id !== "series")
@@ -442,7 +463,16 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
       )
     : [];
   const hovered = targets.find((o) => o.id === targetRole);
-  const preview = hovered?.panel ?? p;
+  const candidate = hovered?.panel;
+  const preview =
+    candidate &&
+    !usesLogRecords(candidate) &&
+    candidate.conditions?.some((c) => c.field === "log")
+      ? {
+          ...candidate,
+          conditions: candidate.conditions.filter((c) => c.field !== "log"),
+        }
+      : (candidate ?? p);
   const fieldName =
     item && item.kind !== "measure"
       ? shelfName(item.key)
@@ -513,7 +543,24 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
                 </button>
               ))}
             <h4>属性</h4>
-            <small>フィールドを行・列・系列にドラッグします。</small>
+            {"ログ log".includes(search.toLowerCase()) && (
+              <button
+                type="button"
+                className="drag-source"
+                disabled={!logs}
+                title={
+                  logs
+                    ? "ログ本文をフィルター"
+                    : "ログ件数・ログ属性のユニーク数で使用できます"
+                }
+                onPointerDown={(e) =>
+                  drag.start(e, { kind: "log", key: "log" })
+                }
+                onClick={() => addFilter("log")}
+              >
+                ログ
+              </button>
+            )}
             {fields
               .filter(([k, v]) => (k + v).includes(search))
               .map(([k, v]) => (
@@ -952,9 +999,9 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
               change={(v) => update("minutes", Number(v))}
             />
           </div>
-          {!daily && (
+          {p.text && !legacyLog && (
             <label>
-              検索語
+              保存済みの本文・名前フィルター
               <input
                 value={p.text}
                 onChange={(e) => update("text", e.target.value)}

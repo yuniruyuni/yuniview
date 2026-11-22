@@ -808,3 +808,101 @@ test("filter shelf combines observed choices with numeric and time ranges before
     .click();
   await expect(page.getByLabel("上限")).toHaveValue("503");
 });
+
+test("log body is a literal free-text filter, independent of grouping", async ({
+  page,
+  request,
+}) => {
+  const term = "ReTrY 50%_";
+  const t = new Date(Date.now() - 5000).toISOString();
+  const source = {
+    service: "checkout",
+    workload: "app",
+    slot: "blue",
+    instance: "body-search",
+    revision: "body-search",
+  };
+  const r = await request.post(
+    `http://127.0.0.1:${process.env.INGEST_PORT}/api/agent/v1/batches`,
+    {
+      headers: { Authorization: `Bearer ${process.env.CONSOLE_TOKEN}` },
+      data: {
+        id: randomUUID().replaceAll("-", ""),
+        time: t,
+        source,
+        signal: "logs",
+        payload: {
+          resourceLogs: [
+            {
+              scopeLogs: [
+                {
+                  logRecords: [
+                    { body: { stringValue: "will retry 50%_ now" } },
+                    { body: { stringValue: "will retry 500 now" } },
+                    { severityText: term, body: { stringValue: "unrelated" } },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    },
+  );
+  expect(r.status()).toBe(204);
+  await page.goto("/#page=dashboards&revision=body-search");
+  await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
+  const form = page.locator("form.editor"),
+    catalog = form.locator(".field-catalog");
+  const log = catalog.getByRole("button", { name: "ログ", exact: true });
+  await expect(log).toBeDisabled();
+  await form
+    .getByRole("combobox", { name: "指標", exact: true })
+    .selectOption("logs");
+  await form
+    .getByRole("combobox", { name: "表示形式", exact: true })
+    .selectOption("value");
+  await expect(form.locator(".values strong")).toHaveText("3");
+  await log.dragTo(form.locator('[data-drop="series"]'));
+  await expect(
+    form.getByRole("combobox", { name: "表示形式", exact: true }),
+  ).toHaveValue("value");
+  await log.dragTo(form.locator('[data-drop="filter"]'));
+  const editor = form.getByRole("region", { name: "ログ の条件" });
+  await editor.getByLabel("本文に含む文字列").fill(term);
+  await editor.getByLabel("本文に含む文字列").press("Enter");
+  await expect(form.locator(".values strong")).toHaveText("1");
+  await editor.getByRole("button", { name: "閉じる" }).click();
+  await form
+    .getByRole("button", { name: "列にフィールドを追加", exact: true })
+    .dblclick();
+  const picker = page.getByRole("dialog");
+  await expect(
+    picker.getByRole("button", { name: "ログ", exact: true }),
+  ).toHaveCount(0);
+  await picker.getByRole("button", { name: "閉じる" }).click();
+  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByLabel("名前", { exact: true }).fill("Literal log filter");
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Literal log filter" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.locator(".values strong")).toHaveText("1");
+  const boardUrl = page.url();
+  await page.getByRole("link", { name: "調査", exact: true }).click();
+  await expect(
+    page.getByRole("cell", { name: "will retry 50%_ now", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "unrelated", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "本文条件を外す" }).click();
+  await expect(
+    page.getByRole("cell", { name: "unrelated", exact: true }),
+  ).toBeVisible();
+  await page.goto(boardUrl);
+  await page.locator("button.panel-title").first().click();
+  await form.getByRole("button", { name: "ログ のフィルターを外す" }).click();
+  await expect(form.locator(".values strong")).toHaveText("3");
+});

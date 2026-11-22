@@ -46,7 +46,8 @@ export function metricName(name: string) {
         : name;
 }
 export type ShelfAxis = Dimension | TimeField | "measure";
-export function shelfName(key: ShelfAxis) {
+export function shelfName(key: ShelfAxis | "log") {
+  if (key === "log") return "ログ";
   return key === "measure"
     ? "指標"
     : isAttribute(key)
@@ -90,9 +91,16 @@ export interface Filter {
   text: string;
   minutes: number;
 }
-export type FilterField = Dimension | TimeField;
+export function usesLogRecords(panel: Pick<Panel, "measure" | "distinct">) {
+  return (
+    panel.measure === "logs" ||
+    (panel.measure === "distinct" && panel.distinct?.dataset === "log")
+  );
+}
+export type FilterField = Dimension | TimeField | "log";
 export interface FieldCondition {
   field: FilterField;
+  contains?: string;
   values?: string[];
   min?: number;
   max?: number;
