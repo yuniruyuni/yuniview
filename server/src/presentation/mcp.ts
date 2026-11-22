@@ -39,6 +39,16 @@ export function managementMcp(ctx: Context) {
       async () => result(await listConfiguration(ctx.db)),
     );
     server.registerTool(
+      "list_daily_usage",
+      {
+        description:
+          "Read per-app counts of distinct logged-in accounts or browsers for each measured JST day in the past 30 days. Missing days are unmeasured.",
+        inputSchema: z.object({}),
+        annotations: readOnly,
+      },
+      async () => result({ days: await api.dailyUsage() }),
+    );
+    server.registerTool(
       "list_telemetry",
       {
         description:

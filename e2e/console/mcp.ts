@@ -90,6 +90,7 @@ test("MCP edits share console storage and reject stale versions", async ({
   for (const name of [
     "list_configuration",
     "list_telemetry",
+    "list_daily_usage",
     "preview_panel",
   ]) {
     expect(

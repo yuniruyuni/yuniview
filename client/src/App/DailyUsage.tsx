@@ -1,5 +1,7 @@
 import { Feedback, useQuery } from "../api";
 
+import { Chart } from "./Panels";
+
 type Row = { day: string; source: string; kind: string; users: number };
 export function DailyUsage({ version }: { version: number }) {
   const { data, error } = useQuery<Row[]>("dailyUsage", undefined, version);
@@ -22,6 +24,31 @@ export function DailyUsage({ version }: { version: number }) {
         日本時間の直近30日間。アカウントはログイン単位、ブラウザは同じ端末のブラウザ単位で、blue・green
         を合わせて日ごとに数えます。— は未計測です。
       </p>
+      {(["account", "browser"] as const).map((kind) => {
+        const points = data
+          .filter((row) => row.kind === kind)
+          .map((row) => ({
+            bucket: row.day + "T00:00:00+09:00",
+            series: row.source,
+            value: row.users,
+            samples: 1,
+          }))
+          .reverse();
+        return (
+          points.length > 0 && (
+            <article key={kind} className="card">
+              <h3>
+                {kind === "account" ? "ログインアカウント数" : "訪問ブラウザ数"}
+              </h3>
+              <Chart
+                points={points}
+                start={Date.parse(days[29] + "T00:00:00+09:00")}
+                end={Date.parse(today + "T00:00:00+09:00")}
+              />
+            </article>
+          )
+        );
+      })}
       {columns.length === 0 ? (
         <p>まだ計測データがありません。</p>
       ) : (

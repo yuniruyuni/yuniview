@@ -173,7 +173,7 @@ const colors = [
   "#a34e75",
   "#6b852c",
 ];
-function Chart({
+export function Chart({
   points,
   start,
   end,
