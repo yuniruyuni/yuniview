@@ -14,16 +14,18 @@ export function Select({
   value,
   choices,
   onDrop,
+  dropTarget,
   change,
 }: {
   label: string;
   value: string;
   choices: [string, string][];
+  dropTarget?: string;
   onDrop?: React.DragEventHandler<HTMLSelectElement>;
   change: (v: string) => void;
 }) {
   return (
-    <label>
+    <label data-drop={dropTarget}>
       {label}
       <select
         onDrop={onDrop}

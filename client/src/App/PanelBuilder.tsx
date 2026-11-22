@@ -12,6 +12,7 @@ import {
   slotTotalChoice,
 } from "../../../shared/console";
 import { PanelView, Select } from "./Panels";
+import { useDropPreview } from "./useDropPreview";
 
 type Props = { p: Panel; set: (p: Panel) => void; meta: Overview; end: string };
 const dimensions = Object.entries(axes) as [Axis, string][];
@@ -64,7 +65,7 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
       text: "",
     };
   }
-  function pick(key: string) {
+  function picked(key: string): Panel {
     const metric = key.startsWith("metric/") ? key.slice(7) : "";
     const measure = metric ? "metric" : (key as Panel["measure"]);
     const name = choices.find(([v]) => v === key)?.[1] ?? key;
@@ -83,14 +84,15 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
       unit: metric === "memory.current" ? "MiB" : undefined,
     };
     if (measure === "distinct")
-      return change(
-        withDataset(next, meta.dailyFields.length ? "daily" : "log"),
-      );
+      return withDataset(next, meta.dailyFields.length ? "daily" : "log");
     if (daily)
       Object.assign(next, { display: "chart", pivot: undefined, minutes: 60 });
-    change(next);
+    return next;
   }
-  function setAxis(which: "row" | "column", key: Axis) {
+  function pick(key: string) {
+    change(picked(key));
+  }
+  function axisPanel(which: "row" | "column", key: Axis) {
     const pair = {
       ...(p.pivot ??
         (daily
@@ -100,12 +102,15 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
     const other = which === "row" ? "column" : "row";
     if (pair[other] === key) pair[other] = pair[which];
     pair[which] = key;
-    change({
+    return {
       ...p,
       group: p.group === "slot_total" ? "source" : p.group,
-      display: "pivot",
+      display: "pivot" as const,
       pivot: pair,
-    });
+    };
+  }
+  function setAxis(which: "row" | "column", key: Axis) {
+    change(axisPanel(which, key));
   }
   function drop(e: React.DragEvent, action: (key: Axis) => void) {
     e.preventDefault();
@@ -127,6 +132,53 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
           "instance",
           "text",
         ] as const);
+  type Field =
+    | { kind: "measure"; key: string }
+    | { kind: "dimension"; key: Axis };
+  function candidates(field: Field) {
+    const options: {
+      id: string;
+      label: string;
+      panel?: Panel;
+      filter?: Axis;
+    }[] = [];
+    if (field.kind === "measure")
+      return [
+        { id: "measure", label: "指標", panel: picked(field.key) },
+      ] as typeof options;
+    const key = field.key;
+    if (!daily && key !== "day")
+      options.push({
+        id: "series",
+        label: "系列",
+        panel: {
+          ...p,
+          display: pivot ? "chart" : p.display,
+          pivot: undefined,
+          group: key,
+        },
+      });
+    options.push(
+      { id: "row", label: "ピボットの行", panel: axisPanel("row", key) },
+      { id: "column", label: "ピボットの列", panel: axisPanel("column", key) },
+    );
+    if (key !== "day" && fieldKeys.some((k) => k === key))
+      options.push({ id: "filter", label: "絞り込み", filter: key });
+    return options;
+  }
+  const drag = useDropPreview<Field>((field, id) => {
+    const option = candidates(field).find((o) => o.id === id);
+    if (option?.panel) change(option.panel);
+    if (option?.filter) filterBy(option.filter);
+  });
+  const item = drag.preview?.item;
+  const targets = item ? candidates(item) : [];
+  const hovered = targets.find((o) => o.id === drag.preview?.target);
+  const preview = hovered?.panel ?? p;
+  const fieldName =
+    item?.kind === "dimension"
+      ? axes[item.key]
+      : choices.find(([k]) => k === item?.key)?.[1];
   const active = fieldKeys.filter((k) => p[k] || k === filterKey);
   const times = Array.from(
     new Set([
@@ -135,7 +187,12 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
     ]),
   ).sort((a, b) => a - b);
   return (
-    <div className="builder">
+    <div className="builder" {...drag.bind}>
+      {item && (
+        <span className="drag-ghost" aria-hidden="true">
+          {fieldName}
+        </span>
+      )}
       <div className="field-catalog">
         <label>
           フィールドを検索
@@ -155,6 +212,8 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
             <button
               type="button"
               key={k}
+              className="drag-source"
+              onPointerDown={(e) => drag.start(e, { kind: "measure", key: k })}
               aria-pressed={selected === k}
               onClick={() => pick(k)}
             >
@@ -169,8 +228,10 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
             <button
               key={k}
               type="button"
-              draggable
-              onDragStart={(e) => e.dataTransfer.setData("text/plain", k)}
+              className="drag-source"
+              onPointerDown={(e) =>
+                drag.start(e, { kind: "dimension", key: k })
+              }
               onClick={() =>
                 daily && !pivot
                   ? setAxis("row", k)
@@ -185,9 +246,26 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
             </button>
           ))}
       </div>
+      {item && (
+        <div className="field-drop-tray">
+          <strong>{fieldName}</strong>
+          <div>
+            {targets.map((o) => (
+              <span
+                key={o.id}
+                data-drop={o.id}
+                data-preview={hovered?.id === o.id || undefined}
+              >
+                {o.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="builder-main">
         <div className="fields">
           <Select
+            dropTarget="measure"
             label="指標"
             value={selected}
             choices={choices}
@@ -300,6 +378,7 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
               <Select
                 key={which}
                 onDrop={(e) => drop(e, (k) => setAxis(which, k))}
+                dropTarget={which}
                 label={which === "row" ? "行" : "列"}
                 value={pivot[which]}
                 choices={fields}
@@ -315,6 +394,7 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
                   k === "day" ? setAxis("row", k) : update("group", k),
                 )
               }
+              dropTarget="series"
               label="系列"
               value={p.group}
               choices={[
@@ -364,6 +444,7 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
                 if (k !== "day") filterBy(k);
               })
             }
+            dropTarget="filter"
             label="絞り込みを追加"
             value=""
             choices={[
@@ -402,7 +483,7 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
           ))}
         </div>
         <div className="preview-head">
-          <h4>プレビュー</h4>
+          <h4>プレビュー{hovered && ` · ${fieldName} → ${hovered.label}`}</h4>
           <button
             type="button"
             disabled={!undo.length}
@@ -418,7 +499,7 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
           </button>
         </div>
         <PanelView
-          panel={{ ...p, title: p.title.trim() || "プレビュー" }}
+          panel={{ ...preview, title: preview.title.trim() || "プレビュー" }}
           end={end}
         />
         <label>

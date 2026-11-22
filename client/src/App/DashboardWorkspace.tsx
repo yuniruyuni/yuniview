@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Dashboard, Overview, Panel } from "../../../shared/console";
 import { Feedback, rpc, useQuery } from "../api";
 import { PanelBuilder } from "./PanelBuilder";
+import { PanelLayout } from "./PanelLayout";
 import { investigatePanel, PanelView, Select } from "./Panels";
 
 type Saved = { definition: Dashboard; version: string };
@@ -56,6 +57,7 @@ export function DashboardWorkspace({
           title: "新しいダッシュボード",
           panels: [] as Panel[],
         };
+    for (const panel of board.panels) panel.id ??= crypto.randomUUID();
     if (extra) {
       board.panels.push({ ...extra, id: crypto.randomUUID() });
       index = board.panels.length - 1;
@@ -199,25 +201,15 @@ export function DashboardWorkspace({
               </button>
             </div>
           </div>
-          <fieldset className="panel-strip" aria-label="パネルの選択">
-            {draft.board.panels.map((item, i) => (
-              <button
-                type="button"
-                key={item.id ?? i}
-                aria-pressed={draft.index === i}
-                onClick={() => edit({ ...draft, index: i })}
-              >
-                {item.title || "無題"}
-              </button>
-            ))}
-            <button
-              type="button"
-              disabled={draft.board.panels.length >= 24}
-              onClick={() => append(initial)}
-            >
-              ＋ パネル追加
-            </button>
-          </fieldset>
+          <PanelLayout
+            panels={draft.board.panels}
+            index={draft.index}
+            initial={initial}
+            select={(index) => edit({ ...draft, index })}
+            apply={(panels, index) =>
+              edit({ ...draft, index, board: { ...draft.board, panels } })
+            }
+          />
           <PanelBuilder
             key={p.id ?? draft.index}
             p={p}

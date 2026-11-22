@@ -303,3 +303,69 @@ test("slot totals align gauge samples and exclude incomplete minutes", async ({
     .selectOption("value");
   await expect(form.locator(".values strong")).toHaveText("46");
 });
+
+test("drag previews, cancellation, field shelves and saved panel order", async ({
+  page,
+}) => {
+  await page.goto("/#page=dashboards");
+  await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
+  const form = page.locator("form.editor");
+  await form.getByLabel("名前", { exact: true }).fill("Drag studio");
+  await form.getByLabel("パネル名").fill("First");
+  await form.getByRole("button", { name: "＋ パネル追加" }).click();
+  await form.getByLabel("パネル名").fill("Second");
+  const titles = form.locator(".layout-tile strong");
+  const tiles = form.locator(".layout-tile");
+  await tiles.first().scrollIntoViewIfNeeded();
+  const a = await tiles.first().boundingBox(),
+    b = await tiles.last().boundingBox();
+  if (!a || !b) throw Error("Missing panels");
+  await page.mouse.move(a.x + 20, a.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(b.x + 20, b.y + 20, { steps: 8 });
+  await expect(titles).toHaveText(["Second", "First"]);
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await expect(titles).toHaveText(["First", "Second"]);
+  await tiles.first().dragTo(tiles.last());
+  await expect(titles).toHaveText(["Second", "First"]);
+  await expect(form.getByLabel("パネル名")).toHaveValue("First");
+  await form
+    .locator(".field-catalog")
+    .getByRole("button", { name: "スロット", exact: true })
+    .scrollIntoViewIfNeeded();
+  const axis = await form
+    .locator(".field-catalog")
+    .getByRole("button", { name: "スロット", exact: true })
+    .boundingBox();
+  if (!axis) throw Error("Missing field");
+  await page.mouse.move(axis.x + 10, axis.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(axis.x + 22, axis.y + 10);
+  const shelf = await form
+    .locator('.field-drop-tray [data-drop="column"]')
+    .boundingBox();
+  if (!shelf) throw Error("Missing pivot destination");
+  await page.mouse.move(shelf.x + 10, shelf.y + 10);
+  await expect(form.locator(".preview-head h4")).toContainText("ピボットの列");
+  await page.mouse.up();
+  await expect(
+    form.getByRole("combobox", { name: "表示", exact: true }),
+  ).toHaveValue("pivot");
+  await form
+    .getByRole("button", { name: "＋ パネル追加" })
+    .dragTo(tiles.first());
+  await expect(titles).toHaveText(["メモリ使用量", "Second", "First"]);
+  await tiles.first().focus();
+  await page.keyboard.press("Alt+ArrowRight");
+  await expect(titles).toHaveText(["Second", "メモリ使用量", "First"]);
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Drag studio" }),
+  ).toBeVisible();
+  await expect(page.locator(".cards article h3")).toHaveText([
+    "Second",
+    "メモリ使用量",
+    "First",
+  ]);
+});
