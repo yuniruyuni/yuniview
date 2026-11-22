@@ -953,9 +953,10 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
         header.getByRole("textbox", { name: "パネル名" }),
         header.getByRole("button", { name: "ダッシュボードの期間" }),
         header.getByRole("button", { name: "配置に戻る" }),
+        header.getByRole("button", { name: "パネル操作" }),
       ].map((control) => control.boundingBox()),
     );
-    for (const i of [0, 2]) {
+    for (const i of [0, 2, 3]) {
       const left = controls[i],
         right = controls[i + 1];
       if (!left || !right) throw Error("Missing worksheet header control");

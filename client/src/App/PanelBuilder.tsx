@@ -893,6 +893,22 @@ export function PanelBuilder({
           >
             配置に戻る
           </button>
+          <button
+            type="button"
+            className="panel-actions-trigger"
+            popoverTarget={worksheetId + "-actions"}
+            aria-label="パネル操作"
+            title="パネル操作"
+          >
+            ⋯
+          </button>
+          <div
+            className="panel-actions-menu"
+            id={worksheetId + "-actions"}
+            popover="auto"
+          >
+            {actions}
+          </div>
         </div>
       </div>
       <div className="builder" {...drag.bind}>
@@ -1576,7 +1592,6 @@ export function PanelBuilder({
                 />
               </label>
             )}
-            {actions}
           </div>
         </section>
       </div>

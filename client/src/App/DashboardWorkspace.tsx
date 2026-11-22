@@ -247,7 +247,7 @@ export function DashboardWorkspace({
         timeControl={timeControl}
         back={() => sheetRoute(draft.board.id, null, true)}
         actions={
-          <div className="tools">
+          <>
             <button
               type="button"
               disabled={draft.board.panels.length >= 24}
@@ -263,9 +263,9 @@ export function DashboardWorkspace({
                 sheetRoute(draft.board.id, null, true);
               }}
             >
-              パネル削除
+              パネルを削除
             </button>
-          </div>
+          </>
         }
         key={p.id}
         p={p}

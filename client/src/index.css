@@ -775,6 +775,36 @@ main:has(.worksheet) {
   gap: 8px;
   margin-left: auto;
 }
+.panel-actions-trigger {
+  anchor-name: --panel-actions;
+  font-weight: 700;
+}
+.panel-actions-menu:popover-open {
+  display: grid;
+  position: fixed;
+  inset: auto 1rem auto auto;
+  margin: 3rem 0 0;
+  padding: 4px;
+  border: 1px solid #a6bfba;
+  border-radius: 7px;
+  box-shadow: 0 4px 18px #14343729;
+}
+@supports (position-area: bottom) {
+  .panel-actions-menu:popover-open {
+    inset: auto;
+    position-anchor: --panel-actions;
+    position-area: bottom span-left;
+    justify-self: end;
+    margin: 4px 0;
+  }
+}
+.panel-actions-menu button {
+  text-align: left;
+  border: 0;
+}
+.panel-actions-menu button:last-child {
+  color: #973928;
+}
 .worksheet-heading h2 {
   font-size: 18px;
 }

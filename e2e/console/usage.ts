@@ -86,9 +86,22 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
       .getByRole("cell"),
   ).toHaveText("1");
   await expect(form.getByRole("rowheader", { name: previous })).toHaveCount(0);
-  await form.getByRole("button", { name: "パネルを複製" }).click();
+  const actions = form.getByRole("button", { name: "パネル操作" });
+  const copy = form.getByRole("button", { name: "パネルを複製" });
+  const remove = form.getByRole("button", { name: "パネルを削除" });
+  await expect(copy).toBeHidden();
+  await actions.click();
+  await expect(remove).toBeDisabled();
+  await actions.press("Escape");
+  await expect(copy).toBeHidden();
+  await actions.click();
+  await copy.click();
   await expect(form.getByLabel("パネル名")).toHaveValue(/のコピー/);
-  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await expect(remove).toBeHidden();
+  await actions.click();
+  await remove.click();
+  await expect(form.locator(".canvas-grid article")).toHaveCount(1);
+  await expect(form.locator(".canvas-grid")).not.toContainText("のコピー");
   await form.getByRole("button", { name: "キャンセル" }).click();
   await page.goto(
     "/#page=metrics&source=checkout&slot=blue&metric=memory.current",
