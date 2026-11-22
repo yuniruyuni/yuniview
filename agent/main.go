@@ -40,6 +40,9 @@ func run() error {
 	socket := flag.String("socket", "", "optional Unix socket for central HTTP transport")
 	state := flag.String("state", "/var/lib/yuniview-agent", "persistent queue directory")
 	limit := flag.Uint64("queue-bytes", 64<<20, "maximum pending payload bytes")
+	usage := flag.String("usage-kind", "", "enable per-day browser or account counts")
+	usageSocket := flag.String("usage-socket", "", "private visit socket")
+	usageKey := flag.String("usage-key", "", "service-wide private key file")
 	journal := flag.String("journal-container", "", "container ID for journald stdout/stderr")
 	logfile := flag.String("log-file", "", "optional target stdout/stderr log path")
 	cgroup := flag.String("cgroup", "", "optional target cgroup v2 directory")
@@ -104,6 +107,13 @@ func run() error {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	if *usage != "" {
+		stop, err := serveUsage(ctx, q, *usageSocket, *usageKey, *usage)
+		if err != nil {
+			return err
+		}
+		defer stop()
+	}
 	var wg sync.WaitGroup
 	serveErr := make(chan error, 1)
 	if listener != nil {

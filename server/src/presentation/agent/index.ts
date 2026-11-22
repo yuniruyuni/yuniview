@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { sql } from "../../infra/db";
 import type { Database } from "../../infra/db/database";
-import { batchSchema } from "../../models/telemetry";
+import { batchSchema, usageMark } from "../../models/telemetry";
 import { credential, storeBatch } from "../../repositories/telemetry";
 
 export const ingestPath = "/api/agent/v1/batches";
@@ -23,6 +24,15 @@ export function agentRoutes(db: Database) {
       (batch.source.slot ?? "") !== binding.slot
     )
       return c.body(null, 403);
+    if (batch.signal === "usage") {
+      const mark = usageMark.safeParse(batch.payload);
+      if (!mark.success) return c.body(null, 400);
+      const { day, kind, digest } = mark.data;
+      await db.queryRun(
+        sql`INSERT INTO daily_visitors(day,source,kind,digest) VALUES(${day}::date,${binding.source_id},${kind},${digest}) ON CONFLICT DO NOTHING`,
+      );
+      return c.body(null, 204);
+    }
     await storeBatch(db, batch);
     return c.body(null, 204);
   });

@@ -38,6 +38,24 @@ export function createApp(ctx: Context) {
 
   app.get("/health", (c) => c.json({ status: "ok" }));
   app.use("*", adminAccess());
+  app.post("/api/usage/visit", async (c) => {
+    c.header("Cache-Control", "no-store");
+    if (c.req.header("X-Yuniview-Visit") !== "1") return c.body(null, 400);
+    const id = c.get("usageSubject");
+    if (!id) return c.body(null, 204);
+    try {
+      const response = await fetch("http://localhost/visit", {
+        unix: "/run/yuniview-otlp/usage.sock",
+        method: "POST",
+        body: id,
+        signal: AbortSignal.timeout(1500),
+      });
+      return c.body(null, response.status === 204 ? 204 : 503);
+    } catch {
+      return c.body(null, 503);
+    }
+  });
+
   const mcp = managementMcp(ctx);
   app.all("/mcp", async (c) => {
     const url = new URL(c.req.url);

@@ -91,11 +91,16 @@ export function startWorker(db: Database) {
         if ((await backfill(db)) < 8) break;
       }
       await evaluate(db);
-      if (days && Date.now() >= nextCleanup) {
-        const cutoff = new Date(Date.now() - days * 86400000);
+      if (Date.now() >= nextCleanup) {
         await db.queryRun(
-          sql`DELETE FROM telemetry_batches WHERE (source_id,batch_id) IN (SELECT source_id,batch_id FROM telemetry_batches WHERE received_at<${cutoff} ORDER BY received_at LIMIT 1000 FOR UPDATE SKIP LOCKED)`,
+          sql`DELETE FROM daily_visitors WHERE day < (now() AT TIME ZONE 'Asia/Tokyo')::date - 29`,
         );
+        if (days) {
+          const cutoff = new Date(Date.now() - days * 86400000);
+          await db.queryRun(
+            sql`DELETE FROM telemetry_batches WHERE (source_id,batch_id) IN (SELECT source_id,batch_id FROM telemetry_batches WHERE received_at<${cutoff} ORDER BY received_at LIMIT 1000 FOR UPDATE SKIP LOCKED)`,
+          );
+        }
         nextCleanup = Date.now() + 60000;
       }
       if (process.env.MONITOR_WEBHOOK_URL)

@@ -8,12 +8,14 @@ import {
   type Point,
 } from "../../../shared/console";
 import { clock, number, useQuery } from "../api";
+import { DailyUsage } from "./DailyUsage";
 import { Explorer, Trace } from "./Explore";
 import { Library } from "./Library";
 import { PanelView, Select } from "./Panels";
 
 const pages = {
   overview: "サービス一覧",
+  usage: "日別利用者数",
   logs: "ログ",
   apm: "APM",
   metrics: "メトリクス",
@@ -135,7 +137,8 @@ export function App() {
             </button>
           </div>
         </header>
-        {page !== "dashboards" &&
+        {page !== "usage" &&
+          page !== "dashboards" &&
           page !== "monitors" &&
           !(trace && page === "apm") && (
             <form
@@ -249,7 +252,9 @@ export function App() {
         {query.error && (
           <p role="alert">サービス情報の取得に失敗しました。{query.error}</p>
         )}
-        {page === "overview" ? (
+        {page === "usage" ? (
+          <DailyUsage version={Date.parse(now)} />
+        ) : page === "overview" ? (
           <>
             <div className="summary">
               {[

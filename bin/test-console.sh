@@ -14,6 +14,9 @@ export CONSOLE_TOKEN=$(openssl rand -hex 32)
 digest=$(printf '%s' "$CONSOLE_TOKEN" | sha256sum | cut -d' ' -f1)
 psql -c "INSERT INTO sources(id) VALUES ('checkout'); INSERT INTO agent_credentials VALUES ('$digest','checkout','app','blue');"
 psql -c "INSERT INTO telemetry_batches(source_id,batch_id,workload,instance,slot,revision,signal,observed_at,payload) VALUES ('checkout','old','app','prior','green','v0','stdout',now(),'[\"previous deployment\"]');"
+export GREEN_TEST_TOKEN=$(openssl rand -hex 32)
+green_digest=$(printf '%s' "$GREEN_TEST_TOKEN" | sha256sum | cut -d' ' -f1)
+psql -c "INSERT INTO agent_credentials VALUES ('$green_digest','checkout','app','green');"
 ports=$(python3 -c 'import socket; ss=[socket.socket() for _ in range(3)];[s.bind(("127.0.0.1",0)) for s in ss];print(*(s.getsockname()[1] for s in ss))')
 read -r PORT HOOK_PORT INGEST_PORT <<< "$ports"
 export PORT HOOK_PORT INGEST_PORT YUNIVIEW_ADMIN_AUTH=local CONSOLE_URL="http://127.0.0.1:$PORT" MONITOR_WEBHOOK_URL="http://127.0.0.1:$HOOK_PORT/"

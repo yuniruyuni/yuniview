@@ -1,5 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { trackDailyUse } from "./daily-usage";
 import "./i18n";
 import { App } from "./App";
 
@@ -11,3 +12,5 @@ if (root) {
     </React.StrictMode>,
   );
 }
+
+trackDailyUse();

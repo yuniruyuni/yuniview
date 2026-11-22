@@ -18,7 +18,10 @@ for file in agent start-agent; do
   mv -f "$base/bin/$file.new" "$base/bin/$file"
 done
 db(){ podman exec -i --user postgres systemd-yuniview-db psql -X -qAt -v ON_ERROR_STOP=1 -U yuniview -d yuniview "$@"; }
-for app in "$@"; do
+for spec in "$@"; do
+  app=${spec%%:*}
+  usage=""
+  if [[ $spec == *:* ]]; then usage=${spec#*:}; [[ $usage == browser || $usage == account ]]; fi
   [[ $app =~ ^[a-z][a-z0-9-]*$ ]]
   user=yunirun-$app
   uid=$(id -u "$user")
@@ -75,7 +78,7 @@ BindsTo=$name.service
 PartOf=$name.service
 [Service]
 Environment=PATH=/run/current-system/sw/bin:/usr/bin
-ExecStart=$base/bin/start-agent $app $slot
+ExecStart=$base/bin/start-agent $app $slot $usage
 Restart=on-failure
 RestartSec=3
 UNIT

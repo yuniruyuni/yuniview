@@ -29,3 +29,12 @@ GRANT SELECT,INSERT ON telemetry_events TO yuniview_app;
 GRANT SELECT,INSERT,UPDATE,DELETE ON dashboards,monitors,monitor_history TO yuniview_app;
 GRANT DELETE ON telemetry_batches TO yuniview_app;
 CREATE INDEX batches_received_at ON telemetry_batches(received_at);
+
+CREATE TABLE daily_visitors (
+ day date NOT NULL,
+ source text NOT NULL REFERENCES sources(id),
+ kind text NOT NULL CHECK (kind IN ('account', 'browser')),
+ digest text NOT NULL,
+ PRIMARY KEY (day, source, kind, digest)
+);
+GRANT SELECT, INSERT, DELETE ON daily_visitors TO yuniview_app;

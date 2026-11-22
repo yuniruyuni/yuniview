@@ -9,9 +9,21 @@ test -n "$cgroup" && test -r "/sys/fs/cgroup/$cgroup/memory.current"
 state="$HOME/.local/state/yuniview/$slot"
 socket="$state/otlp/http.sock"
 # The private parent directory is mounted into this slot alone. Permit mapped container UIDs.
+usage=()
+if [[ -n ${3:-} ]]; then
+  key="$HOME/.local/state/yuniview/usage.key"
+  if [[ ! -f $key ]]; then
+    tmp=$(mktemp "$key.XXXXXXXX")
+    head -c 32 /dev/urandom > "$tmp"
+    ln "$tmp" "$key" || test -s "$key"
+    rm -f "$tmp"
+  fi
+  rm -f "$state/otlp/usage.sock"
+  usage=(-usage-kind "$3" -usage-key "$key" -usage-socket "$state/otlp/usage.sock")
+fi
 umask 000
 rm -f "$socket"
 exec /var/lib/yuniview-sidecars/bin/agent -service "$service" -slot "$slot" -instance "$container" \
- -revision "${revision:-$image}" -state "$state/queue" -token-file "/var/lib/yuniview-sidecars/credentials/$service/$slot" \
+ "${usage[@]}" -revision "${revision:-$image}" -state "$state/queue" -token-file "/var/lib/yuniview-sidecars/credentials/$service/$slot" \
  -listen "unix://$socket" -journal-container "$container" -cgroup "/sys/fs/cgroup/$cgroup" \
  -socket /run/yuniview-ingest/http.sock -endpoint http://localhost/api/agent/v1/batches

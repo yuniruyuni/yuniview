@@ -1,6 +1,12 @@
 import type { MiddlewareHandler } from "hono";
 import { createRemoteJWKSet, type JWTVerifyGetKey, jwtVerify } from "jose";
 
+declare module "hono" {
+  interface ContextVariableMap {
+    usageSubject: string | undefined;
+  }
+}
+
 export function accessGuard(
   issuer: string,
   audience: string,
@@ -19,6 +25,7 @@ export function accessGuard(
       });
       if (typeof payload.email !== "string" || !payload.email)
         return c.body(null, 403);
+      c.set("usageSubject", payload.sub);
     } catch {
       return c.body(null, 403);
     }
