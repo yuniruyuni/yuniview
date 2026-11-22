@@ -27,6 +27,29 @@ agent の送信先は、手元ではポート 3001、本番の同一ホストで
 
 APM の件数・失敗率・p95 の母集団は受信した server span です。全スパンは APM の一覧から開けます。メトリクスは受信した値の単位と累積・差分などの属性を保持します。ヒストグラムは件数・合計・最小・最大、summary は送信された分位値も表示できます。
 
+## Coding Agent から設定する
+
+本番の Streamable HTTP MCP エンドポイントは `https://yuniview.yuniruyuni.net/mcp` です。管理画面と同じ Cloudflare Access の Owner セッションを使います。ローカル Compose の接続先は `http://127.0.0.1:3000/mcp` です。
+
+Codex CLI では、次の設定を `~/.codex/config.toml` に追加します。
+
+```toml
+[mcp_servers.yuniview]
+url = "https://yuniview.yuniruyuni.net/mcp"
+env_http_headers = { "cf-access-token" = "YUNIVIEW_ACCESS_TOKEN" }
+```
+
+管理者の端末で次のコマンドを実行し、ブラウザーで Owner アカウントにログインします。トークンは環境変数からヘッダーに渡されます。セッションが切れたら同じ手順で再接続します。
+
+```sh
+cloudflared access login https://yuniview.yuniruyuni.net >/dev/null &&
+YUNIVIEW_ACCESS_TOKEN="$(cloudflared access token --app=https://yuniview.yuniruyuni.net)" codex
+```
+
+たとえば「web の直近60分のメモリ使用量をプレビューし、blue・green 別のダッシュボードとして保存して」と依頼できます。サービス名や指標名は `list_telemetry`、既存設定と版は `list_configuration`、集計の試行は `preview_panel` で取得します。`save_dashboard` と `save_monitor` には完全な定義と `expectedVersion` を渡します。新規作成時は新しい UUID と null を使い、更新時は取得した版を指定します。競合時は設定を読み直し、変更を反映してください。
+
+[Cloudflare Access の CLI 認証](https://developers.cloudflare.com/cloudflare-one/tutorials/cli/) · [Codex の MCP 設定](https://developers.openai.com/codex/mcp/)
+
 ## モニターと保持期間
 
 中央サーバーが毎分、直前に完了した分までの指定窓を評価します。グループを指定したモニターは、最低件数を満たす系列のうち閾値を超えたものがあれば発報します。該当系列がゼロなら欠測の設定に従います。状態変化は PostgreSQL に保存され、複数サーバーの評価は行ロックで調整されます。

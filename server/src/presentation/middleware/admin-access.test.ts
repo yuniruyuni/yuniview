@@ -20,7 +20,7 @@ test("admin accepts only an unexpired signed user token for this application", a
       .setIssuedAt()
       .setExpirationTime(exp)
       .sign(privateKey);
-  for (const path of ["/", "/api/trpc/library", "/index.js"]) {
+  for (const path of ["/", "/api/trpc/library", "/index.js", "/mcp"]) {
     expect(
       (
         await app.request(path, {

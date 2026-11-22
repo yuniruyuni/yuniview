@@ -4,6 +4,7 @@ import { serveStatic } from "hono/bun";
 import { compress } from "hono/compress";
 import { secureHeaders } from "hono/secure-headers";
 import type { Context } from "../usecases/context";
+import { managementMcp } from "./mcp";
 import { adminAccess } from "./middleware/admin-access";
 import { requestLog } from "./middleware/request-log";
 import { appRouter } from "./trpc/routers";
@@ -37,6 +38,18 @@ export function createApp(ctx: Context) {
 
   app.get("/health", (c) => c.json({ status: "ok" }));
   app.use("*", adminAccess());
+  const mcp = managementMcp(ctx);
+  app.all("/mcp", async (c) => {
+    const url = new URL(c.req.url);
+    const origin = c.req.header("Origin");
+    if (origin && origin !== url.origin) return c.body(null, 403);
+    if (
+      process.env.YUNIVIEW_ADMIN_AUTH === "local" &&
+      !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+    )
+      return c.body(null, 403);
+    return mcp.fetch(c.req.raw);
+  });
   app.all("/api/agent/*", (c) => c.notFound());
 
   app.use(
