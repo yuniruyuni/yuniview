@@ -9,6 +9,7 @@ type Editing = {
   configure: (i: number) => void;
 };
 export function PanelLayout({
+  minutes,
   panels,
   end,
   editing,
@@ -16,6 +17,7 @@ export function PanelLayout({
   viewActions,
   open,
 }: {
+  minutes: number;
   panels: Panel[];
   end: string;
   editing?: Editing;
@@ -89,7 +91,7 @@ export function PanelLayout({
               data-preview={(editing && to === i) || undefined}
             >
               <PanelView
-                panel={p}
+                panel={{ ...p, minutes }}
                 end={end}
                 onEdit={!editing ? () => open(i) : undefined}
                 heading={

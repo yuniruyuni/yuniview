@@ -854,7 +854,7 @@ main:has(.worksheet) {
 }
 .worksheet-shelves {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 5px;
   max-height: 24dvh;
 }
@@ -1123,6 +1123,8 @@ main:has(.worksheet) {
   color: #617373;
 }
 .worksheet-shelves .shelf-chips,
+.worksheet-shelves .shelf-chip,
+.worksheet-shelves .metric-menu,
 .worksheet-shelves > div > button:not(.shelf-target) {
   position: relative;
 }
@@ -1245,12 +1247,9 @@ main:has(.worksheet) {
   font-size: 12px;
 }
 
-.worksheet .builder-main:has(> .style-shelves) {
-  grid-template-rows: auto auto auto auto minmax(0, 1fr);
-}
 .style-shelves {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   min-width: 0;
   gap: 4px;
   margin-top: 5px;
@@ -1305,4 +1304,77 @@ main:has(.worksheet) {
 .style-shelves [data-preview] {
   outline: 2px solid #167774;
   outline-offset: -2px;
+}
+
+.options-heading > label {
+  flex: 1;
+  display: grid;
+  gap: 4px;
+  font-weight: 650;
+}
+.time-picker:popover-open {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid #a6bfba;
+  border-radius: 8px;
+  width: min(310px, 90vw);
+  box-shadow: 0 4px 24px #14343729;
+  color: inherit;
+}
+.time-picker label {
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  align-items: center;
+}
+.time-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.time-presets [aria-pressed="true"] {
+  border-color: #127764;
+  background: #e8f5ef;
+}
+
+.calendar-head,
+.range-calendar {
+  display: grid;
+  align-items: center;
+  text-align: center;
+}
+.calendar-head {
+  grid-template-columns: auto 1fr auto;
+}
+.range-calendar {
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.range-calendar button {
+  border: 0;
+  background: transparent;
+  padding: 4px;
+  min-height: 30px;
+}
+.range-calendar [aria-pressed="true"] {
+  background: #d8eee8;
+}
+.range-calendar [data-edge] {
+  background: #21675b;
+  color: white;
+}
+.time-picker {
+  max-height: 90dvh;
+  overflow: auto;
+}
+@supports (position-area: bottom) {
+  .dashboard-time > button {
+    anchor-name: --time-trigger;
+  }
+  .time-picker:popover-open {
+    position-anchor: --time-trigger;
+    position-area: bottom span-right;
+    position-try-fallbacks: flip-inline, flip-block;
+    margin: 4px 0;
+  }
 }

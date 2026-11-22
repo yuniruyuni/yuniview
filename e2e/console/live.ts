@@ -340,11 +340,9 @@ test("slot totals align gauge samples and exclude incomplete minutes", async ({
   await form
     .getByRole("combobox", { name: "表示形式", exact: true })
     .selectOption("stacked_area");
-  await form
-    .getByRole("button", { name: "系列にフィールドを追加" })
-    .press("Enter");
+  await form.getByRole("button", { name: "色に属性を割り当て" }).press("Enter");
   await page
-    .getByRole("dialog", { name: "系列に追加" })
+    .getByRole("dialog", { name: "色に追加" })
     .getByRole("button", { name: "スロット", exact: true })
     .click();
   const svg = form.getByRole("img", { name: "全系列の積み上げ面グラフ" });
@@ -442,18 +440,9 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await expect(
     row.getByRole("button", { name: "cpu.usage を外す" }),
   ).toBeVisible();
-  await catalog
-    .getByRole("button", { name: "サービス", exact: true })
-    .dragTo(form.locator('.worksheet-shelves [data-drop="series"]'));
-  for (const metric of ["メモリ使用量", "CPU 使用時間（累積）"]) {
-    await form
-      .getByRole("group", { name: metric, exact: true })
-      .getByLabel("表示形式")
-      .selectOption("table");
-  }
-  await expect(
-    form.getByRole("heading", { name: "サービス · checkout" }),
-  ).toBeVisible();
+  await form
+    .getByRole("combobox", { name: "表示形式", exact: true })
+    .selectOption("table");
   await expect(
     form.getByRole("rowheader", { name: "memory.current" }),
   ).toBeVisible();
@@ -462,7 +451,7 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   ).toBeVisible();
   await page.reload();
   await expect(
-    form.getByRole("heading", { name: "サービス · checkout" }),
+    form.getByRole("rowheader", { name: "memory.current" }),
   ).toBeVisible();
   await form.getByRole("button", { name: "配置に戻る" }).click();
   await form
@@ -607,15 +596,15 @@ test("worksheet encodes time or categories on either axis and splits observed se
     form
       .locator(".field-catalog")
       .getByRole("button", { name: label, exact: true })
-      .dragTo(form.locator('.worksheet-shelves [data-drop="' + shelf + '"]'));
+      .dragTo(form.locator('[data-drop="' + shelf + '"]'));
   await place("時刻", "column");
   await form.getByLabel("列の時刻の粒度").selectOption("time:10");
   await page.reload();
   await expect(form.getByLabel("列の時刻の粒度")).toHaveValue("time:10");
   await place("CPU 使用率 (%)", "row");
   await place("メモリ使用量", "row");
-  await place("スロット", "series");
-  await place("リビジョン", "series");
+  await place("スロット", "style-color");
+  await place("リビジョン", "style-dash");
   await form
     .locator(".field-catalog")
     .getByRole("button", { name: "インスタンス", exact: true })
@@ -630,27 +619,32 @@ test("worksheet encodes time or categories on either axis and splits observed se
     plot.getByRole("img", { name: "系列別の折れ線グラフ" }),
   ).toBeVisible();
   await expect(plot.locator(".legend button")).toHaveCount(6);
-  const memory = form.getByRole("group", { name: "メモリ使用量", exact: true });
-  const cpu = form.getByRole("group", { name: "CPU 使用率 (%)", exact: true });
-  const memFormat = memory.getByRole("combobox", {
-      name: "表示形式",
-      exact: true,
-    }),
-    cpuFormat = cpu.getByRole("combobox", { name: "表示形式", exact: true });
-  await memFormat.selectOption("bar");
-  await cpuFormat.selectOption("line");
-  await expect(plot.getByRole("img", { name: "複合グラフ" })).toBeVisible();
-  await expect(plot.getByRole("img").locator("rect")).toHaveCount(9);
-  await expect(plot.locator("path")).toHaveCount(3);
-  await memory.getByRole("combobox", { name: "集計" }).selectOption("max");
-  await cpu.getByRole("combobox", { name: "集計" }).selectOption("min");
-  await memFormat.selectOption("stacked_area");
-  await cpuFormat.selectOption("stacked_area");
+  const format = form.getByRole("combobox", { name: "表示形式", exact: true });
+  await expect(format).toHaveCount(1);
+  await format.selectOption("bar");
+  await expect(form.locator(".style-shelves [data-drop]")).toHaveCount(1);
+  await form
+    .locator(".shelf-chip button")
+    .filter({ hasText: "メモリ使用量" })
+    .first()
+    .click();
+  await form
+    .getByRole("combobox", { name: "集計", exact: true })
+    .selectOption("max");
+  await form
+    .locator(".shelf-chip button")
+    .filter({ hasText: "CPU 使用率" })
+    .first()
+    .click();
+  await form
+    .getByRole("combobox", { name: "集計", exact: true })
+    .selectOption("min");
+  await format.selectOption("stacked_area");
   await expect(
     form.getByText("積み上げ面には同じ単位の指標を配置してください。"),
   ).toBeVisible();
-  await cpuFormat.selectOption("line");
-  await memFormat.selectOption("line");
+  await format.selectOption("line");
+  await place("リビジョン", "style-dash");
   await expect(plot.locator(".legend")).toContainText(
     "スロット=green · リビジョン=B",
   );
@@ -678,9 +672,7 @@ test("worksheet encodes time or categories on either axis and splits observed se
       .locator(
         'path[stroke="#ac541e"][stroke-dasharray="7 4"][stroke-width="3.5"]',
       ),
-  ).toHaveCount(6);
-  await expect(plot.getByRole("img").locator("polygon")).toHaveCount(12);
-  await expect(plot.locator(".legend-key polygon")).toHaveCount(6);
+  ).toHaveCount(2);
   const styleShelves = form.getByRole("group", {
     name: "系列のスタイル",
     exact: true,
@@ -740,8 +732,7 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await expect(styleShelves.locator('[data-drop="style-shape"]')).toContainText(
     "属性をドロップ",
   );
-  await memFormat.selectOption("auto");
-  await cpuFormat.selectOption("auto");
+  await format.selectOption("auto");
   await form.getByRole("button", { name: "時刻（10秒） を列から外す" }).click();
   await place("ワークロード", "column");
   await expect(
@@ -753,7 +744,7 @@ test("worksheet encodes time or categories on either axis and splits observed se
     .filter({ hasText: "メモリ使用量" })
     .dragTo(form.locator('.worksheet-shelves [data-drop="column"]'));
   await expect(plot).toContainText("横軸 指標");
-  await expect(plot.getByRole("img").locator("rect")).toHaveCount(6);
+  await expect(plot.getByRole("img").locator("rect")).toHaveCount(4);
   await form.getByRole("button", { name: "配置に戻る" }).click();
   await form.getByLabel("名前", { exact: true }).fill("Axis chart");
   await form.getByRole("button", { name: "保存", exact: true }).click();
@@ -762,23 +753,18 @@ test("worksheet encodes time or categories on either axis and splits observed se
   ).toBeVisible();
   await page.reload();
   await expect(page.locator(".worksheet-plot svg[role=img] rect")).toHaveCount(
-    6,
+    4,
   );
   await expect(
     page.locator("rect title").filter({ hasText: "3,145,728" }),
-  ).toHaveCount(3);
+  ).toHaveCount(2);
   await page.locator("button.panel-title").first().click();
-  await expect(memory.getByRole("combobox", { name: "集計" })).toHaveValue(
-    "max",
-  );
-  await expect(cpu.getByRole("combobox", { name: "集計" })).toHaveValue("min");
+  await expect(form.locator(".worksheet-shelves")).toContainText("最大");
+  await expect(form.locator(".worksheet-shelves")).toContainText("最小");
   await expect(
-    form.getByRole("combobox", { name: "期間", exact: true }),
-  ).toHaveCount(1);
-  await expect(form.locator(".worksheet-shelves select")).toHaveCount(0);
-  await expect(
-    form.getByRole("combobox", { name: "点の形", exact: true }),
-  ).toHaveValue("1");
+    form.getByRole("button", { name: "ダッシュボードの期間" }),
+  ).toBeVisible();
+  await expect(form.locator('[data-drop="series"]')).toHaveCount(0);
 });
 
 test("worksheet shows only panel controls and fits inside the viewport", async ({
@@ -815,14 +801,28 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
       await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBeLessThanOrEqual(width);
   }
-  await form.getByRole("button", { name: "設定", exact: true }).click();
-  await form
-    .getByRole("combobox", { name: "期間", exact: true })
-    .selectOption("15");
-  await form.getByRole("button", { name: "閉じる", exact: true }).click();
+  const range = form.getByRole("button", { name: "ダッシュボードの期間" });
+  await range.click();
+  await page.getByRole("button", { name: "直近15分", exact: true }).click();
+  await expect(form.locator(".builder-main .card small").first()).toContainText(
+    "15分",
+  );
+  await range.click();
+  const days = page.locator(".range-calendar button");
+  await days.nth(1).click();
+  await days.nth(3).click();
+  await expect(days.nth(2)).toHaveAttribute("aria-pressed", "true");
+  await page.getByLabel("開始日", { exact: true }).fill("2026-03-01");
+  await page.getByLabel("終了日", { exact: true }).fill("2026-03-02");
+  await page.getByRole("button", { name: "範囲を適用" }).click();
+  await expect(page).toHaveURL(/minutes=2880/);
+  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByRole("button", { name: "＋ パネル追加" }).click();
+  await form.getByRole("button", { name: "配置に戻る" }).click();
   await expect(
-    form.getByRole("button", { name: "設定", exact: true }),
-  ).toHaveAttribute("aria-expanded", "false");
+    form.locator(".canvas-grid article small").filter({ hasText: "2880分" }),
+  ).toHaveCount(2);
+  await expect(range).toHaveText(/2026-03-01.*2026-03-02/);
 });
 
 test("filter shelf combines observed choices with numeric and time ranges before aggregation", async ({
@@ -949,7 +949,7 @@ test("log body is a literal free-text filter, independent of grouping", async ({
     .getByRole("combobox", { name: "表示形式", exact: true })
     .selectOption("value");
   await expect(form.locator(".values strong")).toHaveText("3");
-  await log.dragTo(form.locator('[data-drop="series"]'));
+  await log.dragTo(form.locator('[data-drop="column"]'));
   await expect(
     form.getByRole("combobox", { name: "表示形式", exact: true }),
   ).toHaveValue("value");

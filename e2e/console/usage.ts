@@ -45,7 +45,7 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
   await visit("green", day, "a".repeat(64));
   await visit("green", day, "b".repeat(64));
   await visit("green", day, "c".repeat(64), "checkout.cart");
-  await page.goto("/#page=dashboards");
+  await page.goto("/#page=dashboards&minutes=10080");
   await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
   const form = page.locator("form.editor");
   await form

@@ -8,6 +8,7 @@ import {
   type Point,
 } from "../../../shared/console";
 import { clock, number, useQuery } from "../api";
+import { DashboardTime } from "./DashboardTime";
 import { Explorer, Trace } from "./Explore";
 import { Library } from "./Library";
 import { PanelView, Select } from "./Panels";
@@ -252,7 +253,7 @@ export function App() {
               <button type="submit">検索</button>
             </form>
           )}
-        {fixed && (
+        {fixed && page !== "dashboards" && (
           <p>
             終了時刻 {clock(end)}{" "}
             <button type="button" onClick={refresh}>
@@ -354,6 +355,17 @@ export function App() {
             incoming={incoming}
             consumed={() => setIncoming(null)}
             key={page}
+            timeControl={
+              <DashboardTime
+                minutes={f.minutes}
+                end={end}
+                fixed={!!fixed}
+                change={(minutes, stamp) => {
+                  setNow(new Date().toISOString());
+                  navigate({ minutes: String(minutes), end: stamp ?? "" });
+                }}
+              />
+            }
             mode={page}
             end={end}
             filter={f}

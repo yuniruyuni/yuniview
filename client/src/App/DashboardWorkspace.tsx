@@ -8,6 +8,7 @@ import { investigatePanel, Select } from "./Panels";
 type Saved = { definition: Dashboard; version: string };
 type Draft = { board: Dashboard; version: string | null; index: number };
 export function DashboardWorkspace({
+  timeControl,
   end,
   meta,
   seed,
@@ -15,6 +16,7 @@ export function DashboardWorkspace({
   consumed,
   monitor,
 }: {
+  timeControl: React.ReactNode;
   end: string;
   meta: Overview;
   seed: Panel;
@@ -241,6 +243,8 @@ export function DashboardWorkspace({
   const worksheet = draft && settings && p && (
     <section className="worksheet" aria-label="ワークシート">
       <PanelBuilder
+        minutes={seed.minutes}
+        timeControl={timeControl}
         back={() => sheetRoute(draft.board.id, null, true)}
         actions={
           <div className="tools">
@@ -318,7 +322,10 @@ export function DashboardWorkspace({
             label="ダッシュボード"
             value={active.definition.id}
             choices={data.map((d) => [d.definition.id, d.definition.title])}
-            change={select}
+            change={(id) => {
+              select(id);
+              sheetRoute(id, null, true);
+            }}
           />
           <button
             className="primary"
@@ -353,6 +360,7 @@ export function DashboardWorkspace({
         worksheet
       ) : (
         <PanelLayout
+          minutes={seed.minutes}
           panels={draft?.board.panels ?? board?.panels ?? []}
           end={end}
           editing={
@@ -372,7 +380,12 @@ export function DashboardWorkspace({
               : undefined
           }
           open={(i) => begin(active, i)}
-          toolbar={toolbar}
+          toolbar={
+            <>
+              {timeControl}
+              {toolbar}
+            </>
+          }
           viewActions={(panel, i) => (
             <div className="tools">
               <button
@@ -388,10 +401,20 @@ export function DashboardWorkspace({
                 複製
               </button>
               {panel.distinct?.dataset !== "daily" && (
-                <a href={investigatePanel(panel, end)}>調査</a>
+                <a
+                  href={investigatePanel(
+                    { ...panel, minutes: seed.minutes },
+                    end,
+                  )}
+                >
+                  調査
+                </a>
               )}
               {panel.display !== "pivot" && panel.measure !== "distinct" && (
-                <button type="button" onClick={() => monitor(panel)}>
+                <button
+                  type="button"
+                  onClick={() => monitor({ ...panel, minutes: seed.minutes })}
+                >
                   モニター化
                 </button>
               )}

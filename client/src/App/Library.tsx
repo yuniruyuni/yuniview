@@ -38,6 +38,7 @@ function makeMonitor(p: Panel): Monitor {
   };
 }
 export function Library({
+  timeControl,
   mode,
   meta,
   end,
@@ -45,6 +46,7 @@ export function Library({
   incoming,
   consumed,
 }: {
+  timeControl: React.ReactNode;
   incoming: Panel | null;
   consumed: () => void;
   mode: "dashboards" | "monitors";
@@ -82,6 +84,7 @@ export function Library({
   if (mode === "dashboards" && !monitor)
     return (
       <DashboardWorkspace
+        timeControl={timeControl}
         end={end}
         meta={meta}
         seed={seed}
