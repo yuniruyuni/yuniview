@@ -1321,3 +1321,110 @@ test("log body is a literal free-text filter, independent of grouping", async ({
   await form.getByRole("button", { name: "ログ のフィルターを外す" }).click();
   await expect(form.locator(".values strong")).toHaveText("3");
 });
+
+test("method-filtered counts use the filtered axis and follow the pointer over the tooltip", async ({
+  page,
+  request,
+}) => {
+  const end = Math.floor(Date.now() / 90000) * 90000;
+  const filtered = [2, 5, 3];
+  const revision = "method-axis";
+  const logRecords = filtered.flatMap((count, i) =>
+    Array.from({ length: 42 }, (_, j) => ({
+      timeUnixNano: String(BigInt(end - (36 - i * 16) * 90000) * 1000000n),
+      body: { stringValue: j < count ? "method=GET" : "worker idle" },
+    })),
+  );
+  const batch = await request.post(
+    `http://127.0.0.1:${process.env.INGEST_PORT}/api/agent/v1/batches`,
+    {
+      headers: { Authorization: "Bearer " + process.env.CONSOLE_TOKEN },
+      data: {
+        id: randomUUID().replaceAll("-", ""),
+        time: new Date(end).toISOString(),
+        source: {
+          service: "checkout",
+          workload: "app",
+          slot: "blue",
+          revision,
+          instance: "axis",
+        },
+        signal: "logs",
+        payload: { resourceLogs: [{ scopeLogs: [{ logRecords }] }] },
+      },
+    },
+  );
+  expect(batch.status()).toBe(204);
+  const id = randomUUID();
+  const panel = {
+    ...blankPanel,
+    measure: "logs",
+    metric: "",
+    display: "chart",
+    group: "source",
+    revision,
+    minutes: 60,
+  };
+  const saved = await request.post("/api/trpc/applyDashboard", {
+    data: {
+      expectedVersion: null,
+      definition: {
+        id,
+        title: "Filter scale",
+        panels: [
+          { ...panel, title: "All" },
+          { ...panel, title: "HTTP", text: "method=" },
+        ],
+      },
+    },
+  });
+  expect(saved.ok()).toBeTruthy();
+  await page.goto(
+    "/#page=dashboards&dashboard=" + id + "&end=" + new Date(end).toISOString(),
+  );
+  for (const [title, values] of [
+    ["All", [42, 42, 42]],
+    ["HTTP", filtered],
+  ] as const) {
+    const card = page.locator("article").filter({
+      has: page.getByRole("button", { name: title + " を編集", exact: true }),
+    });
+    const chart = card.getByRole("img", { name: "集計値の推移" });
+    await expect(chart.locator("circle")).toHaveCount(values.length);
+    const ticks = chart.locator(":scope > g > text");
+    await expect(ticks.last()).toHaveText(title === "HTTP" ? "6" : "60");
+    await chart.scrollIntoViewIfNeeded();
+    const coords = await chart.evaluate((svg) => {
+      const el = svg as SVGSVGElement,
+        lines = el.querySelectorAll(":scope > g > line");
+      const bottom = Number(lines[0].getAttribute("y1")),
+        top = Number(lines[lines.length - 1].getAttribute("y1"));
+      const max = Number(
+        el.querySelectorAll(":scope > g > text")[lines.length - 1].textContent,
+      );
+      return [...el.querySelectorAll("circle")].map((c) => {
+        const point = new DOMPoint(
+          c.cx.baseVal.value,
+          c.cy.baseVal.value,
+        ).matrixTransform(el.getScreenCTM()!);
+        return {
+          x: point.x,
+          y: point.y,
+          value: (max * (bottom - c.cy.baseVal.value)) / (bottom - top),
+        };
+      });
+    });
+    const tip = card.getByRole("tooltip");
+    for (const [i, pos] of coords.entries()) {
+      expect(pos.value).toBeCloseTo(values[i]);
+      if (i === 0) await page.mouse.move(pos.x, pos.y);
+      else
+        await tip.dispatchEvent("pointermove", {
+          clientX: pos.x,
+          clientY: pos.y,
+        });
+      await expect(tip.locator("dd")).toHaveText(values[i] + " 件");
+    }
+    await page.mouse.move(0, 0);
+  }
+});

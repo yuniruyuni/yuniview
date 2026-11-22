@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { Overview, Panel, Point } from "../../../shared/console";
 import {
   changeGroup,
@@ -237,6 +237,17 @@ export function Chart({
   end: number;
   choose?: (p: Point) => string;
 }) {
+  const frame = useRef<HTMLDivElement>(null);
+  const [width, resize] = useState(610);
+  useLayoutEffect(() => {
+    const el = frame.current;
+    if (!el) return;
+    const measureWidth = () => resize(Math.max(100, el.clientWidth));
+    measureWidth();
+    const observer = new ResizeObserver(measureWidth);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const color = (i: number) =>
     fixedStyle?.color === undefined
       ? colors[i % colors.length]
@@ -256,14 +267,12 @@ export function Chart({
   const high = counts?.maximum ?? maximum;
   const labels = counts?.ticks ?? [low, (low + high) / 2, high];
   const valueY = (value: number) => 135 - (112 * (value - low)) / (high - low);
+  const left = Math.max(...labels.map((n) => number(n).length)) * 6 + 8;
+  const right = Math.max(left + 1, width - 5);
   const x = (p: Point) =>
-    Math.max(
-      45,
-      Math.min(
-        595,
-        45 + (550 * (Date.parse(p.bucket) - start)) / (end - start),
-      ),
-    );
+    left +
+    (right - left) *
+      Math.max(0, Math.min(1, (Date.parse(p.bucket) - start) / (end - start)));
   const buckets = new Map<string, Map<string, Point>>();
   for (const p of shown) {
     const bucket = buckets.get(p.bucket) ?? new Map<string, Point>();
@@ -273,11 +282,11 @@ export function Chart({
   const y = (p: Point) => valueY(p.value);
   return (
     <div className="chart-with-legend">
-      <div>
+      <div ref={frame}>
         <InspectablePlot
-          viewBox="0 0 610 155"
+          viewBox={`0 0 ${width} 155`}
           label="集計値の推移"
-          bounds={{ left: 45, right: 595, top: 23, bottom: 135 }}
+          bounds={{ left, right, top: 23, bottom: 135 }}
           samples={Array.from(buckets, ([key, values]) => ({
             key,
             position: x(values.values().next().value!),
@@ -303,13 +312,13 @@ export function Chart({
           {labels.map((n) => (
             <g key={n}>
               <line
-                x1="45"
-                x2="595"
+                x1={left}
+                x2={right}
                 y1={valueY(n)}
                 y2={valueY(n)}
                 stroke="#dae5e3"
               />
-              <text x="40" y={valueY(n) + 3} textAnchor="end">
+              <text x={left - 5} y={valueY(n) + 3} textAnchor="end">
                 {number(n)}
               </text>
             </g>

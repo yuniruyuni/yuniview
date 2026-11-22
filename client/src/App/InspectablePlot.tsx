@@ -1,4 +1,4 @@
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useId, useRef, useState } from "react";
 
 type Sample = { key: string; position: number };
 type Reading = {
@@ -33,12 +33,13 @@ export function InspectablePlot({
 }) {
   const [key, select] = useState<string>();
   const tipId = useId();
+  const svg = useRef<SVGSVGElement>(null);
   const index =
     key === undefined ? -1 : samples.findIndex((s) => s.key === key);
   const selected = samples[index];
   const { left, right, top, bottom } = bounds;
-  function inspect(e: React.PointerEvent<SVGSVGElement>) {
-    const transform = e.currentTarget.getScreenCTM();
+  function inspect(e: React.PointerEvent<HTMLElement>) {
+    const transform = svg.current?.getScreenCTM();
     if (!transform || !samples.length) return;
     const { x, y } = new DOMPoint(e.clientX, e.clientY).matrixTransform(
       transform.inverse(),
@@ -67,21 +68,22 @@ export function InspectablePlot({
     <section
       aria-label={label + "の値を確認"}
       className="inspectable-plot"
+      onPointerMove={inspect}
+      onPointerDown={inspect}
+      onPointerCancel={() => select(undefined)}
       onPointerLeave={() => select(undefined)}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget)) select(undefined);
       }}
     >
       <svg
+        ref={svg}
         viewBox={viewBox}
         role="img"
         aria-label={label}
         // biome-ignore lint/a11y/noNoninteractiveTabindex: Arrow keys inspect individual samples on the focused plot.
         tabIndex={0}
         aria-describedby={selected ? tipId : undefined}
-        onPointerMove={inspect}
-        onPointerDown={inspect}
-        onPointerCancel={() => select(undefined)}
         onKeyDown={(e) => {
           if (e.key === "Escape") {
             select(undefined);
