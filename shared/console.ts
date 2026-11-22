@@ -32,9 +32,20 @@ export function shelfName(key: ShelfAxis) {
       ? key.slice(5)
       : axes[key];
 }
+export type ShelfFields = ShelfAxis | ShelfAxis[];
+export function shelfFields(value?: ShelfFields): ShelfAxis[] {
+  return value === undefined ? [] : Array.isArray(value) ? value : [value];
+}
+export function pivotFields(p: Pivot) {
+  return [
+    ...shelfFields(p.row),
+    ...shelfFields(p.column),
+    ...shelfFields(p.series),
+  ];
+}
 export type Pivot = {
-  row: ShelfAxis;
-  column: ShelfAxis;
+  row: ShelfFields;
+  column: ShelfFields;
   series?: ShelfAxis;
   metrics?: string[];
 };
@@ -95,6 +106,8 @@ export interface Dashboard {
 export interface Point {
   column?: string;
   facet?: string;
+  rowPath?: string[];
+  columnPath?: string[];
   metricUnit?: string;
   bucket: string;
   series: string;

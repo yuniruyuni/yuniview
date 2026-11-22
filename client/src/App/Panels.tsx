@@ -5,6 +5,9 @@ import {
   defaultTotalSlots,
   isAttribute,
   measures,
+  pivotFields,
+  type ShelfAxis,
+  shelfFields,
   shelfName,
   slotTotalChoice,
 } from "../../../shared/console";
@@ -490,25 +493,60 @@ function PivotTable({
 }) {
   const pivot = panel.pivot;
   if (!pivot) return null;
+  const rowFields = shelfFields(pivot.row),
+    colFields = shelfFields(pivot.column);
   const rows = new Map<string, Map<string, Point>>();
-  const columns = new Set<string>();
+  const rowPaths = new Map<string, string[]>(),
+    columnPaths = new Map<string, string[]>();
   for (const point of points) {
     const col = point.column ?? "";
-    columns.add(col);
+    rowPaths.set(
+      point.series,
+      point.rowPath ?? [rowFields.length ? point.series : "合計"],
+    );
+    columnPaths.set(col, point.columnPath ?? [colFields.length ? col : "合計"]);
     if (!rows.has(point.series)) rows.set(point.series, new Map());
     rows.get(point.series)?.set(col, point);
   }
-  if (rows.size * columns.size > 4000)
+  if (rows.size * columnPaths.size > 4000)
     return <p>表が大きすぎます。期間またはサービスを絞ってください。</p>;
-  const cols = Array.from(columns).sort();
-  const cellLink = (row: string, col: string) => {
+  function hierarchy(paths: Map<string, string[]>) {
+    const entries = Array.from(paths, ([key, values]) => ({
+      key,
+      values,
+      spans: values.map(() => 0),
+    }));
+    entries.sort((a, b) => {
+      for (let i = 0; i < a.values.length; i++) {
+        const x = a.values[i],
+          y = b.values[i];
+        if (x !== y) return x < y ? -1 : 1;
+      }
+      return 0;
+    });
+    const starts: number[] = [];
+    entries.forEach(({ values }, i) => {
+      let same = i > 0;
+      values.forEach((v, level) => {
+        same = same && entries[i - 1].values[level] === v;
+        if (!same) starts[level] = i;
+        entries[starts[level]].spans[level]++;
+      });
+    });
+    return entries;
+  }
+  const rowHeaders = hierarchy(rowPaths),
+    colHeaders = hierarchy(columnPaths);
+  const columnDepth = Math.max(1, colFields.length);
+  const cellLink = (row: string[], col: string[]) => {
     const p = { ...panel };
     let until = end;
-    for (const [axis, val] of [
-      [pivot.row, row],
-      [pivot.column, col],
-      [pivot.series, points[0]?.facet ?? ""],
-    ] as const) {
+    const entries: [ShelfAxis, string][] = [
+      ...rowFields.map((f, i): [ShelfAxis, string] => [f, row[i]]),
+      ...colFields.map((f, i): [ShelfAxis, string] => [f, col[i]]),
+    ];
+    if (pivot.series) entries.push([pivot.series, points[0]?.facet ?? ""]);
+    for (const [axis, val] of entries) {
       if (!axis || isAttribute(axis)) continue;
       if (axis === "measure") {
         if (p.measure === "metric") p.metric = val;
@@ -536,34 +574,64 @@ function PivotTable({
     <div className="pivot-scroll">
       <table>
         <thead>
-          <tr>
-            <th>
-              {shelfName(pivot.row)} ／ {shelfName(pivot.column)}
-            </th>
-            {cols.map((c) => (
-              <th key={c}>{c || "未指定"}</th>
-            ))}
-          </tr>
+          {Array.from({ length: columnDepth }, (_, level) => (
+            <tr key={colFields[level] ?? "total"}>
+              {level === 0 && (
+                <th
+                  rowSpan={columnDepth}
+                  colSpan={Math.max(1, rowFields.length)}
+                >
+                  {rowFields.map(shelfName).join(" › ") || "合計"} ／{" "}
+                  {colFields.map(shelfName).join(" › ") || "合計"}
+                </th>
+              )}
+              {colHeaders
+                .filter((c) => c.spans[level])
+                .map((c) => (
+                  <th
+                    key={c.key}
+                    scope={level === columnDepth - 1 ? "col" : "colgroup"}
+                    colSpan={c.spans[level]}
+                  >
+                    {c.values[level] || "未指定"}
+                  </th>
+                ))}
+            </tr>
+          ))}
         </thead>
         <tbody>
-          {Array.from(rows, ([r, cells]) => (
-            <tr key={r}>
-              <th scope="row">{r || "未指定"}</th>
-              {cols.map((c) => {
-                const p = cells.get(c);
+          {rowHeaders.map((r) => (
+            <tr key={r.key}>
+              {r.values.map(
+                (v, i) =>
+                  r.spans[i] > 0 && (
+                    <th
+                      key={rowFields[i] ?? "total"}
+                      scope="row"
+                      rowSpan={r.spans[i]}
+                    >
+                      {v || "未指定"}
+                    </th>
+                  ),
+              )}
+              {colHeaders.map((c) => {
+                const p = rows.get(r.key)?.get(c.key);
                 const value = p
                   ? [number(p.value), p.metricUnit].filter(Boolean).join(" ")
                   : "—";
                 return (
-                  <td key={c}>
+                  <td key={c.key}>
                     {p &&
                     (panel.distinct?.dataset === "daily" ||
-                      [pivot.row, pivot.column, pivot.series].some(
-                        (k) => k && isAttribute(k),
-                      )) ? (
+                      pivotFields(pivot).some(isAttribute)) ? (
                       value
                     ) : p ? (
-                      <a href={cellLink(r, c)} aria-label={`${r} ${c} の詳細`}>
+                      <a
+                        href={cellLink(r.values, c.values)}
+                        aria-label={
+                          [...r.values, ...c.values].join(" ") + " の詳細"
+                        }
+                      >
                         {value}
                       </a>
                     ) : (

@@ -798,3 +798,29 @@ summary {
     top: 0;
   }
 }
+
+.shelf-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.shelf-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 5px;
+  background: #e1f2ef;
+  border: 1px solid #8eb9b1;
+  border-radius: 6px;
+}
+.shelf-chip button {
+  background: transparent;
+  border: 0;
+  color: #154c46;
+  padding: 4px 6px;
+}
+.pivot-scroll th[rowspan],
+.pivot-scroll th[colspan] {
+  border: 1px solid #d7e5e1;
+  vertical-align: top;
+}

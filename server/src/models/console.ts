@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { pivotFields } from "../../../shared/console";
 
 const label = z
   .string()
@@ -19,6 +20,8 @@ const attribute = z
 const axis = z
   .enum(["source", "slot", "revision", "workload", "instance", "day"])
   .or(attribute);
+const shelfField = axis.or(z.literal("measure"));
+const shelf = shelfField.or(z.array(shelfField).max(32));
 export const panel = filter
   .extend({
     id: z.uuid().optional(),
@@ -60,8 +63,8 @@ export const panel = filter
     display: z.enum(["chart", "value", "table", "pivot"]),
     pivot: z
       .object({
-        row: axis.or(z.literal("measure")),
-        column: axis.or(z.literal("measure")),
+        row: shelf,
+        column: shelf,
         series: axis.or(z.literal("measure")).optional(),
         metrics: z
           .array(label.pipe(z.string().min(1)))
@@ -86,9 +89,7 @@ export const panel = filter
     (p) =>
       p.display !== "pivot" ||
       (p.pivot &&
-        p.pivot.row !== p.pivot.column &&
-        p.pivot.series !== p.pivot.row &&
-        p.pivot.series !== p.pivot.column),
+        new Set(pivotFields(p.pivot)).size === pivotFields(p.pivot).length),
     "行・列・系列には異なるフィールドを指定してください",
   )
   .refine(
@@ -97,7 +98,7 @@ export const panel = filter
       (p.display === "pivot" &&
         p.measure === "metric" &&
         !p.unit &&
-        [p.pivot.row, p.pivot.column, p.pivot.series].includes("measure") &&
+        pivotFields(p.pivot).includes("measure") &&
         !p.pivot.metrics.includes(p.metric) &&
         new Set(p.pivot.metrics).size === p.pivot.metrics.length),
     "複数のメトリクスには指標名の軸を指定してください",
@@ -115,10 +116,10 @@ export const panel = filter
     if (p.display === "chart") return p.group === "source";
     return (
       p.display === "pivot" &&
-      !p.pivot?.series &&
-      [p.pivot?.row, p.pivot?.column].every(
-        (axis) => axis === "source" || axis === "day",
-      )
+      !!p.pivot &&
+      !p.pivot.series &&
+      pivotFields(p.pivot).length === 2 &&
+      pivotFields(p.pivot).every((axis) => axis === "source" || axis === "day")
     );
   }, "対象フィールドを指定してください。日次集合はサービス別の折れ線または日付×サービスの表で集計できます")
   .refine(

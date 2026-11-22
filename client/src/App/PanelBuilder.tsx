@@ -12,7 +12,9 @@ import {
   type Overview,
   type Panel,
   type Pivot,
+  pivotFields,
   type ShelfAxis,
+  shelfFields,
   shelfName,
   slotTotalChoice,
 } from "../../../shared/console";
@@ -53,7 +55,7 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
   });
   const keys = new Set([
     ...(observed.data ?? []).map((k) => "attr:" + k),
-    ...[p.group, p.pivot?.row, p.pivot?.column, p.pivot?.series].filter(
+    ...[p.group, ...(p.pivot ? pivotFields(p.pivot) : [])].filter(
       (k) => k && isAttribute(k),
     ),
   ]);
@@ -124,32 +126,47 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
   }
   type Shelf = "row" | "column" | "series";
   const shelves: Shelf[] = ["row", "column", "series"];
-  function assign(base: Panel, shelf: Shelf, field: ShelfAxis): Panel {
+  function assign(
+    base: Panel,
+    shelf: Shelf,
+    field: ShelfAxis,
+    position?: number,
+  ): Panel {
     const pair: Pivot = {
       ...(base.pivot ??
         (base.distinct?.dataset === "daily"
           ? { row: "day", column: "source" }
-          : { row: "source", column: "slot" })),
+          : { row: [], column: [] })),
     };
-    const old = pair[shelf];
-    const other = shelves.find((k) => k !== shelf && pair[k] === field);
-    if (other) {
-      if (old) pair[other] = old;
-      else if (other === "series") delete pair.series;
-      else
-        pair[other] =
-          dimensions.find(
-            ([k]) => k !== field && k !== pair.row && k !== pair.column,
-          )?.[0] ?? "day";
+    const before = shelfFields(pair[shelf]);
+    for (const role of ["row", "column"] as const)
+      pair[role] = shelfFields(pair[role]).filter((k) => k !== field);
+    if (pair.series === field) delete pair.series;
+    if (shelf === "series") pair.series = field;
+    else {
+      const next = shelfFields(pair[shelf]);
+      const index =
+        position ??
+        (before.includes(field) ? before.indexOf(field) : next.length);
+      next.splice(index, 0, field);
+      pair[shelf] = next;
     }
-    pair[shelf] = field;
-    if (!shelves.some((k) => pair[k] === "measure")) delete pair.metrics;
+    if (!pivotFields(pair).includes("measure")) delete pair.metrics;
     return {
       ...base,
-      display: "pivot",
       group: base.group === "slot_total" ? "source" : base.group,
+      display: "pivot",
       pivot: pair,
     };
+  }
+  function without(id: "row" | "column", field: ShelfAxis) {
+    if (!pivot) return;
+    const pair = {
+      ...pivot,
+      [id]: shelfFields(pivot[id]).filter((k) => k !== field),
+    };
+    if (field === "measure") delete pair.metrics;
+    change({ ...p, pivot: pair });
   }
   function placeMeasure(which: Shelf, key: string): Panel {
     const next = picked(key);
@@ -157,7 +174,7 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
       key.startsWith("metric/") &&
       p.measure === "metric" &&
       pivot &&
-      pivot[which] === "measure"
+      shelfFields(pivot[which]).includes("measure")
     ) {
       const names = new Set([p.metric, ...(pivot.metrics ?? [])]);
       names.add(next.metric);
@@ -187,14 +204,30 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
         ] as const);
   type Field =
     | { kind: "measure"; key: string }
-    | { kind: "dimension"; key: Dimension };
-  function candidates(field: Field) {
+    | { kind: "dimension"; key: Dimension }
+    | { kind: "placed"; key: ShelfAxis };
+  function candidates(field: Field, position?: number) {
     const options: {
       id: string;
       label: string;
       panel?: Panel;
       filter?: Axis;
     }[] = [];
+    if (field.kind === "placed") {
+      for (const id of shelves)
+        if (!daily || id !== "series")
+          options.push({
+            id,
+            label: { row: "行", column: "列", series: "系列" }[id],
+            panel: assign(
+              p,
+              id,
+              field.key,
+              position ?? shelfFields(p.pivot?.[id]).length,
+            ),
+          });
+      return options;
+    }
     if (field.kind === "measure") {
       const base = picked(field.key);
       options.push({ id: "measure", label: "指標", panel: base });
@@ -231,16 +264,26 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
     return options;
   }
   const drag = useDropPreview<Field>((field, id) => {
-    const option = candidates(field).find((o) => o.id === id);
+    const [role, pos] = id.split("/");
+    const option = candidates(
+      field,
+      pos === undefined ? undefined : Number(pos),
+    ).find((o) => o.id === role);
     if (option?.panel) change(option.panel);
     if (option?.filter) filterBy(option.filter);
   });
   const item = drag.preview?.item;
-  const targets = item ? candidates(item) : [];
-  const hovered = targets.find((o) => o.id === drag.preview?.target);
+  const [targetRole, targetPosition] = (drag.preview?.target ?? "").split("/");
+  const targets = item
+    ? candidates(
+        item,
+        targetPosition === undefined ? undefined : Number(targetPosition),
+      )
+    : [];
+  const hovered = targets.find((o) => o.id === targetRole);
   const preview = hovered?.panel ?? p;
   const fieldName =
-    item?.kind === "dimension"
+    item && item.kind !== "measure"
       ? shelfName(item.key)
       : choices.find(([k]) => k === item?.key)?.[1];
   const active = fieldKeys.filter((k) => p[k] || k === filterKey);
@@ -313,7 +356,8 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
       <div className="builder-main">
         <div className="worksheet-shelves">
           {shelves.map((id) => {
-            const axis = pivot ? pivot[id] : undefined;
+            const assigned = pivot ? shelfFields(pivot[id]) : [];
+            const axis = assigned.at(-1);
             const value =
               axis === "measure"
                 ? selected
@@ -325,6 +369,7 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
                       : "axis/" + p.group
                     : "";
             const allowed = (f: Field) => {
+              if (f.kind === "placed") return true;
               if (f.kind === "measure")
                 return f.key !== "distinct" || !meta.dailyFields.length;
               if (id !== "series") return true;
@@ -336,7 +381,9 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
               [
                 "",
                 pivot
-                  ? "未設定"
+                  ? id === "series"
+                    ? "未設定"
+                    : "フィールドを追加"
                   : id === "row"
                     ? "値"
                     : id === "column"
@@ -365,23 +412,10 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
               >
                 <Select
                   label={{ row: "行", column: "列", series: "系列" }[id]}
-                  value={value}
+                  value={pivot && id !== "series" ? "" : value}
                   choices={opts}
                   change={(v) => {
                     if (!v) {
-                      if (pivot && id !== "series") {
-                        const other = pivot[id === "row" ? "column" : "row"];
-                        change({
-                          ...p,
-                          display: "chart",
-                          pivot: undefined,
-                          group:
-                            daily || other === "day" || other === "measure"
-                              ? "source"
-                              : other,
-                        });
-                        return;
-                      }
                       if (pivot && id === "series")
                         change({
                           ...p,
@@ -407,7 +441,66 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
                     if (next) change(next);
                   }}
                 />
-                {axis === "measure" &&
+                {id !== "series" && pivot && (
+                  <div className="shelf-chips">
+                    {assigned.map((field, i) => (
+                      <span
+                        className="shelf-chip"
+                        key={field}
+                        data-drop={
+                          item?.kind === "placed" ? id + "/" + i : undefined
+                        }
+                      >
+                        <button
+                          type="button"
+                          className="drag-source"
+                          title="ドラッグまたは Alt＋左右矢印で移動"
+                          onPointerDown={(e) =>
+                            drag.start(e, { kind: "placed", key: field })
+                          }
+                          onKeyDown={(e) => {
+                            if (
+                              !e.altKey ||
+                              !["ArrowLeft", "ArrowRight"].includes(e.key)
+                            )
+                              return;
+                            e.preventDefault();
+                            change(
+                              assign(
+                                p,
+                                id,
+                                field,
+                                Math.max(
+                                  0,
+                                  i + (e.key === "ArrowLeft" ? -1 : 1),
+                                ),
+                              ),
+                            );
+                          }}
+                        >
+                          {field === "measure"
+                            ? choices.find(([k]) => k === selected)?.[1]
+                            : shelfName(field)}
+                        </button>
+                        {!daily && (
+                          <button
+                            type="button"
+                            aria-label={
+                              shelfName(field) +
+                              " を" +
+                              (id === "row" ? "行" : "列") +
+                              "から外す"
+                            }
+                            onClick={() => without(id, field)}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {assigned.includes("measure") &&
                   pivot &&
                   pivot.metrics?.map((m) => (
                     <button

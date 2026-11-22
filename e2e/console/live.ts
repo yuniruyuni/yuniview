@@ -210,10 +210,12 @@ test("agent records → trace and logs → saved panel → monitor and notificat
       .getByRole("combobox", { name: "行", exact: true })
       .selectOption("axis/slot");
     await expect(
-      form.getByRole("combobox", { name: "列", exact: true }),
-    ).toHaveValue("axis/source");
+      form.locator(
+        '.worksheet-shelves [data-drop="row"] .shelf-chip .drag-source',
+      ),
+    ).toHaveText(["サービス", "スロット"]);
     await expect(
-      form.getByRole("link", { name: "blue checkout の詳細" }),
+      form.getByRole("link", { name: "checkout blue 合計 の詳細" }),
     ).toBeVisible();
     await form.getByRole("button", { name: "元に戻す" }).click();
     await expect(details).toBeVisible();
@@ -405,9 +407,9 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await catalog
     .getByRole("button", { name: "メモリ使用量", exact: true })
     .dragTo(row);
-  await expect(
-    form.getByRole("combobox", { name: "行", exact: true }),
-  ).toHaveValue("metric/memory.current");
+  await expect(row.locator(".shelf-chip .drag-source")).toHaveText(
+    "メモリ使用量",
+  );
   await catalog
     .getByRole("button", { name: "CPU 使用時間（累積）", exact: true })
     .dragTo(row);
@@ -459,4 +461,68 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await tiles.first().dragTo(tiles.last());
   await form.getByRole("button", { name: "キャンセル", exact: true }).click();
   await expect(page.locator(".canvas-grid h3").first()).toHaveText("Second");
+});
+
+test("compound row and column shelves preserve their hierarchy on save", async ({
+  page,
+  request,
+}) => {
+  const id = randomUUID();
+  const panel = {
+    ...blankPanel,
+    id: randomUUID(),
+    title: "Nested memory",
+    measure: "metric",
+    metric: "memory.current",
+    display: "pivot",
+    pivot: {
+      row: ["source", "slot"],
+      column: ["workload", "measure"],
+      metrics: ["cpu.usage"],
+    },
+  };
+  const saved = await request.post("/api/trpc/applyDashboard", {
+    data: {
+      definition: { id, title: "Hierarchy", panels: [panel] },
+      expectedVersion: null,
+    },
+  });
+  expect(saved.ok()).toBeTruthy();
+  await page.goto("/#page=dashboards&dashboard=" + id);
+  const table = page.locator(".pivot-scroll table");
+  await expect(
+    table.getByRole("rowheader", { name: "checkout" }),
+  ).toHaveAttribute("rowspan", "2");
+  await expect(
+    table.getByRole("columnheader", { name: "app", exact: true }),
+  ).toHaveAttribute("colspan", "2");
+  await expect(table.getByRole("rowheader", { name: "green" })).toBeVisible();
+  await expect(
+    table.getByRole("columnheader", { name: "cpu.usage" }),
+  ).toBeVisible();
+  const cell = table.getByRole("link", {
+    name: "checkout green app memory.current の詳細",
+  });
+  await expect(cell).toHaveAttribute("href", /slot=green/);
+  await expect(cell).toHaveAttribute("href", /workload=app/);
+  await page.getByRole("button", { name: "Nested memory を編集" }).click();
+  const row = page.locator('.worksheet-shelves [data-drop="row"]');
+  const chips = row.locator(".shelf-chip .drag-source");
+  await chips.last().dragTo(chips.first());
+  await expect(chips).toHaveText(["スロット", "サービス"]);
+  await page.getByRole("button", { name: "ワークロード を列から外す" }).click();
+  await page
+    .locator(".field-catalog")
+    .getByRole("button", { name: "リビジョン", exact: true })
+    .dragTo(page.locator('.worksheet-shelves [data-drop="column"]'));
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Hierarchy" })).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Nested memory を編集" }).click();
+  await expect(chips).toHaveText(["スロット", "サービス"]);
+  await expect(
+    page.locator(
+      '.worksheet-shelves [data-drop="column"] .shelf-chip .drag-source',
+    ),
+  ).toHaveText(["メモリ使用量", "リビジョン"]);
 });

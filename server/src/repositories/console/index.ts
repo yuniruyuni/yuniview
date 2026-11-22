@@ -5,8 +5,14 @@ import type {
   Panel,
   Point,
   RouteRow,
+  ShelfAxis,
+  ShelfFields,
 } from "../../../../shared/console";
-import { defaultTotalSlots, isAttribute } from "../../../../shared/console";
+import {
+  defaultTotalSlots,
+  isAttribute,
+  shelfFields,
+} from "../../../../shared/console";
 import type { Database } from "../../infra/db";
 import { sql } from "../../infra/db";
 import { events } from "../../models/events";
@@ -52,6 +58,33 @@ function matches(f: Filter, end: Date) {
     );
   return sql.join(parts, " AND ");
 }
+function shelfKey(
+  fields: ShelfFields,
+  field: (axis: ShelfAxis) => ReturnType<typeof sql>,
+) {
+  const parts = shelfFields(fields).map(field);
+  if (!parts.length) return sql`''::text`;
+  if (parts.length === 1) return parts[0];
+  return sql`ARRAY[${sql.join(parts, ",")}]::text[]`;
+}
+type GroupPoint = Omit<Point, "series" | "column"> & {
+  series: string | string[];
+  column?: string | string[];
+};
+function decodePoint(p: GroupPoint): Point {
+  const { series, column, ...rest } = p;
+  return {
+    ...rest,
+    ...(Array.isArray(series)
+      ? { series: JSON.stringify(series), rowPath: series }
+      : { series }),
+    ...(Array.isArray(column)
+      ? { column: JSON.stringify(column), columnPath: column }
+      : column !== undefined
+        ? { column }
+        : {}),
+  };
+}
 export async function series(
   db: Database,
   p: Panel,
@@ -62,11 +95,14 @@ export async function series(
   const distinct = p.measure === "distinct" ? p.distinct : undefined;
   if (distinct?.dataset === "daily") {
     const day = sql`day::text`;
-    const row = pivot?.row === "day" ? day : sql`source`;
+    const dailyField = (key: ShelfAxis) => (key === "day" ? day : sql`source`);
+    const row = shelfKey(pivot?.row ?? "source", dailyField);
     const count = sql`count(DISTINCT nullif(digest,''))::int`;
-    return db.queryAll<Point>(
-      sql`SELECT ${pivot ? sql`${end}::timestamptz` : sql`day::timestamp AT TIME ZONE 'Asia/Tokyo'`} AS bucket,${row} AS series,${pivot ? sql`${pivot.column === "day" ? day : sql`source`} AS "column",` : sql``} ${count} AS value,${count} AS samples FROM daily_sets WHERE field=${distinct.field} AND day BETWEEN (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date - ${Math.ceil(p.minutes / 1440) - 1}::int AND (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date AND ${p.source ? sql`source=${p.source}` : sql`true`} GROUP BY ${pivot ? sql`1,2,3` : sql`1,2`} ORDER BY ${pivot ? sql`1,2,3` : sql`1,2`}`,
-    );
+    return (
+      await db.queryAll<GroupPoint>(
+        sql`SELECT ${pivot ? sql`${end}::timestamptz` : sql`day::timestamp AT TIME ZONE 'Asia/Tokyo'`} AS bucket,${row} AS series,${pivot ? sql`${shelfKey(pivot.column, dailyField)} AS "column",` : sql``} ${count} AS value,${count} AS samples FROM daily_sets WHERE field=${distinct.field} AND day BETWEEN (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date - ${Math.ceil(p.minutes / 1440) - 1}::int AND (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date AND ${p.source ? sql`source=${p.source}` : sql`true`} GROUP BY ${pivot ? sql`1,2,3` : sql`1,2`} ORDER BY ${pivot ? sql`1,2,3` : sql`1,2`}`,
+      )
+    ).map(decodePoint);
   }
   if (p.group === "slot_total") {
     // Agents sample independently. Average within each minute before adding the two gauges.
@@ -88,7 +124,7 @@ export async function series(
         ${sql.raw(p.aggregation)}(total) / ${p.unit === "MiB" ? 1048576 : 1}::float8 AS value,
         count(*)::int AS samples FROM totals GROUP BY 1,2 ORDER BY 1,2`);
   }
-  const field = (key: NonNullable<Panel["pivot"]>["row"]) =>
+  const field = (key: ShelfAxis) =>
     isAttribute(key)
       ? sql`coalesce(attrs->>${key.slice(5)},'')`
       : key === "measure"
@@ -99,7 +135,7 @@ export async function series(
           ? sql`(at AT TIME ZONE 'Asia/Tokyo')::date::text`
           : sql.raw(key);
   const group = pivot
-    ? field(pivot.row)
+    ? shelfKey(pivot.row, field)
     : p.group === "all"
       ? sql.raw("'all'::text")
       : field(p.group);
@@ -127,9 +163,11 @@ export async function series(
     ? sql`min(unit) AS "metricUnit",`
     : sql``;
   const keys = pivot?.series ? sql`1,2,3,4` : pivot ? sql`1,2,3` : sql`1,2`;
-  return db.queryAll<Point>(
-    sql`SELECT ${period} AS bucket,${group} AS series,${pivot ? sql`${field(pivot.column)} AS "column",` : sql``} ${pivot?.series ? sql`${field(pivot.series)} AS facet,` : sql``} ${units} (${aggregate}::float8 / ${p.unit === "MiB" ? 1048576 : 1}::float8) AS value,count(*)::int AS samples FROM telemetry_events WHERE ${matches(p, end)} AND ${filter} GROUP BY ${keys} HAVING ${aggregate} IS NOT NULL ORDER BY ${keys}`,
-  );
+  return (
+    await db.queryAll<GroupPoint>(
+      sql`SELECT ${period} AS bucket,${group} AS series,${pivot ? sql`${shelfKey(pivot.column, field)} AS "column",` : sql``} ${pivot?.series ? sql`${field(pivot.series)} AS facet,` : sql``} ${units} (${aggregate}::float8 / ${p.unit === "MiB" ? 1048576 : 1}::float8) AS value,count(*)::int AS samples FROM telemetry_events WHERE ${matches(p, end)} AND ${filter} GROUP BY ${keys} HAVING ${aggregate} IS NOT NULL ORDER BY ${keys}`,
+    )
+  ).map(decodePoint);
 }
 const columns = sql.raw(
   "concat(source,'/',batch_id,'/',ordinal) AS id,at,source,instance,workload,slot,revision,kind,name,body,trace,span,parent,value,unit,failed,attrs",
