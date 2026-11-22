@@ -681,20 +681,34 @@ test("worksheet encodes time or categories on either axis and splits observed se
   ).toHaveCount(6);
   await expect(plot.getByRole("img").locator("polygon")).toHaveCount(12);
   await expect(plot.locator(".legend-key polygon")).toHaveCount(6);
-  await form.getByText("属性で分ける", { exact: true }).click();
+  const styleShelves = form.getByRole("group", {
+    name: "系列のスタイル",
+    exact: true,
+  });
+  const assignStyle = async (field: string, channel: string) =>
+    form
+      .locator(".field-catalog")
+      .getByRole("button", { name: field, exact: true })
+      .dragTo(styleShelves.locator('[data-drop="style-' + channel + '"]'));
+  await assignStyle("スロット", "color");
+  await assignStyle("リビジョン", "dash");
+  await assignStyle("スロット", "width");
   await form
-    .getByRole("combobox", { name: "色を分ける属性", exact: true })
-    .selectOption("slot");
-  await form
-    .locator(".field-catalog")
+    .getByRole("button", { name: "点の形に属性を割り当て" })
+    .press("Enter");
+  await page
+    .getByRole("dialog", { name: "点の形に追加" })
     .getByRole("button", { name: "リビジョン", exact: true })
-    .dragTo(form.locator('[data-drop="style-dash"]'));
-  await form
-    .getByRole("combobox", { name: "線の太さを分ける属性", exact: true })
-    .selectOption("slot");
-  await form
-    .getByRole("combobox", { name: "点の形を分ける属性", exact: true })
-    .selectOption("revision");
+    .click();
+  await expect(styleShelves.locator('[data-drop="style-shape"]')).toContainText(
+    "リビジョン",
+  );
+  await styleShelves
+    .getByRole("button", { name: "点の形の割り当てを外す" })
+    .click();
+  await expect(shape).toHaveValue("2");
+  await assignStyle("スロット", "shape");
+  await assignStyle("リビジョン", "shape");
   await expect(
     plot.getByRole("img").locator('path[stroke-dasharray="1 4"]'),
   ).toHaveCount(4);
@@ -723,9 +737,9 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await expect(form.locator('[data-drop="filter"] select')).toHaveCount(0);
   await shape.selectOption({ label: "四角" });
   await expect(plot.getByRole("img").locator("rect")).toHaveCount(12);
-  await expect(
-    form.getByRole("combobox", { name: "点の形を分ける属性" }),
-  ).toHaveValue("");
+  await expect(styleShelves.locator('[data-drop="style-shape"]')).toContainText(
+    "属性をドロップ",
+  );
   await memFormat.selectOption("auto");
   await cpuFormat.selectOption("auto");
   await form.getByRole("button", { name: "時刻（10秒） を列から外す" }).click();

@@ -1245,12 +1245,64 @@ main:has(.worksheet) {
   font-size: 12px;
 }
 
-.style-bindings {
-  grid-column: 1 / -1;
+.worksheet .builder-main:has(> .style-shelves) {
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
 }
-.style-bindings summary {
-  cursor: pointer;
+.style-shelves {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  min-width: 0;
+  gap: 4px;
+  margin-top: 5px;
 }
-.style-bindings label {
-  margin-top: 6px;
+.style-shelves legend {
+  font-size: 12px;
+  font-weight: 650;
+}
+.style-shelves > div {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border: 1px dashed #a6bfba;
+  border-radius: 6px;
+  background: white;
+}
+.style-shelves .style-target {
+  border: 0;
+  background: transparent;
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 1px;
+  text-align: left;
+  padding: 4px 6px;
+}
+.style-target strong {
+  font-size: 12px;
+}
+.style-target span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #617373;
+}
+.style-target span[data-assigned] {
+  color: #154c46;
+  background: #e1f2ef;
+  border-radius: 3px;
+  padding: 0 3px;
+}
+.style-shelves .style-remove {
+  border: 0;
+  background: transparent;
+  padding: 3px;
+}
+.style-shelves [data-ready] {
+  border-color: #327d75;
+  background: #eff8f5;
+}
+.style-shelves [data-preview] {
+  outline: 2px solid #167774;
+  outline-offset: -2px;
 }

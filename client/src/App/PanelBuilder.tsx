@@ -48,7 +48,7 @@ type Props = {
 const dimensions = Object.entries(axes) as [Axis, string][];
 export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
   const [settingsOpen, showSettings] = useState(false);
-  const [picker, openPicker] = useState<Shelf>();
+  const [picker, openPicker] = useState<Shelf | StyleChannel>();
   const [search, find] = useState("");
   const [undo, remember] = useState<Panel[]>([]);
   function change(next: Panel) {
@@ -924,6 +924,64 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
             ready={targets.some((t) => t.id === "filter")}
             hover={targetRole === "filter"}
           />
+          {stylePivot && valueSide && (
+            <fieldset className="style-shelves">
+              <legend>系列のスタイル</legend>
+              {(Object.entries(styleChannels) as [StyleChannel, string][]).map(
+                ([channel, label]) => {
+                  const target = "style-" + channel;
+                  const field = stylePivot.encoding?.[channel];
+                  return (
+                    <div
+                      key={channel}
+                      data-drop={target}
+                      data-ready={
+                        (item && targets.some((t) => t.id === target)) ||
+                        undefined
+                      }
+                      data-preview={hovered?.id === target || undefined}
+                    >
+                      <button
+                        type="button"
+                        className="style-target"
+                        aria-label={label + "に属性を割り当て"}
+                        title="属性をドロップ、またはダブルクリックで選択"
+                        onDoubleClick={() => openPicker(channel)}
+                        onClick={(e) => {
+                          if (e.detail === 0) openPicker(channel);
+                        }}
+                      >
+                        <strong>{label}</strong>
+                        <span data-assigned={!!field || undefined}>
+                          {field ? shelfName(field) : "属性をドロップ"}
+                        </span>
+                      </button>
+                      {field && (
+                        <button
+                          type="button"
+                          className="style-remove"
+                          aria-label={label + "の割り当てを外す"}
+                          onClick={() => change(withStyle(channel))}
+                        >
+                          ×
+                        </button>
+                      )}
+                      {picker === channel && (
+                        <ShelfPicker
+                          label={label}
+                          choices={styleFields.map((f) => [f, shelfName(f)])}
+                          close={() => openPicker(undefined)}
+                          select={(v) =>
+                            change(withStyle(channel, v as ShelfAxis))
+                          }
+                        />
+                      )}
+                    </div>
+                  );
+                },
+              )}
+            </fieldset>
+          )}
           <div className="preview-head">
             {hovered ? (
               <h4>
@@ -1133,7 +1191,7 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
           </div>
           {(p.display === "chart" || !!valueSide) && (
             <fieldset className="series-encoding">
-              <legend>系列のスタイル</legend>
+              <legend>固定スタイル</legend>
               {(Object.entries(styleChannels) as [StyleChannel, string][]).map(
                 ([channel, label]) => {
                   const mapped = !!stylePivot?.encoding?.[channel];
@@ -1141,7 +1199,6 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
                     <Select
                       key={channel}
                       label={label}
-                      dropTarget={"style-" + channel}
                       value={
                         mapped
                           ? "mapped"
@@ -1177,32 +1234,6 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
                     />
                   );
                 },
-              )}
-              {stylePivot && valueSide && (
-                <details className="style-bindings">
-                  <summary>属性で分ける</summary>
-                  {(
-                    Object.entries(styleChannels) as [StyleChannel, string][]
-                  ).map(([channel, label]) => (
-                    <Select
-                      key={channel}
-                      label={label + "を分ける属性"}
-                      value={stylePivot.encoding?.[channel] ?? ""}
-                      choices={[
-                        ["", "指定なし"],
-                        ...styleFields.map((f): [string, string] => [
-                          f,
-                          shelfName(f),
-                        ]),
-                      ]}
-                      change={(v) =>
-                        change(
-                          withStyle(channel, v ? (v as ShelfAxis) : undefined),
-                        )
-                      }
-                    />
-                  ))}
-                </details>
               )}
             </fieldset>
           )}
