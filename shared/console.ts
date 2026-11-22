@@ -1,10 +1,28 @@
-export type Measure = "requests" | "errors" | "latency" | "logs" | "metric";
+export type Measure =
+  | "requests"
+  | "errors"
+  | "latency"
+  | "logs"
+  | "metric"
+  | "accounts"
+  | "browsers";
 export type Identifier =
   | "source"
   | "slot"
   | "revision"
   | "workload"
   | "instance";
+export type Axis = Identifier | "day";
+export const axes: Record<Axis, string> = {
+  source: "サービス",
+  slot: "スロット",
+  revision: "リビジョン",
+  instance: "インスタンス",
+  workload: "ワークロード",
+  day: "日付（JST）",
+};
+export const isUsage = (measure: Measure) =>
+  measure === "accounts" || measure === "browsers";
 export interface Filter {
   source: string;
   instance: string;
@@ -21,7 +39,9 @@ export interface Panel extends Filter {
   metric: string;
   aggregation: "avg" | "max" | "min" | "sum";
   group: "all" | Identifier;
-  display: "chart" | "value" | "table";
+  display: "chart" | "value" | "table" | "pivot";
+  pivot?: { row: Axis; column: Axis };
+  unit?: "MiB";
 }
 export interface Monitor {
   id: string;
@@ -39,6 +59,7 @@ export interface Dashboard {
   panels: Panel[];
 }
 export interface Point {
+  column?: string;
   bucket: string;
   series: string;
   value: number;
@@ -116,6 +137,8 @@ export const blankPanel: Panel = {
   display: "chart",
 };
 export const measures: Record<Measure, string> = {
+  accounts: "日別ログインアカウント数",
+  browsers: "日別訪問ブラウザ数",
   requests: "リクエスト数",
   errors: "失敗率 (%)",
   latency: "p95 応答時間 (ms)",

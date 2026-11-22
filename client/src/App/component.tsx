@@ -42,6 +42,7 @@ function navigate(params: Record<string, string>) {
   window.location.hash = link(params);
 }
 export function App() {
+  const [incoming, setIncoming] = useState<Panel | null>(null);
   const [url, setUrl] = useState(read);
   const [now, setNow] = useState(() => new Date().toISOString());
   const [auto, setAuto] = useState(false);
@@ -341,7 +342,15 @@ export function App() {
             </div>
           </>
         ) : page === "monitors" || page === "dashboards" ? (
-          <Library key={page} mode={page} end={end} filter={f} meta={meta} />
+          <Library
+            incoming={incoming}
+            consumed={() => setIncoming(null)}
+            key={page}
+            mode={page}
+            end={end}
+            filter={f}
+            meta={meta}
+          />
         ) : page === "apm" && trace ? (
           <>
             <button type="button" onClick={() => navigate({ trace: "" })}>
@@ -351,6 +360,34 @@ export function App() {
           </>
         ) : (
           <>
+            <button
+              type="button"
+              onClick={() => {
+                const metric =
+                  url.get("metric") || meta.metrics[0] || "memory.current";
+                const measure =
+                  page === "metrics"
+                    ? "metric"
+                    : page === "logs"
+                      ? "logs"
+                      : "requests";
+                setIncoming({
+                  ...blankPanel,
+                  ...f,
+                  measure,
+                  metric: measure === "metric" ? metric : "",
+                  title:
+                    measure === "metric"
+                      ? metric
+                      : measure === "logs"
+                        ? "ログ件数"
+                        : "リクエスト数",
+                });
+                navigate({ page: "dashboards" });
+              }}
+            >
+              この表示をダッシュボードに追加
+            </button>
             {page === "metrics" && (
               <MetricChart
                 meta={meta}

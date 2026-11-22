@@ -10,7 +10,8 @@ import {
   type Transition,
 } from "../../../shared/console";
 import { clock, Feedback, number, rpc, useQuery } from "../api";
-import { PanelFields, PanelView, Select } from "./Panels";
+import { DashboardWorkspace } from "./DashboardWorkspace";
+import { PanelFields, Select } from "./Panels";
 
 interface LibraryData {
   dashboards: Dashboard[];
@@ -41,7 +42,11 @@ export function Library({
   meta,
   end,
   filter,
+  incoming,
+  consumed,
 }: {
+  incoming: Panel | null;
+  consumed: () => void;
   mode: "dashboards" | "monitors";
   meta: Overview;
   end: string;
@@ -53,26 +58,16 @@ export function Library({
     undefined,
     revision + Date.parse(end),
   );
-  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [monitor, setMonitor] = useState<Monitor | null>(null);
-  const [index, setIndex] = useState(0);
-  const [selected, select] = useState("");
   const [error, fail] = useState("");
   const [busy, working] = useState(false);
   const data = result.data;
-  const start = (d: Dashboard) => {
-    setDashboard(structuredClone(d));
-    setIndex(0);
-    fail("");
-  };
   const seed = { ...blankPanel, ...filter };
   async function save(name: string, item: unknown) {
     working(true);
     fail("");
     try {
       await rpc(name, item, true);
-      if (dashboard) select(dashboard.id);
-      setDashboard(null);
       setMonitor(null);
       refresh((v) => v + 1);
     } catch (e) {
@@ -84,88 +79,44 @@ export function Library({
   const remove = (kind: string, id: string) => {
     if (window.confirm("削除しますか？")) void save("remove", { kind, id });
   };
-  const active =
-    data?.dashboards.find((d) => d.id === selected) ?? data?.dashboards[0];
+  if (mode === "dashboards" && !monitor)
+    return (
+      <DashboardWorkspace
+        end={end}
+        meta={meta}
+        seed={seed}
+        incoming={incoming}
+        consumed={consumed}
+        monitor={(p) => setMonitor(makeMonitor(p))}
+      />
+    );
   return (
     <>
       {error && <p role="alert">{error}</p>}
-      {dashboard || monitor ? (
+      {monitor ? (
         <form
           className="editor card"
           onSubmit={(e) => {
             e.preventDefault();
-            void save(
-              dashboard ? "saveDashboard" : "saveMonitor",
-              dashboard ?? monitor,
-            );
+            void save("saveMonitor", monitor);
           }}
         >
-          <h3>{dashboard ? "ダッシュボード編集" : "モニター編集"}</h3>
+          <h3>モニター編集</h3>
           <label>
             名前
             <input
               required
               maxLength={512}
-              value={(dashboard ?? monitor)?.title}
+              value={monitor.title}
               onChange={(e) =>
-                dashboard
-                  ? setDashboard({ ...dashboard, title: e.target.value })
-                  : monitor && setMonitor({ ...monitor, title: e.target.value })
+                setMonitor({ ...monitor, title: e.target.value })
               }
             />
           </label>
-          {dashboard && (
-            <div className="tools">
-              <Select
-                label="編集するパネル"
-                value={String(index)}
-                choices={dashboard.panels.map((p, i) => [String(i), p.title])}
-                change={(v) => setIndex(Number(v))}
-              />
-              <button
-                type="button"
-                disabled={dashboard.panels.length >= 24}
-                onClick={() => {
-                  setIndex(dashboard.panels.length);
-                  setDashboard({
-                    ...dashboard,
-                    panels: [
-                      ...dashboard.panels,
-                      { ...seed, id: crypto.randomUUID() },
-                    ],
-                  });
-                }}
-              >
-                パネル追加
-              </button>
-              <button
-                type="button"
-                disabled={dashboard.panels.length === 1}
-                onClick={() => {
-                  setDashboard({
-                    ...dashboard,
-                    panels: dashboard.panels.filter((_, i) => i !== index),
-                  });
-                  setIndex(0);
-                }}
-              >
-                パネル削除
-              </button>
-            </div>
-          )}
           <PanelFields
             meta={meta}
-            p={dashboard ? dashboard.panels[index] : (monitor as Monitor).panel}
-            set={(p) =>
-              dashboard
-                ? setDashboard({
-                    ...dashboard,
-                    panels: dashboard.panels.map((item, i) =>
-                      i === index ? p : item,
-                    ),
-                  })
-                : monitor && setMonitor({ ...monitor, panel: p })
-            }
+            p={monitor.panel}
+            set={(panel) => setMonitor({ ...monitor, panel })}
           />
           {monitor && (
             <div className="fields">
@@ -181,7 +132,7 @@ export function Library({
                 }
               />
               <label>
-                閾値
+                閾値 {monitor.panel.unit}
                 <input
                   required
                   type="number"
@@ -238,7 +189,6 @@ export function Library({
             <button
               type="button"
               onClick={() => {
-                setDashboard(null);
                 setMonitor(null);
                 fail("");
               }}
@@ -251,77 +201,6 @@ export function Library({
         <p>
           <Feedback error={result.error} />
         </p>
-      ) : mode === "dashboards" ? (
-        <>
-          <div className="tools">
-            <button
-              type="button"
-              className="primary"
-              onClick={() =>
-                start({
-                  id: crypto.randomUUID(),
-                  title: "新しいダッシュボード",
-                  panels: [{ ...seed, id: crypto.randomUUID() }],
-                })
-              }
-            >
-              ダッシュボードを作成
-            </button>
-            {active && (
-              <>
-                <Select
-                  label="ダッシュボード"
-                  value={active.id}
-                  choices={data.dashboards.map((d) => [d.id, d.title])}
-                  change={select}
-                />
-                <button type="button" onClick={() => start(active)}>
-                  編集
-                </button>
-                <button
-                  type="button"
-                  onClick={() => remove("dashboard", active.id)}
-                >
-                  削除
-                </button>
-              </>
-            )}
-          </div>
-          {active ? (
-            <>
-              <h2>{active.title}</h2>
-              <div className="cards">
-                {active.panels.map((p) => (
-                  <PanelView
-                    key={p.id ?? p.title}
-                    panel={p}
-                    end={end}
-                    actions={
-                      <div className="tools">
-                        <a
-                          className="investigate"
-                          href={`#${new URLSearchParams({ page: p.measure === "logs" ? "logs" : p.measure === "metric" ? "metrics" : "apm", source: p.source, slot: p.slot, revision: p.revision, workload: p.workload, instance: p.instance, minutes: String(p.minutes), text: p.text, metric: p.metric, end }).toString()}`}
-                        >
-                          調査
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => setMonitor(makeMonitor(p))}
-                        >
-                          モニター化
-                        </button>
-                      </div>
-                    }
-                  />
-                ))}
-              </div>
-            </>
-          ) : (
-            <p className="empty">
-              保存したダッシュボードがここに表示されます。
-            </p>
-          )}
-        </>
       ) : (
         <>
           <button

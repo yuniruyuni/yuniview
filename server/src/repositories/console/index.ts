@@ -57,10 +57,28 @@ export async function series(
   end: Date,
   buckets: boolean,
 ) {
-  const group = p.group === "all" ? sql.raw("'all'::text") : sql.raw(p.group);
-  const period = buckets
-    ? sql`date_bin(make_interval(secs=>${Math.max(1, Math.ceil((p.minutes * 60) / 40))}::int),at,'2000-01-01'::timestamptz)`
-    : sql`${end}::timestamptz`;
+  const pivot = p.display === "pivot" ? p.pivot : undefined;
+  if (pivot && (p.measure === "accounts" || p.measure === "browsers")) {
+    const day = sql`day::text`;
+    const row = pivot.row === "day" ? day : sql`source`,
+      column = pivot.column === "day" ? day : sql`source`;
+    return db.queryAll<Point>(
+      sql`SELECT ${end}::timestamptz AS bucket,${row} AS series,${column} AS "column",count(*) FILTER(WHERE digest<>'')::int AS value,count(*) FILTER(WHERE digest<>'')::int AS samples FROM daily_visitors WHERE kind=${p.measure === "accounts" ? "account" : "browser"} AND day BETWEEN (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date - ${Math.ceil(p.minutes / 1440) - 1}::int AND (${end}::timestamptz AT TIME ZONE 'Asia/Tokyo')::date AND ${p.source ? sql`source=${p.source}` : sql`true`} GROUP BY 2,3 ORDER BY 2,3`,
+    );
+  }
+  const field = (key: NonNullable<Panel["pivot"]>["row"]) =>
+    key === "day"
+      ? sql`(at AT TIME ZONE 'Asia/Tokyo')::date::text`
+      : sql.raw(key);
+  const group = pivot
+    ? field(pivot.row)
+    : p.group === "all"
+      ? sql.raw("'all'::text")
+      : sql.raw(p.group);
+  const period =
+    buckets && !pivot
+      ? sql`date_bin(make_interval(secs=>${Math.max(1, Math.ceil((p.minutes * 60) / 40))}::int),at,'2000-01-01'::timestamptz)`
+      : sql`${end}::timestamptz`;
   const filter =
     p.measure === "logs"
       ? sql.raw("kind='log'")
@@ -76,7 +94,7 @@ export async function series(
           ? sql.raw(`${p.aggregation}(value)`)
           : sql.raw("count(*)");
   return db.queryAll<Point>(
-    sql`SELECT ${period} AS bucket,${group} AS series,${aggregate}::float8 AS value,count(*)::int AS samples FROM telemetry_events WHERE ${matches(p, end)} AND ${filter} GROUP BY 1,2 HAVING ${aggregate} IS NOT NULL ORDER BY 1,2`,
+    sql`SELECT ${period} AS bucket,${group} AS series,${pivot ? sql`${field(pivot.column)} AS "column",` : sql``} (${aggregate}::float8 / ${p.unit === "MiB" ? 1048576 : 1}::float8) AS value,count(*)::int AS samples FROM telemetry_events WHERE ${matches(p, end)} AND ${filter} GROUP BY ${pivot ? sql`1,2,3` : sql`1,2`} HAVING ${aggregate} IS NOT NULL ORDER BY ${pivot ? sql`1,2,3` : sql`1,2`}`,
   );
 }
 const columns = sql.raw(

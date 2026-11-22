@@ -65,7 +65,7 @@ export function managementMcp(ctx: Context) {
       "preview_panel",
       {
         description:
-          "Evaluate a dashboard or monitor query against recent telemetry before saving.",
+          "Evaluate a dashboard or monitor query against recent telemetry before saving. Pivot panels return row (series), column and value per cell. For daily unique accounts or browsers, use day and source as the two axes.",
         inputSchema: z.object({ panel }),
         annotations: readOnly,
       },

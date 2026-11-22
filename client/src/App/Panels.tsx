@@ -1,23 +1,30 @@
 import { useId, useState } from "react";
 import type { Overview, Panel, Point } from "../../../shared/console";
-import { measures } from "../../../shared/console";
+import { axes, isUsage, measures } from "../../../shared/console";
 import { clock, Feedback, number, useQuery } from "../api";
 
 export function Select({
   label,
   value,
   choices,
+  onDrop,
   change,
 }: {
   label: string;
   value: string;
   choices: [string, string][];
+  onDrop?: React.DragEventHandler<HTMLSelectElement>;
   change: (v: string) => void;
 }) {
   return (
     <label>
       {label}
-      <select value={value} onChange={(e) => change(e.target.value)}>
+      <select
+        onDrop={onDrop}
+        onDragOver={onDrop ? (e) => e.preventDefault() : undefined}
+        value={value}
+        onChange={(e) => change(e.target.value)}
+      >
         {choices.map(([v, n]) => (
           <option key={v} value={v}>
             {n}
@@ -56,8 +63,12 @@ export function PanelFields({
       <Select
         label="指標"
         value={p.measure}
-        choices={Object.entries(measures)}
-        change={(v) => update("measure", v as Panel["measure"])}
+        choices={Object.entries(measures).filter(
+          ([k]) => k !== "accounts" && k !== "browsers",
+        )}
+        change={(v) =>
+          set({ ...p, measure: v as Panel["measure"], unit: undefined })
+        }
       />
       {p.measure === "metric" && (
         <>
@@ -67,7 +78,9 @@ export function PanelFields({
               required
               list="metric-options"
               value={p.metric}
-              onChange={(e) => update("metric", e.target.value)}
+              onChange={(e) =>
+                set({ ...p, metric: e.target.value, unit: undefined })
+              }
             />
             <datalist id="metric-options">
               {meta.metrics.map((m) => (
@@ -282,34 +295,55 @@ export function PanelView({
   panel,
   end,
   actions,
+  onEdit,
   choose,
 }: {
   panel: Panel;
   end: string;
   actions?: React.ReactNode;
+  onEdit?: () => void;
   choose?: (p: Point) => string;
 }) {
   const { data, error } = useQuery<Point[]>("series", {
-    panel,
+    panel: { ...panel, title: "プレビュー" },
     end,
     buckets: panel.display === "chart",
   });
   return (
     <article className="card">
       <div className="cardhead">
-        <h3>{panel.title}</h3>
+        <h3>
+          {onEdit ? (
+            <button
+              type="button"
+              className="panel-title"
+              aria-label={`${panel.title} を編集`}
+              onClick={onEdit}
+            >
+              {panel.title}
+            </button>
+          ) : (
+            panel.title
+          )}
+        </h3>
         {actions}
       </div>
       <small>
         {measures[panel.measure]} · {panel.source || "全サービス"} ·{" "}
-        {panel.minutes}分
+        {panel.minutes}分 {panel.unit ?? ""}
       </small>
       {!data ? (
         <p role="status">
           <Feedback error={error} />
         </p>
       ) : data.length === 0 ? (
-        <p className="empty">この期間のデータはありません</p>
+        <p className="empty">
+          {["requests", "errors", "latency"].includes(panel.measure)
+            ? "この条件で受信した server span がありません。期間またはサービスを変更してください。"
+            : "この期間と絞り込み条件に一致するデータがありません。"}
+        </p>
+      ) : panel.display === "pivot" && panel.pivot ? (
+        <PivotTable panel={panel} points={data} end={end} />
       ) : panel.display === "chart" ? (
         <Chart
           points={data}
@@ -347,5 +381,116 @@ export function PanelView({
         </table>
       )}
     </article>
+  );
+}
+
+export function investigatePanel(p: Panel, end: string) {
+  return (
+    "#" +
+    new URLSearchParams({
+      page: isUsage(p.measure)
+        ? "usage"
+        : p.measure === "logs"
+          ? "logs"
+          : p.measure === "metric"
+            ? "metrics"
+            : "apm",
+      source: p.source,
+      slot: p.slot,
+      instance: p.instance,
+      workload: p.workload,
+      revision: p.revision,
+      text: p.text,
+      minutes: String(p.minutes),
+      metric: p.metric,
+      end,
+    }).toString()
+  );
+}
+function PivotTable({
+  panel,
+  points,
+  end,
+}: {
+  panel: Panel;
+  points: Point[];
+  end: string;
+}) {
+  const pivot = panel.pivot;
+  if (!pivot) return null;
+  const rows = new Map<string, Map<string, Point>>();
+  const columns = new Set<string>();
+  for (const point of points) {
+    const col = point.column ?? "";
+    columns.add(col);
+    if (!rows.has(point.series)) rows.set(point.series, new Map());
+    rows.get(point.series)?.set(col, point);
+  }
+  if (rows.size * columns.size > 4000)
+    return <p>表が大きすぎます。期間またはサービスを絞ってください。</p>;
+  const cols = Array.from(columns).sort();
+  const cellLink = (row: string, col: string) => {
+    const p = { ...panel };
+    let until = end;
+    for (const [axis, val] of [
+      [pivot.row, row],
+      [pivot.column, col],
+    ] as const) {
+      if (axis === "day") {
+        const next = Date.parse(`${val}T00:00:00+09:00`) + 86400000 - 1;
+        until = new Date(Math.min(next, Date.parse(end))).toISOString();
+        p.minutes = Math.max(
+          1,
+          Math.ceil(
+            (Date.parse(until) -
+              Math.max(
+                next - 86400000,
+                Date.parse(end) - panel.minutes * 60000,
+              )) /
+              60000,
+          ),
+        );
+      } else p[axis] = val;
+    }
+    return investigatePanel(p, until);
+  };
+  return (
+    <div className="pivot-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>
+              {axes[pivot.row]} ／ {axes[pivot.column]}
+            </th>
+            {cols.map((c) => (
+              <th key={c}>{c || "未指定"}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from(rows, ([r, cells]) => (
+            <tr key={r}>
+              <th scope="row">{r || "未指定"}</th>
+              {cols.map((c) => {
+                const p = cells.get(c);
+                return (
+                  <td key={c}>
+                    {p && isUsage(panel.measure) ? (
+                      number(p.value)
+                    ) : p ? (
+                      <a href={cellLink(r, c)} aria-label={`${r} ${c} の詳細`}>
+                        {number(p.value)}
+                      </a>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

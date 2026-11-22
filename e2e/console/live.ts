@@ -123,6 +123,23 @@ test("agent records → trace and logs → saved panel → monitor and notificat
     await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
     const form = page.locator("form.editor");
     await form.getByLabel("名前", { exact: true }).fill("Checkout SLO");
+    await form
+      .getByRole("combobox", { name: "表示", exact: true })
+      .selectOption("pivot");
+    const details = form.getByRole("link", { name: "checkout blue の詳細" });
+    await expect(details).toHaveAttribute("href", /source=checkout/);
+    await expect(details).toHaveAttribute("href", /slot=blue/);
+    await form
+      .getByRole("combobox", { name: "行", exact: true })
+      .selectOption("slot");
+    await expect(
+      form.getByRole("combobox", { name: "列", exact: true }),
+    ).toHaveValue("source");
+    await expect(
+      form.getByRole("link", { name: "blue checkout の詳細" }),
+    ).toBeVisible();
+    await form.getByRole("button", { name: "元に戻す" }).click();
+    await expect(details).toBeVisible();
     await form.getByLabel("パネル名").fill("失敗率");
     await form
       .getByRole("combobox", { name: "指標", exact: true })

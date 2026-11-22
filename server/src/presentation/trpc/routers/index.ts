@@ -9,6 +9,7 @@ import {
   series,
   traceDetails,
 } from "../../../repositories/console";
+import { saveConfiguration } from "../../../repositories/console/mcp";
 import { publicProcedure as p, router } from "../init";
 
 const windowInput = filter.extend({ end: z.iso.datetime() });
@@ -47,6 +48,34 @@ export const appRouter = router({
     .query(({ ctx, input }) =>
       series(ctx.db, input.panel, new Date(input.end), input.buckets),
     ),
+  dashboardLibrary: p.query(({ ctx }) =>
+    ctx.db.queryAll<{
+      definition: z.output<typeof dashboard>;
+      version: string;
+    }>(
+      sql`SELECT definition,md5(definition::text) AS version FROM dashboards ORDER BY definition->>'title',id`,
+    ),
+  ),
+  applyDashboard: p
+    .input(
+      z.object({
+        definition: dashboard,
+        expectedVersion: z.string().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const saved = await saveConfiguration(
+        ctx.db,
+        input.definition,
+        input.expectedVersion,
+      );
+      if (!saved)
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "別の編集が保存されました。最新の設定を開き直してください。",
+        });
+      return true;
+    }),
   library: p.query(async ({ ctx }) => ({
     dashboards: await ctx.repos.dashboards.list(),
     monitors: await ctx.repos.monitors.list(),
