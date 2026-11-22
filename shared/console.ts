@@ -18,7 +18,7 @@ export const axes: Record<Axis, string> = {
   revision: "リビジョン",
   instance: "インスタンス",
   workload: "ワークロード",
-  day: "日付（JST）",
+  day: "時刻（1日・JST）",
 };
 export type Attribute = `attr:${string}`;
 export const isAttribute = (key: string): key is Attribute =>
@@ -35,6 +35,9 @@ export const timeBuckets = {
 export type TimeField = keyof typeof timeBuckets;
 export const isTimeField = (key: string): key is TimeField =>
   Object.hasOwn(timeBuckets, key);
+export const worksheetTimeBuckets = { ...timeBuckets, day: axes.day };
+export const isTemporalField = (key: string): key is TimeField | "day" =>
+  key === "day" || isTimeField(key);
 export const cpuPercent = "derived:cpu.percent";
 export function metricName(name: string) {
   return name === cpuPercent

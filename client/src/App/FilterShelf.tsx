@@ -3,6 +3,7 @@ import {
   type FieldCondition,
   type FilterField,
   type FilterOptions,
+  isTemporalField,
   isTimeField,
   type Panel,
   shelfName,
@@ -159,7 +160,7 @@ function ConditionEditor({
     end,
     search,
   });
-  const temporal = isTimeField(field) || field === "day";
+  const temporal = isTemporalField(field);
   const hasRange = condition.min !== undefined || condition.max !== undefined;
   const [mode, setMode] = useState<"range" | "values" | undefined>();
   const range =
@@ -253,6 +254,7 @@ export function FilterShelf({
   add,
   change,
   remove,
+  changeTimeField,
   ready,
   hover,
 }: {
@@ -265,6 +267,7 @@ export function FilterShelf({
   add: (field: FilterField) => void;
   change: (c: FieldCondition) => void;
   remove: (f: FilterField) => void;
+  changeTimeField: (previous: FilterField, next: FieldCondition) => void;
   ready: boolean;
   hover: boolean;
 }) {
@@ -362,6 +365,38 @@ export function FilterShelf({
               閉じる
             </button>
           </div>
+          {isTemporalField(active.field) &&
+            panel.distinct?.dataset !== "daily" &&
+            !active.values?.length &&
+            !items.some((c) => c !== active && isTemporalField(c.field)) && (
+              <button
+                type="button"
+                onClick={() => {
+                  const dayMs = 86400000,
+                    offset = 9 * 3600000;
+                  const toDay = (v: number) =>
+                    Math.floor((v + offset) / dayMs) * dayMs;
+                  const daily = active.field !== "day";
+                  changeTimeField(active.field, {
+                    field: daily ? "day" : "time:60",
+                    min:
+                      active.min === undefined
+                        ? undefined
+                        : daily
+                          ? toDay(active.min)
+                          : active.min - offset,
+                    max:
+                      active.max === undefined
+                        ? undefined
+                        : daily
+                          ? toDay(active.max)
+                          : active.max - offset + dayMs - 1,
+                  });
+                }}
+              >
+                {active.field === "day" ? "日時で指定" : "日単位（JST）で指定"}
+              </button>
+            )}
           {active.field === "log" ? (
             <LogFilter
               key={JSON.stringify(active)}

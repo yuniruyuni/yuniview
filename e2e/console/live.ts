@@ -605,6 +605,18 @@ test("worksheet encodes time or categories on either axis and splits observed se
       .getByRole("button", { name: label, exact: true })
       .dragTo(form.locator('[data-drop="' + shelf + '"]'));
   await place("時刻", "column");
+  const catalog = form.locator(".field-catalog");
+  await expect(
+    catalog.getByRole("button", { name: "時刻", exact: true }),
+  ).toHaveCount(1);
+  await expect(catalog.getByRole("button", { name: /日付/ })).toHaveCount(0);
+  const grain = form.getByLabel("横軸の時刻の粒度");
+  await grain.selectOption({ label: "1日・JST" });
+  await page.reload();
+  await expect(grain).toHaveValue("day");
+  await expect(form.locator(".worksheet-plot svg").first()).toBeVisible();
+  await grain.selectOption({ label: "1日・UTC" });
+  await expect(grain).toHaveValue("time:86400");
   await form.getByLabel("横軸の時刻の粒度").selectOption("time:10");
   await page.reload();
   await expect(form.getByLabel("横軸の時刻の粒度")).toHaveValue("time:10");
@@ -936,6 +948,12 @@ test("filter shelf combines observed choices with numeric and time ranges before
     "type",
     "datetime-local",
   );
+  await time.getByRole("button", { name: "日単位（JST）で指定" }).click();
+  const dateFilter = form.getByRole("region", {
+    name: "時刻（1日・JST） の条件",
+  });
+  await expect(dateFilter.getByLabel("上限")).toHaveAttribute("type", "date");
+  await dateFilter.getByRole("button", { name: "日時で指定" }).click();
   await time.getByLabel("上限").fill("2000-01-01T00:00");
   await time.getByRole("button", { name: "範囲を適用" }).click();
   await expect(form.locator(".builder-main .empty")).toBeVisible();

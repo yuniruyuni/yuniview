@@ -52,6 +52,14 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
     .locator(".field-catalog")
     .getByRole("button", { name: "ユニーク数", exact: true })
     .click();
+  const dailyGrain = form.getByLabel("行の時刻の粒度");
+  await expect(dailyGrain.locator("option")).toHaveText(["1日・JST"]);
+  await expect(dailyGrain).toBeDisabled();
+  await expect(
+    form
+      .locator(".field-catalog")
+      .getByRole("button", { name: "時刻", exact: true }),
+  ).toHaveCount(1);
   await form.getByLabel("集合名").fill("visit.account");
   for (const [date, count] of [
     [day, "2"],

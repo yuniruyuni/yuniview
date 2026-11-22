@@ -11,7 +11,7 @@ import {
   type FilterField,
   type Identifier,
   isAttribute,
-  isTimeField,
+  isTemporalField,
   measures,
   metricName,
   type Overview,
@@ -25,8 +25,8 @@ import {
   slotTotalChoice,
   styleChannels,
   type TimeField,
-  timeBuckets,
   usesLogRecords,
+  worksheetTimeBuckets,
 } from "../../../shared/console";
 import { useQuery } from "../api";
 import { FilterShelf } from "./FilterShelf";
@@ -57,7 +57,9 @@ function styleTargets(format: string, pivot?: Pivot) {
   const line =
     format === "line" ||
     format === "mixed" ||
-    (format === "auto" && category.length === 1 && isTimeField(category[0]));
+    (format === "auto" &&
+      category.length === 1 &&
+      isTemporalField(category[0]));
   return (Object.entries(styleChannels) as [StyleChannel, string][]).filter(
     ([ch]) =>
       line ||
@@ -175,9 +177,9 @@ export function PanelBuilder({
     ].filter((k) => k && isAttribute(k)),
   ]);
   const fields: [Dimension | TimeField, string][] = [
-    ...(daily ? [] : [["time:60", "時刻"] as [TimeField, string]]),
+    [daily ? "day" : "time:60", "時刻"],
     ...dimensions.filter(
-      ([key]) => !daily || key === "day" || key === "source",
+      ([key]) => key !== "day" && (!daily || key === "source"),
     ),
   ];
   if (!daily)
@@ -278,7 +280,7 @@ export function PanelBuilder({
       pair[role] = shelfFields(pair[role]).filter(
         (k) =>
           k !== field &&
-          !(role === shelf && isTimeField(field) && isTimeField(k)),
+          !(role === shelf && isTemporalField(field) && isTemporalField(k)),
       );
     const next = shelfFields(pair[shelf]);
     const index =
@@ -287,7 +289,11 @@ export function PanelBuilder({
     next.splice(index, 0, field);
     pair[shelf] = next;
     if (!shelfFields(pair.series).length) delete pair.series;
-    if (isTimeField(field) && !pivotFields(pair).includes("measure")) {
+    if (
+      base.distinct?.dataset !== "daily" &&
+      isTemporalField(field) &&
+      !pivotFields(pair).includes("measure")
+    ) {
       const opposite = shelf === "row" ? "column" : "row";
       if (!shelfFields(pair[opposite]).length) pair[opposite] = ["measure"];
     }
@@ -310,7 +316,8 @@ export function PanelBuilder({
     for (const side of ["row", "column"] as const) {
       if (!shelfFields(next[side]).length) {
         const other = side === "row" ? "column" : "row";
-        const time = shelfFields(next[other]).find(isTimeField) ?? "time:60";
+        const time =
+          shelfFields(next[other]).find(isTemporalField) ?? "time:60";
         next[other] = shelfFields(next[other]).filter((k) => k !== time);
         next.series = shelfFields(next.series).filter((k) => k !== time);
         next[side] = time;
@@ -508,8 +515,8 @@ export function PanelBuilder({
     change(panel);
   }
   function addFilter(field: FilterField) {
-    if (isTimeField(field))
-      field = conditions.find((c) => isTimeField(c.field))?.field ?? field;
+    if (isTemporalField(field))
+      field = conditions.find((c) => isTemporalField(c.field))?.field ?? field;
     if (!conditions.some((c) => c.field === field))
       writeFilter(field, { field });
     openConditions(field);
@@ -551,7 +558,7 @@ export function PanelBuilder({
               .map(([f]) => f)
               .filter(
                 (f) =>
-                  !isTimeField(f) &&
+                  !isTemporalField(f) &&
                   !shelfFields(
                     stylePivot[valueSide === "row" ? "column" : "row"],
                   ).includes(f),
@@ -598,7 +605,7 @@ export function PanelBuilder({
     (format === "table" && pivot && !pivotFields(pivot).includes("measure"));
   const groupChoices: [string, string][] = [
     ["all", "全体"],
-    ...fields.filter(([k]) => k !== "day" && !isTimeField(k)),
+    ...fields.filter(([k]) => !isTemporalField(k)),
     ...(p.group === "slot_total" ? [slotTotalChoice] : []),
   ];
   const channels = styleTargets(format, stylePivot);
@@ -676,7 +683,8 @@ export function PanelBuilder({
         });
       if (
         field.key !== "measure" &&
-        filterFields.some(([k]) => k === field.key)
+        (isTemporalField(field.key) ||
+          filterFields.some(([k]) => k === field.key))
       )
         options.push({ id: "filter", label: "フィルター", filter: field.key });
       return options;
@@ -694,14 +702,14 @@ export function PanelBuilder({
       return options;
     }
     const key =
-      isTimeField(field.key) && pivot
-        ? (pivotFields(pivot).find(isTimeField) ?? field.key)
+      isTemporalField(field.key) && pivot
+        ? (pivotFields(pivot).find(isTemporalField) ?? field.key)
         : field.key;
     for (const id of visibleAxes)
       options.push({ id, label: axisLabels[id], panel: assign(p, id, key) });
-    if (grouped && key !== "day" && !isTimeField(key))
+    if (grouped && !isTemporalField(key))
       options.push({ id: "group", label: "分類", panel: changeGroup(p, key) });
-    if (isTimeField(key) || filterFields.some(([k]) => k === key))
+    if (isTemporalField(key) || filterFields.some(([k]) => k === key))
       options.push({ id: "filter", label: "フィルター", filter: key });
     return options;
   }
@@ -735,7 +743,7 @@ export function PanelBuilder({
       : (candidate ?? p);
   const fieldName =
     item && item.kind !== "measure"
-      ? isTimeField(item.key)
+      ? isTemporalField(item.key)
         ? "時刻"
         : shelfName(item.key)
       : choices.find(([k]) => k === item?.key)?.[1];
@@ -862,8 +870,7 @@ export function PanelBuilder({
                   }
                   onClick={() => {
                     if (grouped) {
-                      if (k !== "day" && !isTimeField(k))
-                        change(changeGroup(p, k));
+                      if (!isTemporalField(k)) change(changeGroup(p, k));
                     } else if (visibleAxes.length)
                       change(
                         assign(p, format === "table" ? "row" : "column", k),
@@ -891,6 +898,10 @@ export function PanelBuilder({
             setOpen={openConditions}
             add={addFilter}
             change={(c) => writeFilter(c.field, c)}
+            changeTimeField={(previous, next) => {
+              writeFilter(previous, next);
+              openConditions(next.field);
+            }}
             remove={(k) => {
               writeFilter(k);
               if (openFilter === k) openConditions(undefined);
@@ -1065,7 +1076,7 @@ export function PanelBuilder({
                             >
                               {field === "measure"
                                 ? choices.find(([k]) => k === selected)?.[1]
-                                : isTimeField(field)
+                                : isTemporalField(field)
                                   ? "時刻"
                                   : shelfName(field)}
                             </button>
@@ -1074,12 +1085,14 @@ export function PanelBuilder({
                                 {aggregationNames[aggregation(p.metric)]}
                               </small>
                             )}
-                            {isTimeField(field) && (
+                            {isTemporalField(field) && (
                               <select
                                 aria-label={label + "の時刻の粒度"}
                                 value={field}
+                                disabled={daily}
                                 onChange={(e) => {
-                                  const grain = e.target.value as TimeField;
+                                  const grain = e.target
+                                    .value as keyof typeof worksheetTimeBuckets;
                                   const encoding = { ...pivot.encoding };
                                   for (const channel of Object.keys(
                                     encoding,
@@ -1099,8 +1112,12 @@ export function PanelBuilder({
                                 }}
                               >
                                 {(
-                                  Object.entries(timeBuckets) as [
-                                    TimeField,
+                                  Object.entries(
+                                    daily
+                                      ? { day: axes.day }
+                                      : worksheetTimeBuckets,
+                                  ) as [
+                                    keyof typeof worksheetTimeBuckets,
                                     string,
                                   ][]
                                 ).map(([key, name]) => (

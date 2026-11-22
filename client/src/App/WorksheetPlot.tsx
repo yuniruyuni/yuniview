@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  isTimeField,
+  isTemporalField,
   measures,
   metricName,
   type Panel,
@@ -112,7 +112,7 @@ export function WorksheetPlot({
   const valueFields = horizontal ? columns : rows,
     categoryFields = horizontal ? rows : columns;
   const temporal =
-    categoryFields.length === 1 && isTimeField(categoryFields[0]);
+    categoryFields.length === 1 && isTemporalField(categoryFields[0]);
   type Mark = { category: string; value: number };
   const groups = new Map<
     string,
@@ -169,10 +169,16 @@ export function WorksheetPlot({
     a.localeCompare(b),
   );
   const positions = new Map(ordered.map((k, i) => [k, i]));
-  const time = (key: string) => Date.parse(categories.get(key)!);
+  const jstDay = temporal && categoryFields[0] === "day";
+  const time = (key: string) =>
+    Date.parse(categories.get(key)! + (jstDay ? "T00:00:00+09:00" : ""));
   const first = temporal ? time(ordered[0]) : 0,
     last = temporal ? time(ordered[ordered.length - 1]) : 0;
-  const bucketMs = temporal ? Number(categoryFields[0].slice(5)) * 1000 : 0;
+  const bucketMs = jstDay
+    ? 86400000
+    : temporal
+      ? Number(categoryFields[0].slice(5)) * 1000
+      : 0;
   const band = temporal
     ? bucketMs / (last - first + bucketMs)
     : 1 / ordered.length;
@@ -270,15 +276,17 @@ export function WorksheetPlot({
       ticks.some((t) => Math.round(t * (ordered.length - 1)) === i),
   );
   const formatCategory = (k: string) =>
-    temporal
-      ? new Date(time(k)).toLocaleString("ja-JP", {
-          month: "numeric",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        })
-      : categories.get(k)!;
+    jstDay
+      ? categories.get(k)!
+      : temporal
+        ? new Date(time(k)).toLocaleString("ja-JP", {
+            month: "numeric",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          })
+        : categories.get(k)!;
   return (
     <div className="worksheet-plot">
       <small>
