@@ -756,7 +756,31 @@ test("worksheet encodes time or categories on either axis and splits observed se
     plot.locator('.legend-key line[stroke-dasharray="1 4"]'),
   ).toHaveCount(4);
   await editStyles("点の形");
-  await dialog.getByLabel("B の個別指定").selectOption({ label: "三角" });
+  const originalViewport = page.viewportSize()!;
+  const rowGeometry = () =>
+    dialog.locator(".legend-style-entry").evaluateAll((rows) =>
+      rows.map((row) => {
+        const label = row.querySelector("span")!;
+        const text = document.createRange();
+        text.selectNodeContents(label.lastChild!);
+        return [row, text, row.querySelector("select")!].map((item) => {
+          const { x, y, width, height } = item.getBoundingClientRect();
+          return [x, y, width, height];
+        });
+      }),
+    );
+  const individual = dialog.getByLabel("B の個別指定");
+  for (const viewport of [originalViewport, { width: 375, height: 667 }]) {
+    await page.setViewportSize(viewport);
+    const before = await rowGeometry();
+    await individual.selectOption({ label: "三角" });
+    await expect(dialog.locator(".style-sample polygon")).toBeVisible();
+    expect(await rowGeometry()).toEqual(before);
+    await individual.selectOption({ label: "全項目に従う" });
+    expect(await rowGeometry()).toEqual(before);
+  }
+  await page.setViewportSize(originalViewport);
+  await individual.selectOption({ label: "三角" });
   await dialog.getByRole("button", { name: "閉じる" }).click();
   await expect(plot.getByRole("img").locator("polygon")).toHaveCount(8);
   await expect(plot.locator(".legend-key polygon")).toHaveCount(4);

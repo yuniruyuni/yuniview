@@ -83,46 +83,43 @@ export function LegendStyleDialog({
         key={value === undefined ? "default" : "value:" + value}
         className="legend-style-entry"
       >
-        <span>
-          {sample !== undefined && (
-            <svg
-              className="style-sample"
-              width="26"
-              height="14"
-              viewBox="0 0 26 14"
-              aria-hidden="true"
-            >
-              {channel === "color" ? (
-                <rect
-                  x="2"
-                  y="2"
-                  width="21"
-                  height="10"
-                  rx="2"
-                  fill={palette[sample]}
-                />
-              ) : channel === "shape" ? (
-                <g fill="currentColor">
-                  <PointSymbol shape={sample} x={13} y={7} r={4} />
-                </g>
-              ) : (
-                <line
-                  x1="2"
-                  x2="24"
-                  y1="7"
-                  y2="7"
-                  stroke="currentColor"
-                  strokeWidth={channel === "width" ? lineWidths[sample] : 2}
-                  strokeDasharray={
-                    channel === "dash" ? dashPatterns[sample] : undefined
-                  }
-                  strokeLinecap="round"
-                />
-              )}
-            </svg>
-          )}
-          {label}
-        </span>
+        <svg
+          className="style-sample"
+          width="26"
+          height="14"
+          viewBox="0 0 26 14"
+          aria-hidden="true"
+        >
+          {sample !== undefined &&
+            (channel === "color" ? (
+              <rect
+                x="2"
+                y="2"
+                width="21"
+                height="10"
+                rx="2"
+                fill={palette[sample]}
+              />
+            ) : channel === "shape" ? (
+              <g fill="currentColor">
+                <PointSymbol shape={sample} x={13} y={7} r={4} />
+              </g>
+            ) : (
+              <line
+                x1="2"
+                x2="24"
+                y1="7"
+                y2="7"
+                stroke="currentColor"
+                strokeWidth={channel === "width" ? lineWidths[sample] : 2}
+                strokeDasharray={
+                  channel === "dash" ? dashPatterns[sample] : undefined
+                }
+                strokeLinecap="round"
+              />
+            ))}
+        </svg>
+        <span>{label}</span>
         <select
           aria-label={
             value === undefined ? "全項目の割り当て" : label + " の個別指定"

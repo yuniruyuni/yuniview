@@ -1274,7 +1274,7 @@ main:has(.worksheet) {
 }
 .legend-style-dialog .legend-style-entry {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(7rem, 1fr);
+  grid-template-columns: 26px minmax(0, 1fr) minmax(7rem, 1fr);
   align-items: center;
   gap: 8px;
   padding: 4px;
@@ -1283,8 +1283,10 @@ main:has(.worksheet) {
   overflow-wrap: anywhere;
 }
 .legend-style-entry .style-sample {
-  vertical-align: middle;
-  margin-right: 5px;
+  display: block;
+  width: 26px;
+  height: 14px;
+  margin: 0;
 }
 .style-value-list {
   max-height: 50dvh;
