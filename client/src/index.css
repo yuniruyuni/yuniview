@@ -736,10 +736,13 @@ summary {
 .workspace:has(.worksheet) {
   height: 100dvh;
   min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
 }
-.workspace:has(.worksheet) > aside {
-  overflow: auto;
+.workspace:has(.worksheet) > aside,
+main:has(.worksheet) > header {
+  display: none;
 }
 main:has(.worksheet) {
   height: 100%;
@@ -747,26 +750,12 @@ main:has(.worksheet) {
   flex-direction: column;
   padding: 12px clamp(12px, 1.5vw, 24px);
 }
-main:has(.worksheet) > header {
-  margin: 0;
-}
-main:has(.worksheet) > header h2 {
-  font-size: 20px;
-}
-main:has(.worksheet) > header .tools {
-  margin: 0;
-}
 .dashboard-page:has(.worksheet),
 .worksheet {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-.dashboard-page:has(.worksheet) .canvas-toolbar {
-  position: static;
-  margin: 0;
-  padding: 8px 0;
 }
 .worksheet-heading,
 .options-heading {
@@ -776,13 +765,14 @@ main:has(.worksheet) > header .tools {
   justify-content: space-between;
 }
 .worksheet-heading {
-  padding: 10px 0;
+  border-bottom: 1px solid #cededb;
+  margin-bottom: 10px;
+  padding: 4px 0 12px;
 }
 .worksheet-heading h2 {
   font-size: 18px;
 }
-.worksheet-heading .sheet-title,
-.dashboard-page:has(.worksheet) .board-name {
+.worksheet-heading .sheet-title {
   flex-direction: row;
   align-items: center;
   gap: 8px;
@@ -791,8 +781,7 @@ main:has(.worksheet) > header .tools {
 .sheet-title {
   flex: 1;
 }
-.sheet-title input,
-.dashboard-page:has(.worksheet) .board-name input {
+.sheet-title input {
   min-width: 0;
   width: min(27vw, 24rem);
 }
@@ -930,17 +919,6 @@ main:has(.worksheet) > header .tools {
   }
 }
 @media (max-width: 800px) {
-  .workspace:has(.worksheet) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-  .workspace:has(.worksheet) > aside {
-    padding: 4px 8px;
-  }
-  .workspace:has(.worksheet) > aside h1 {
-    display: none;
-  }
   main:has(.worksheet) {
     padding: 6px 8px;
   }

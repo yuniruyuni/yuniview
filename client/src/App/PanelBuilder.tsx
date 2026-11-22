@@ -7,7 +7,6 @@ import {
   cpuPercent,
   type Dimension,
   type Distinct,
-  defaultTotalSlots,
   isAttribute,
   isTimeField,
   measures,
@@ -181,6 +180,68 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
       pivot: pair,
     };
   }
+  function setFormat(format: string) {
+    if (daily) {
+      change({
+        ...p,
+        display: format === "line" ? "chart" : "pivot",
+        group: "source",
+        pivot: format === "line" ? undefined : { row: "day", column: "source" },
+      });
+      return;
+    }
+    if (format === "summary" || format === "value") {
+      change({
+        ...p,
+        display: format === "summary" ? "table" : "value",
+        pivot: undefined,
+      });
+      return;
+    }
+    if (!pivot && format === "line") {
+      change({ ...p, display: "chart", pivot: undefined });
+      return;
+    }
+    const next: Pivot = pivot
+      ? { ...pivot }
+      : format === "table" || format === "auto"
+        ? { row: "source", column: "slot" }
+        : {
+            row: "measure",
+            column: "time:60",
+            series:
+              p.group === "slot_total"
+                ? ["source", "workload", "slot"]
+                : p.group === "all"
+                  ? []
+                  : [p.group],
+          };
+    if (format !== "table" && format !== "auto") {
+      const row = shelfFields(next.row),
+        column = shelfFields(next.column);
+      if (!row.includes("measure") && !column.includes("measure")) {
+        next.series = shelfFields(next.series).filter((k) => k !== "measure");
+        if (row.length && !column.length) next.column = "measure";
+        else next.row = ["measure", ...row];
+      }
+      for (const side of ["row", "column"] as const) {
+        if (!shelfFields(next[side]).length) {
+          const other = side === "row" ? "column" : "row";
+          const time = shelfFields(next[other]).find(isTimeField) ?? "time:60";
+          next[other] = shelfFields(next[other]).filter((k) => k !== time);
+          next.series = shelfFields(next.series).filter((k) => k !== time);
+          next[side] = time;
+        }
+      }
+    }
+    change({
+      ...p,
+      display: "pivot",
+      group: p.group === "slot_total" ? "source" : p.group,
+      totalSlots: undefined,
+      pivot: { ...next, mark: format as Pivot["mark"] },
+    });
+  }
   function without(id: Shelf, field: ShelfAxis) {
     if (!pivot) return;
     if (field === "measure" && pivot.metrics?.length) {
@@ -321,7 +382,7 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
   return (
     <>
       <div className="worksheet-heading">
-        <h2>ワークシート</h2>
+        <h2>パネル編集</h2>
         <label className="sheet-title">
           パネル名
           <input
@@ -331,7 +392,12 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
             onChange={(e) => update("title", e.target.value)}
           />
         </label>
-        <button type="button" onClick={back}>
+        <button
+          className="primary"
+          type="button"
+          title="変更を下書きに反映して配置に戻る"
+          onClick={back}
+        >
           配置に戻る
         </button>
       </div>
@@ -436,9 +502,7 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
                 ...(id === "series" && !pivot && !daily
                   ? [
                       ["all", "全体"] as [string, string],
-                      ...(p.measure === "metric" && p.metric !== cpuPercent
-                        ? [slotTotalChoice]
-                        : []),
+                      ...(p.group === "slot_total" ? [slotTotalChoice] : []),
                     ]
                   : []),
                 ...fields
@@ -676,55 +740,34 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
               </>
             )}
             <Select
-              label="表示"
-              value={p.display}
+              label="表示形式"
+              value={
+                pivot
+                  ? (pivot.mark ?? "table")
+                  : p.display === "chart"
+                    ? "line"
+                    : p.display === "table"
+                      ? "summary"
+                      : p.display
+              }
               choices={
                 daily
                   ? [
-                      ["pivot", "ピボット表"],
-                      ["chart", "折れ線"],
+                      ["table", "ピボット表"],
+                      ["line", "折れ線"],
                     ]
                   : [
-                      ["chart", "折れ線"],
-                      ["table", "表"],
+                      ["auto", "自動"],
+                      ["line", "折れ線"],
+                      ["bar", "棒"],
+                      ["stacked_area", "積み上げ面"],
+                      ["table", "ピボット表"],
+                      ["summary", "集計表"],
                       ["value", "数値"],
-                      ["pivot", "ワークシート"],
                     ]
               }
-              change={(v) =>
-                change({
-                  ...p,
-                  display: v as Panel["display"],
-                  group:
-                    v === "pivot" && p.group === "slot_total"
-                      ? "source"
-                      : p.group,
-                  pivot:
-                    v === "pivot"
-                      ? daily
-                        ? { row: "day", column: "source" }
-                        : { row: "source", column: "slot", mark: "auto" }
-                      : undefined,
-                })
-              }
+              change={setFormat}
             />
-            {pivot && !daily && (
-              <Select
-                label="マーク"
-                value={pivot.mark ?? "table"}
-                choices={[
-                  ["auto", "自動"],
-                  ["line", "折れ線"],
-                  ["table", "ピボット表"],
-                ]}
-                change={(v) =>
-                  change({
-                    ...p,
-                    pivot: { ...pivot, mark: v as Pivot["mark"] },
-                  })
-                }
-              />
-            )}
             {p.measure === "metric" && (
               <Select
                 label="集計"
@@ -755,39 +798,6 @@ export function PanelBuilder({ p, set, meta, end, actions, back }: Props) {
             />
           </div>
           <div className="shelves">
-            {p.group === "slot_total" && (
-              <fieldset>
-                <legend>合計するスロット</legend>
-                {Array.from(
-                  new Set([
-                    ...(p.totalSlots ?? defaultTotalSlots),
-                    ...meta.slots,
-                  ]),
-                ).map((slot) => {
-                  const selected = p.totalSlots ?? defaultTotalSlots;
-                  return (
-                    <label key={slot} className="inline">
-                      <input
-                        type="checkbox"
-                        checked={selected.includes(slot)}
-                        disabled={
-                          selected.length === 1 && selected.includes(slot)
-                        }
-                        onChange={(e) =>
-                          update(
-                            "totalSlots",
-                            e.target.checked
-                              ? [...selected, slot]
-                              : selected.filter((s) => s !== slot),
-                          )
-                        }
-                      />
-                      {slot}
-                    </label>
-                  );
-                })}
-              </fieldset>
-            )}
             <Select
               dropTarget="filter"
               label="絞り込みを追加"

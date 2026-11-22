@@ -70,7 +70,7 @@ export type Pivot = {
   row: ShelfFields;
   column: ShelfFields;
   series?: ShelfFields;
-  mark?: "auto" | "table" | "line";
+  mark?: "auto" | "table" | "line" | "bar" | "stacked_area";
   metrics?: string[];
 };
 export type Distinct = { dataset: "daily" | "log" | "span"; field: string };

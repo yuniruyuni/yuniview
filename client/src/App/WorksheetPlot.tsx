@@ -37,7 +37,9 @@ export function WorksheetPlot({
     categoryFields = horizontal ? rows : columns;
   const temporal =
     categoryFields.length === 1 && isTimeField(categoryFields[0]);
-  const bars = !temporal && pivot.mark !== "line";
+  const stacked = pivot.mark === "stacked_area";
+  const bars =
+    pivot.mark === "bar" || (!temporal && pivot.mark !== "line" && !stacked);
   type Mark = { category: string; value: number };
   const groups = new Map<
     string,
@@ -78,22 +80,45 @@ export function WorksheetPlot({
   const time = (key: string) => Date.parse(categories.get(key)!);
   const first = temporal ? time(ordered[0]) : 0,
     last = temporal ? time(ordered[ordered.length - 1]) : 0;
+  const bucketMs = temporal ? Number(categoryFields[0].slice(5)) * 1000 : 0;
+  const band = temporal
+    ? bucketMs / (last - first + bucketMs)
+    : 1 / ordered.length;
   const coord = (key: string) =>
-    temporal && last > first
-      ? (time(key) - first) / (last - first)
-      : ((positions.get(key) ?? 0) + 0.5) / ordered.length;
+    temporal && (stacked || bars)
+      ? (time(key) - first + bucketMs / 2) / (last - first + bucketMs)
+      : temporal && last > first
+        ? (time(key) - first) / (last - first)
+        : ((positions.get(key) ?? 0) + 0.5) / ordered.length;
   const all = Array.from(groups.entries());
-  const visible = all.filter(([k]) => !groups.has(focused) || k === focused);
+  const visible = all.filter(
+    ([k]) => stacked || !groups.has(focused) || k === focused,
+  );
   const domains = new Map<string, [number, number]>();
+  const totals = new Map<string, { positive: number; negative: number }>();
+  const baselines = new Map<Mark, number>();
   for (const [, g] of visible) {
     const domain = domains.get(g.unit) ?? [0, 0];
     for (const m of g.marks) {
-      domain[0] = Math.min(domain[0], m.value);
-      domain[1] = Math.max(domain[1], m.value);
+      let edge = m.value;
+      if (stacked) {
+        const total = totals.get(m.category) ?? { positive: 0, negative: 0 };
+        const sign = m.value < 0 ? "negative" : "positive";
+        baselines.set(m, total[sign]);
+        total[sign] += m.value;
+        totals.set(m.category, total);
+        edge = total[sign];
+      }
+      domain[0] = Math.min(domain[0], edge);
+      domain[1] = Math.max(domain[1], edge);
     }
     domains.set(g.unit, domain);
   }
   const mixed = domains.size > 1;
+  if (stacked && mixed)
+    return (
+      <p role="status">積み上げ面には同じ単位の指標を配置してください。</p>
+    );
   const [low, high] = domains.values().next().value ?? [0, 1];
   const xy = (c: number, v: number) =>
     horizontal ? [68 + 490 * v, 155 - 125 * c] : [68 + 490 * c, 155 - 125 * v];
@@ -122,7 +147,13 @@ export function WorksheetPlot({
       <svg
         viewBox="0 0 625 190"
         role="img"
-        aria-label={bars ? "カテゴリ別の棒グラフ" : "系列別の折れ線グラフ"}
+        aria-label={
+          stacked
+            ? "全系列の積み上げ面グラフ"
+            : bars
+              ? "カテゴリ別の棒グラフ"
+              : "系列別の折れ線グラフ"
+        }
       >
         {ticks.map((t) => {
           const [x, y] = xy(0, t),
@@ -168,11 +199,16 @@ export function WorksheetPlot({
             (a, b) => coord(a.category) - coord(b.category),
           );
           const width =
-            (((horizontal ? 125 : 490) / ordered.length) * 0.78) /
-            visible.length;
+            ((horizontal ? 125 : 490) * band * 0.78) / visible.length;
           return (
-            <g key={key} fill={color}>
-              {!bars && (
+            <g
+              key={key}
+              fill={color}
+              opacity={
+                stacked && groups.has(focused) && focused !== key ? 0.3 : 1
+              }
+            >
+              {!bars && !stacked && (
                 <path
                   fill="none"
                   stroke={color}
@@ -197,6 +233,31 @@ export function WorksheetPlot({
                     {g.unit}
                   </title>
                 );
+                if (stacked) {
+                  const base = baselines.get(m) ?? 0;
+                  const total = totals.get(m.category)!;
+                  const c = coord(m.category);
+                  const start = c - band / 2,
+                    end = c + band / 2;
+                  const polygon = [
+                    xy(start, scale(base)),
+                    xy(start, scale(base + m.value)),
+                    xy(end, scale(base + m.value)),
+                    xy(end, scale(base)),
+                  ];
+                  return (
+                    <polygon
+                      key={m.category}
+                      points={polygon.map((p) => p.join(",")).join(" ")}
+                    >
+                      <title>
+                        {formatCategory(m.category)} · {g.label} ·{" "}
+                        {number(m.value)} {g.unit} ／ 観測合計{" "}
+                        {number(total.positive + total.negative)} {g.unit}
+                      </title>
+                    </polygon>
+                  );
+                }
                 return bars ? (
                   <rect
                     key={m.category}

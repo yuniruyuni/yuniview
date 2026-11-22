@@ -74,7 +74,9 @@ export const panel = filter
         row: shelf,
         column: shelf,
         series: shelf.optional(),
-        mark: z.enum(["auto", "table", "line"]).optional(),
+        mark: z
+          .enum(["auto", "table", "line", "bar", "stacked_area"])
+          .optional(),
         metrics: z
           .array(label.pipe(z.string().min(1)))
           .min(1)

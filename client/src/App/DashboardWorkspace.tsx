@@ -345,15 +345,12 @@ export function DashboardWorkspace({
       className={draft ? "editor dashboard-page" : "dashboard-page"}
       onSubmit={(e) => {
         e.preventDefault();
-        if (draft && !busy) void save();
+        if (draft && !worksheet && !busy) void save();
       }}
     >
       {message && <p role="alert">{message}</p>}
       {worksheet ? (
-        <>
-          <div className="canvas-toolbar">{toolbar}</div>
-          {worksheet}
-        </>
+        worksheet
       ) : (
         <PanelLayout
           panels={draft?.board.panels ?? board?.panels ?? []}

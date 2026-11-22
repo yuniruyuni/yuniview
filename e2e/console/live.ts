@@ -199,10 +199,9 @@ test("agent records → trace and logs → saved panel → monitor and notificat
       .click();
     await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
     const form = page.locator("form.editor");
-    await form.getByLabel("名前", { exact: true }).fill("Checkout SLO");
     await form
-      .getByRole("combobox", { name: "表示", exact: true })
-      .selectOption("pivot");
+      .getByRole("combobox", { name: "表示形式", exact: true })
+      .selectOption("table");
     const details = form.getByRole("link", { name: "checkout blue の詳細" });
     await expect(details).toHaveAttribute("href", /source=checkout/);
     await expect(details).toHaveAttribute("href", /slot=blue/);
@@ -224,8 +223,10 @@ test("agent records → trace and logs → saved panel → monitor and notificat
       .getByRole("combobox", { name: "指標", exact: true })
       .selectOption("errors");
     await form
-      .getByRole("combobox", { name: "表示", exact: true })
+      .getByRole("combobox", { name: "表示形式", exact: true })
       .selectOption("value");
+    await form.getByRole("button", { name: "配置に戻る" }).click();
+    await form.getByLabel("名前", { exact: true }).fill("Checkout SLO");
     await form.getByRole("button", { name: "保存" }).click();
     await expect(
       page.getByRole("heading", { name: "Checkout SLO" }),
@@ -336,12 +337,33 @@ test("slot totals align gauge samples and exclude incomplete minutes", async ({
   await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
   const form = page.locator("form.editor");
   await form
-    .getByRole("combobox", { name: "系列", exact: true })
-    .selectOption("slot_total");
+    .getByRole("combobox", { name: "表示形式", exact: true })
+    .selectOption("stacked_area");
   await form
-    .getByRole("combobox", { name: "表示", exact: true })
-    .selectOption("value");
-  await expect(form.locator(".values strong")).toHaveText("46");
+    .getByRole("combobox", { name: "系列", exact: true })
+    .selectOption("axis/slot");
+  const svg = form.getByRole("img", { name: "全系列の積み上げ面グラフ" });
+  await expect(
+    svg.locator("polygon title").filter({ hasText: "観測合計 32 MiB" }),
+  ).toHaveCount(2);
+  await expect(
+    svg.locator("polygon title").filter({ hasText: "観測合計 500 MiB" }),
+  ).toHaveCount(1);
+  await expect(
+    svg.locator("polygon title").filter({ hasText: "観測合計 60 MiB" }),
+  ).toHaveCount(2);
+  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByLabel("名前", { exact: true }).fill("Stacked memory");
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Stacked memory" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page
+      .getByRole("img", { name: "全系列の積み上げ面グラフ" })
+      .locator("polygon"),
+  ).toHaveCount(5);
 });
 
 test("drag previews, cancellation, field shelves and saved panel order", async ({
@@ -350,7 +372,6 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await page.goto("/#page=dashboards");
   await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
   const form = page.locator("form.editor");
-  await form.getByLabel("名前", { exact: true }).fill("Drag studio");
   await form.getByLabel("パネル名").fill("First");
   await form.getByRole("button", { name: "配置に戻る" }).click();
   await form.getByRole("button", { name: "＋ パネル追加" }).click();
@@ -398,8 +419,8 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await expect(form.locator(".preview-head h4")).toContainText("列");
   await page.mouse.up();
   await expect(
-    form.getByRole("combobox", { name: "表示", exact: true }),
-  ).toHaveValue("pivot");
+    form.getByRole("combobox", { name: "表示形式", exact: true }),
+  ).toHaveValue("auto");
   await expect(page).toHaveURL(/sheet=/);
   await expect(form.locator(".canvas-grid")).toHaveCount(0);
   const catalog = form.locator(".field-catalog");
@@ -420,7 +441,7 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
     .getByRole("button", { name: "サービス", exact: true })
     .dragTo(form.locator('.worksheet-shelves [data-drop="series"]'));
   await form
-    .getByRole("combobox", { name: "マーク", exact: true })
+    .getByRole("combobox", { name: "表示形式", exact: true })
     .selectOption("table");
   await expect(
     form.getByRole("heading", { name: "サービス · checkout" }),
@@ -443,6 +464,7 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await tiles.first().focus();
   await page.keyboard.press("Alt+ArrowRight");
   await expect(titles).toHaveText(["Second", "メモリ使用量", "First"]);
+  await form.getByLabel("名前", { exact: true }).fill("Drag studio");
   await form.getByRole("button", { name: "保存", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Drag studio" }),
@@ -518,6 +540,7 @@ test("compound row and column shelves preserve their hierarchy on save", async (
     .locator(".field-catalog")
     .getByRole("button", { name: "リビジョン", exact: true })
     .dragTo(page.locator('.worksheet-shelves [data-drop="column"]'));
+  await page.getByRole("button", { name: "配置に戻る" }).click();
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Hierarchy" })).toBeVisible();
   await page.reload();
@@ -572,7 +595,6 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await page.goto("/#page=dashboards");
   await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
   const form = page.locator("form.editor");
-  await form.getByLabel("名前", { exact: true }).fill("Axis chart");
   const place = async (label: string, shelf: string) =>
     form
       .locator(".field-catalog")
@@ -594,6 +616,16 @@ test("worksheet encodes time or categories on either axis and splits observed se
     plot.getByRole("img", { name: "系列別の折れ線グラフ" }),
   ).toBeVisible();
   await expect(plot.locator(".legend button")).toHaveCount(6);
+  const format = form.getByRole("combobox", {
+    name: "表示形式",
+    exact: true,
+  });
+  await format.selectOption("stacked_area");
+  await expect(
+    form.getByText("積み上げ面には同じ単位の指標を配置してください。"),
+  ).toBeVisible();
+  await format.selectOption("line");
+
   await expect(plot.locator(".legend")).toContainText(
     "スロット=green · リビジョン=B",
   );
@@ -603,6 +635,7 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await expect(
     plot.locator("circle title").filter({ hasText: "CPU 使用率" }),
   ).toHaveCount(3);
+  await format.selectOption("auto");
   await form.getByRole("button", { name: "時刻（10秒） を列から外す" }).click();
   await place("ワークロード", "column");
   await expect(
@@ -616,24 +649,36 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await expect(plot).toContainText("横軸 指標");
   await expect(plot.locator("rect")).toHaveCount(6);
   await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByLabel("名前", { exact: true }).fill("Axis chart");
   await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Axis chart", exact: true }),
+  ).toBeVisible();
   await page.reload();
   await expect(page.locator(".worksheet-plot rect")).toHaveCount(6);
 });
 
-test("worksheet keeps the drop shelves, preview and save inside the viewport", async ({
+test("worksheet shows only panel controls and fits inside the viewport", async ({
   page,
 }) => {
   await page.goto("/#page=dashboards");
   await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
   const form = page.locator("form.editor");
+  await expect(page.getByRole("heading", { name: "パネル編集" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "ダッシュボード", exact: true }),
+  ).toHaveCount(0);
+  await expect(form.getByLabel("名前", { exact: true })).toHaveCount(0);
+  await expect(
+    form.getByRole("button", { name: "保存", exact: true }),
+  ).toHaveCount(0);
   for (const [width, height] of [
     [1280, 720],
     [375, 667],
   ]) {
     await page.setViewportSize({ width, height });
     for (const element of [
-      form.getByRole("button", { name: "保存", exact: true }),
+      form.getByRole("button", { name: "配置に戻る", exact: true }),
       form.locator(".field-catalog"),
       form.locator(".worksheet-shelves"),
       form.locator(".builder-main > .card"),

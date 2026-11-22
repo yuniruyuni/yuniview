@@ -73,6 +73,7 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
   await expect(form.getByRole("rowheader", { name: previous })).toHaveCount(0);
   await form.getByRole("button", { name: "パネルを複製" }).click();
   await expect(form.getByLabel("パネル名")).toHaveValue(/のコピー/);
+  await form.getByRole("button", { name: "配置に戻る" }).click();
   await form.getByRole("button", { name: "キャンセル" }).click();
   await page.goto(
     "/#page=metrics&source=checkout&slot=blue&metric=memory.current",
@@ -85,8 +86,9 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
     form.getByRole("combobox", { name: "スロット", exact: true }),
   ).toHaveValue("blue");
   await form
-    .getByRole("combobox", { name: "表示", exact: true })
-    .selectOption("pivot");
+    .getByRole("combobox", { name: "表示形式", exact: true })
+    .selectOption("table");
+  await form.getByRole("button", { name: "配置に戻る" }).click();
   await form.getByLabel("名前", { exact: true }).fill("Resource pivot");
   await form.getByRole("button", { name: "保存", exact: true }).click();
   await expect(
@@ -94,6 +96,6 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
   ).toBeVisible();
   await page.getByRole("button", { name: "memory.current を編集" }).click();
   await expect(
-    form.getByRole("combobox", { name: "表示", exact: true }),
-  ).toHaveValue("pivot");
+    form.getByRole("combobox", { name: "表示形式", exact: true }),
+  ).toHaveValue("table");
 });
