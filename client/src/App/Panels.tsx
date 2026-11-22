@@ -4,6 +4,7 @@ import {
   changeGroup,
   defaultTotalSlots,
   isAttribute,
+  isTimeField,
   measures,
   pivotFields,
   type ShelfAxis,
@@ -12,6 +13,7 @@ import {
   slotTotalChoice,
 } from "../../../shared/console";
 import { clock, Feedback, number, useQuery } from "../api";
+import { WorksheetPlot } from "./WorksheetPlot";
 
 export function Select({
   label,
@@ -460,8 +462,19 @@ function PivotView({
   points: Point[];
   end: string;
 }) {
-  const axis = panel.pivot?.series;
-  if (!axis) return <PivotTable panel={panel} points={points} end={end} />;
+  const pivot = panel.pivot!;
+  const row = shelfFields(pivot.row),
+    column = shelfFields(pivot.column);
+  if (
+    pivot.mark &&
+    pivot.mark !== "table" &&
+    ((row.includes("measure") && column.length) ||
+      (column.includes("measure") && row.length))
+  )
+    return <WorksheetPlot panel={panel} points={points} />;
+  const axis = shelfFields(pivot.series);
+  if (!axis.length)
+    return <PivotTable panel={panel} points={points} end={end} />;
   const facets = new Map<string, Point[]>();
   for (const p of points) {
     const key = p.facet ?? "";
@@ -474,7 +487,8 @@ function PivotView({
       {Array.from(facets, ([key, rows]) => (
         <section key={key}>
           <h4>
-            {shelfName(axis)} · {key || "未指定"}
+            {axis.map(shelfName).join(" › ")} ·{" "}
+            {rows[0].facetPath?.join(" › ") || key || "未指定"}
           </h4>
           <PivotTable panel={panel} points={rows} end={end} />
         </section>
@@ -545,9 +559,22 @@ function PivotTable({
       ...rowFields.map((f, i): [ShelfAxis, string] => [f, row[i]]),
       ...colFields.map((f, i): [ShelfAxis, string] => [f, col[i]]),
     ];
-    if (pivot.series) entries.push([pivot.series, points[0]?.facet ?? ""]);
+    shelfFields(pivot.series).forEach((field, i) => {
+      entries.push([
+        field,
+        points[0]?.facetPath?.[i] ?? points[0]?.facet ?? "",
+      ]);
+    });
     for (const [axis, val] of entries) {
       if (!axis || isAttribute(axis)) continue;
+      if (isTimeField(axis)) {
+        const seconds = Number(axis.slice(5));
+        until = new Date(
+          Math.min(Date.parse(end), Date.parse(val) + seconds * 1000 - 1),
+        ).toISOString();
+        p.minutes = Math.max(1, Math.ceil(seconds / 60));
+        continue;
+      }
       if (axis === "measure") {
         if (p.measure === "metric") p.metric = val;
         continue;

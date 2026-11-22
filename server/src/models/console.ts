@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { pivotFields } from "../../../shared/console";
+import {
+  cpuPercent,
+  pivotFields,
+  shelfFields,
+  type TimeField,
+  timeBuckets,
+} from "../../../shared/console";
 
 const label = z
   .string()
@@ -20,7 +26,9 @@ const attribute = z
 const axis = z
   .enum(["source", "slot", "revision", "workload", "instance", "day"])
   .or(attribute);
-const shelfField = axis.or(z.literal("measure"));
+const shelfField = axis
+  .or(z.literal("measure"))
+  .or(z.enum(Object.keys(timeBuckets) as [TimeField, ...TimeField[]]));
 const shelf = shelfField.or(z.array(shelfField).max(32));
 export const panel = filter
   .extend({
@@ -65,7 +73,8 @@ export const panel = filter
       .object({
         row: shelf,
         column: shelf,
-        series: axis.or(z.literal("measure")).optional(),
+        series: shelf.optional(),
+        mark: z.enum(["auto", "table", "line"]).optional(),
         metrics: z
           .array(label.pipe(z.string().min(1)))
           .min(1)
@@ -79,6 +88,7 @@ export const panel = filter
     (p) =>
       p.group !== "slot_total" ||
       (p.measure === "metric" &&
+        p.metric !== cpuPercent &&
         p.display !== "pivot" &&
         p.aggregation !== "sum" &&
         !p.slot &&
@@ -117,7 +127,7 @@ export const panel = filter
     return (
       p.display === "pivot" &&
       !!p.pivot &&
-      !p.pivot.series &&
+      !shelfFields(p.pivot.series).length &&
       pivotFields(p.pivot).length === 2 &&
       pivotFields(p.pivot).every((axis) => axis === "source" || axis === "day")
     );

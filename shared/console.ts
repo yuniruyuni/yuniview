@@ -24,13 +24,36 @@ export type Attribute = `attr:${string}`;
 export const isAttribute = (key: string): key is Attribute =>
   key.startsWith("attr:");
 export type Dimension = Axis | Attribute;
-export type ShelfAxis = Dimension | "measure";
+export const timeBuckets = {
+  "time:1": "時刻（1秒）",
+  "time:10": "時刻（10秒）",
+  "time:60": "時刻（1分）",
+  "time:300": "時刻（5分）",
+  "time:3600": "時刻（1時間）",
+  "time:86400": "時刻（1日・UTC）",
+} as const;
+export type TimeField = keyof typeof timeBuckets;
+export const isTimeField = (key: string): key is TimeField =>
+  Object.hasOwn(timeBuckets, key);
+export const cpuPercent = "derived:cpu.percent";
+export function metricName(name: string) {
+  return name === cpuPercent
+    ? "CPU 使用率 (%)"
+    : name === "memory.current"
+      ? "メモリ使用量"
+      : name === "cpu.usage"
+        ? "CPU 使用時間（累積）"
+        : name;
+}
+export type ShelfAxis = Dimension | TimeField | "measure";
 export function shelfName(key: ShelfAxis) {
   return key === "measure"
     ? "指標"
     : isAttribute(key)
       ? key.slice(5)
-      : axes[key];
+      : isTimeField(key)
+        ? timeBuckets[key]
+        : axes[key];
 }
 export type ShelfFields = ShelfAxis | ShelfAxis[];
 export function shelfFields(value?: ShelfFields): ShelfAxis[] {
@@ -46,7 +69,8 @@ export function pivotFields(p: Pivot) {
 export type Pivot = {
   row: ShelfFields;
   column: ShelfFields;
-  series?: ShelfAxis;
+  series?: ShelfFields;
+  mark?: "auto" | "table" | "line";
   metrics?: string[];
 };
 export type Distinct = { dataset: "daily" | "log" | "span"; field: string };
@@ -106,6 +130,7 @@ export interface Dashboard {
 export interface Point {
   column?: string;
   facet?: string;
+  facetPath?: string[];
   rowPath?: string[];
   columnPath?: string[];
   metricUnit?: string;

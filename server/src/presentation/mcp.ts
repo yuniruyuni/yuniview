@@ -55,7 +55,7 @@ export function managementMcp(ctx: Context) {
       "preview_panel",
       {
         description:
-          "Evaluate a dashboard or monitor query against recent telemetry before saving. Pivot panels return row (series), column, optional facet and value per cell. Row and column accept ordered arrays of fields, with rowPath and columnPath in the result for compound keys. Use attr:<key> to group by an observed scalar attribute, and measure as a shelf to compare metric names. For distinct counts specify dataset and field. Daily sets support day/source pivots or daily charts grouped by source. For gauge totals use group slot_total and totalSlots (default blue and green). Each complete minute sums per-slot means.",
+          "Evaluate a dashboard or monitor query against recent telemetry before saving. Pivot panels return row (series), column, optional facet and value per cell. Row, column and series accept ordered field arrays, returning rowPath, columnPath and facetPath for compound keys. With pivot.mark=auto put measure on either axis and fields on the opposite axis. Time fields time:1/10/60/300/3600/86400 (seconds) produce lines, categories produce bars. Use metric derived:cpu.percent for CPU percent of one core. Use attr:<key> to group by an observed scalar attribute, and measure as a shelf to compare metric names. For distinct counts specify dataset and field. Daily sets support day/source pivots or daily charts grouped by source. For gauge totals use group slot_total and totalSlots (default blue and green). Each complete minute sums per-slot means.",
         inputSchema: z.object({ panel }),
         annotations: readOnly,
       },

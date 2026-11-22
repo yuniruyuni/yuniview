@@ -4,11 +4,14 @@ import {
   axes,
   blankPanel,
   changeGroup,
+  cpuPercent,
   type Dimension,
   type Distinct,
   defaultTotalSlots,
   isAttribute,
+  isTimeField,
   measures,
+  metricName,
   type Overview,
   type Panel,
   type Pivot,
@@ -17,6 +20,8 @@ import {
   shelfFields,
   shelfName,
   slotTotalChoice,
+  type TimeField,
+  timeBuckets,
 } from "../../../shared/console";
 import { useQuery } from "../api";
 import { PanelView, Select } from "./Panels";
@@ -24,13 +29,6 @@ import { useDropPreview } from "./useDropPreview";
 
 type Props = { p: Panel; set: (p: Panel) => void; meta: Overview; end: string };
 const dimensions = Object.entries(axes) as [Axis, string][];
-function metricName(name: string) {
-  return name === "memory.current"
-    ? "メモリ使用量"
-    : name === "cpu.usage"
-      ? "CPU 使用時間（累積）"
-      : name;
-}
 export function PanelBuilder({ p, set, meta, end }: Props) {
   const [search, find] = useState("");
   const [undo, remember] = useState<Panel[]>([]);
@@ -59,7 +57,8 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
       (k) => k && isAttribute(k),
     ),
   ]);
-  const fields: [Dimension, string][] = [
+  const fields: [Dimension | TimeField, string][] = [
+    ...(daily ? [] : (Object.entries(timeBuckets) as [TimeField, string][])),
     ...dimensions.filter(
       ([key]) => !daily || key === "day" || key === "source",
     ),
@@ -70,6 +69,7 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
   const metrics = Array.from(
     new Set([
       "memory.current",
+      cpuPercent,
       ...meta.metrics,
       ...(p.metric ? [p.metric] : []),
     ]),
@@ -111,7 +111,11 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
       distinct: undefined,
       pivot: p.pivot ? { ...p.pivot, metrics: undefined } : undefined,
       group:
-        p.group === "slot_total" && measure !== "metric" ? "source" : p.group,
+        metric === cpuPercent && p.group === "slot_total"
+          ? "source"
+          : p.group === "slot_total" && measure !== "metric"
+            ? "source"
+            : p.group,
       measure,
       unit: metric === "memory.current" ? "MiB" : undefined,
     };
@@ -136,20 +140,30 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
       ...(base.pivot ??
         (base.distinct?.dataset === "daily"
           ? { row: "day", column: "source" }
-          : { row: [], column: [] })),
+          : { row: [], column: [], mark: "auto" as const })),
     };
+    if (isTimeField(field)) pair.mark ??= "auto";
     const before = shelfFields(pair[shelf]);
-    for (const role of ["row", "column"] as const)
-      pair[role] = shelfFields(pair[role]).filter((k) => k !== field);
-    if (pair.series === field) delete pair.series;
-    if (shelf === "series") pair.series = field;
-    else {
-      const next = shelfFields(pair[shelf]);
-      const index =
-        position ??
-        (before.includes(field) ? before.indexOf(field) : next.length);
-      next.splice(index, 0, field);
-      pair[shelf] = next;
+    for (const role of shelves)
+      pair[role] = shelfFields(pair[role]).filter(
+        (k) =>
+          k !== field &&
+          !(role === shelf && isTimeField(field) && isTimeField(k)),
+      );
+    const next = shelfFields(pair[shelf]);
+    const index =
+      position ??
+      (before.includes(field) ? before.indexOf(field) : next.length);
+    next.splice(index, 0, field);
+    pair[shelf] = next;
+    if (!shelfFields(pair.series).length) delete pair.series;
+    if (
+      isTimeField(field) &&
+      shelf !== "series" &&
+      !pivotFields(pair).includes("measure")
+    ) {
+      const opposite = shelf === "row" ? "column" : "row";
+      if (!shelfFields(pair[opposite]).length) pair[opposite] = ["measure"];
     }
     if (!pivotFields(pair).includes("measure")) delete pair.metrics;
     return {
@@ -159,8 +173,18 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
       pivot: pair,
     };
   }
-  function without(id: "row" | "column", field: ShelfAxis) {
+  function without(id: Shelf, field: ShelfAxis) {
     if (!pivot) return;
+    if (field === "measure" && pivot.metrics?.length) {
+      const [metric, ...rest] = pivot.metrics;
+      change({
+        ...p,
+        metric,
+        unit: !rest.length && metric === "memory.current" ? "MiB" : undefined,
+        pivot: { ...pivot, metrics: rest.length ? rest : undefined },
+      });
+      return;
+    }
     const pair = {
       ...pivot,
       [id]: shelfFields(pivot[id]).filter((k) => k !== field),
@@ -204,7 +228,7 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
         ] as const);
   type Field =
     | { kind: "measure"; key: string }
-    | { kind: "dimension"; key: Dimension }
+    | { kind: "dimension"; key: Dimension | TimeField }
     | { kind: "placed"; key: ShelfAxis };
   function candidates(field: Field, position?: number) {
     const options: {
@@ -242,18 +266,11 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
     }
     const key = field.key;
     if (!daily || (key === "source" && !pivot)) {
-      if (pivot)
-        options.push({
-          id: "series",
-          label: "系列",
-          panel: assign(p, "series", key),
-        });
-      else if (key !== "day")
-        options.push({
-          id: "series",
-          label: "系列",
-          panel: { ...p, group: key },
-        });
+      options.push({
+        id: "series",
+        label: "系列",
+        panel: daily ? { ...p, group: "source" } : assign(p, "series", key),
+      });
     }
     options.push(
       { id: "row", label: "行", panel: assign(p, "row", key) },
@@ -344,7 +361,7 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
                   ? change(assign(p, "row", k))
                   : pivot
                     ? change(assign(p, "row", k))
-                    : k === "day"
+                    : k === "day" || isTimeField(k)
                       ? change(assign(p, "row", k))
                       : update("group", k)
               }
@@ -381,9 +398,7 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
               [
                 "",
                 pivot
-                  ? id === "series"
-                    ? "未設定"
-                    : "フィールドを追加"
+                  ? "フィールドを追加"
                   : id === "row"
                     ? "値"
                     : id === "column"
@@ -393,7 +408,9 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
               ...(id === "series" && !pivot && !daily
                 ? [
                     ["all", "全体"] as [string, string],
-                    ...(p.measure === "metric" ? [slotTotalChoice] : []),
+                    ...(p.measure === "metric" && p.metric !== cpuPercent
+                      ? [slotTotalChoice]
+                      : []),
                   ]
                 : []),
               ...fields
@@ -412,36 +429,25 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
               >
                 <Select
                   label={{ row: "行", column: "列", series: "系列" }[id]}
-                  value={pivot && id !== "series" ? "" : value}
+                  value={pivot ? "" : value}
                   choices={opts}
                   change={(v) => {
-                    if (!v) {
-                      if (pivot && id === "series")
-                        change({
-                          ...p,
-                          pivot: {
-                            ...pivot,
-                            series: undefined,
-                            metrics:
-                              pivot.series === "measure"
-                                ? undefined
-                                : pivot.metrics,
-                          },
-                        });
-                      return;
-                    }
+                    if (!v) return;
                     if (v === "slot_total" || v === "all") {
                       change(changeGroup(p, v));
                       return;
                     }
                     const f: Field = v.startsWith("axis/")
-                      ? { kind: "dimension", key: v.slice(5) as Dimension }
+                      ? {
+                          kind: "dimension",
+                          key: v.slice(5) as Dimension | TimeField,
+                        }
                       : { kind: "measure", key: v };
                     const next = candidates(f).find((c) => c.id === id)?.panel;
                     if (next) change(next);
                   }}
                 />
-                {id !== "series" && pivot && (
+                {pivot && (
                   <div className="shelf-chips">
                     {assigned.map((field, i) => (
                       <span
@@ -488,7 +494,7 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
                             aria-label={
                               shelfName(field) +
                               " を" +
-                              (id === "row" ? "行" : "列") +
+                              { row: "行", column: "列", series: "系列" }[id] +
                               "から外す"
                             }
                             onClick={() => without(id, field)}
@@ -532,6 +538,19 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
             </h4>
           ) : (
             <h4>プレビュー</h4>
+          )}
+          {pivot && (
+            <button
+              type="button"
+              onClick={() =>
+                change({
+                  ...p,
+                  pivot: { ...pivot, row: pivot.column, column: pivot.row },
+                })
+              }
+            >
+              行と列を入れ替え
+            </button>
           )}
           <button
             type="button"
@@ -611,7 +630,7 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
                     ["chart", "折れ線"],
                     ["table", "表"],
                     ["value", "数値"],
-                    ["pivot", "ピボット表"],
+                    ["pivot", "ワークシート"],
                   ]
             }
             change={(v) =>
@@ -626,11 +645,25 @@ export function PanelBuilder({ p, set, meta, end }: Props) {
                   v === "pivot"
                     ? daily
                       ? { row: "day", column: "source" }
-                      : { row: "source", column: "slot" }
+                      : { row: "source", column: "slot", mark: "auto" }
                     : undefined,
               })
             }
           />
+          {pivot && !daily && (
+            <Select
+              label="マーク"
+              value={pivot.mark ?? "table"}
+              choices={[
+                ["auto", "自動"],
+                ["line", "折れ線"],
+                ["table", "ピボット表"],
+              ]}
+              change={(v) =>
+                change({ ...p, pivot: { ...pivot, mark: v as Pivot["mark"] } })
+              }
+            />
+          )}
           {p.measure === "metric" && (
             <Select
               label="集計"

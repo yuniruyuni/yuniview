@@ -419,6 +419,9 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await catalog
     .getByRole("button", { name: "サービス", exact: true })
     .dragTo(form.locator('.worksheet-shelves [data-drop="series"]'));
+  await form
+    .getByRole("combobox", { name: "マーク", exact: true })
+    .selectOption("table");
   await expect(
     form.getByRole("heading", { name: "サービス · checkout" }),
   ).toBeVisible();
@@ -525,4 +528,95 @@ test("compound row and column shelves preserve their hierarchy on save", async (
       '.worksheet-shelves [data-drop="column"] .shelf-chip .drag-source',
     ),
   ).toHaveText(["メモリ使用量", "リビジョン"]);
+});
+
+test("worksheet encodes time or categories on either axis and splits observed series tuples", async ({
+  page,
+  request,
+}) => {
+  const t = Math.floor(Date.now() / 60000) * 60000 - 180000;
+  for (const [slot, revision] of [
+    ["blue", "A"],
+    ["blue", "B"],
+    ["green", "B"],
+  ]) {
+    for (const [i, cpu] of [
+      [0, 0],
+      [1, 5000000],
+      [2, 1000],
+    ]) {
+      const res = await request.post(
+        `http://127.0.0.1:${process.env.INGEST_PORT}/api/agent/v1/batches`,
+        {
+          headers: {
+            Authorization: `Bearer ${slot === "blue" ? process.env.CONSOLE_TOKEN : process.env.GREEN_TEST_TOKEN}`,
+          },
+          data: {
+            id: randomUUID().replaceAll("-", ""),
+            time: new Date(t + i * 10000).toISOString(),
+            source: {
+              service: "checkout",
+              workload: "app",
+              slot,
+              revision,
+              instance: "axis-test",
+            },
+            signal: "resources",
+            payload: { cpuUsageUsec: cpu, memoryBytes: 1048576 * (i + 1) },
+          },
+        },
+      );
+      expect(res.status(), await res.text()).toBe(204);
+    }
+  }
+  await page.goto("/#page=dashboards");
+  await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
+  const form = page.locator("form.editor");
+  await form.getByLabel("名前", { exact: true }).fill("Axis chart");
+  const place = async (label: string, shelf: string) =>
+    form
+      .locator(".field-catalog")
+      .getByRole("button", { name: label, exact: true })
+      .dragTo(form.locator('.worksheet-shelves [data-drop="' + shelf + '"]'));
+  await place("時刻（10秒）", "column");
+  await place("CPU 使用率 (%)", "row");
+  await place("メモリ使用量", "row");
+  await place("スロット", "series");
+  await place("リビジョン", "series");
+  await form
+    .getByRole("combobox", { name: "絞り込みを追加" })
+    .selectOption("instance");
+  await form
+    .getByRole("combobox", { name: "インスタンス", exact: true })
+    .fill("axis-test");
+  const plot = form.locator(".worksheet-plot");
+  await expect(
+    plot.getByRole("img", { name: "系列別の折れ線グラフ" }),
+  ).toBeVisible();
+  await expect(plot.locator(".legend button")).toHaveCount(6);
+  await expect(plot.locator(".legend")).toContainText(
+    "スロット=green · リビジョン=B",
+  );
+  await expect(
+    plot.locator("circle title").filter({ hasText: "50 %" }),
+  ).toHaveCount(3);
+  await expect(
+    plot.locator("circle title").filter({ hasText: "CPU 使用率" }),
+  ).toHaveCount(3);
+  await form.getByRole("button", { name: "時刻（10秒） を列から外す" }).click();
+  await place("ワークロード", "column");
+  await expect(
+    plot.getByRole("img", { name: "カテゴリ別の棒グラフ" }),
+  ).toBeVisible();
+  await place("ワークロード", "row");
+  await form
+    .locator('[data-drop="row"] .shelf-chip .drag-source')
+    .filter({ hasText: "メモリ使用量" })
+    .dragTo(form.locator('.worksheet-shelves [data-drop="column"]'));
+  await expect(plot).toContainText("横軸 指標");
+  await expect(plot.locator("rect")).toHaveCount(6);
+  await form.getByRole("button", { name: "配置に戻る" }).click();
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await page.reload();
+  await expect(page.locator(".worksheet-plot rect")).toHaveCount(6);
 });

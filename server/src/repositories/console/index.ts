@@ -9,8 +9,10 @@ import type {
   ShelfFields,
 } from "../../../../shared/console";
 import {
+  cpuPercent,
   defaultTotalSlots,
   isAttribute,
+  isTimeField,
   shelfFields,
 } from "../../../../shared/console";
 import type { Database } from "../../infra/db";
@@ -67,14 +69,18 @@ function shelfKey(
   if (parts.length === 1) return parts[0];
   return sql`ARRAY[${sql.join(parts, ",")}]::text[]`;
 }
-type GroupPoint = Omit<Point, "series" | "column"> & {
+type GroupPoint = Omit<Point, "series" | "column" | "facet"> & {
   series: string | string[];
   column?: string | string[];
+  facet?: string | string[];
 };
 function decodePoint(p: GroupPoint): Point {
-  const { series, column, ...rest } = p;
+  const { series, column, facet, ...rest } = p;
   return {
     ...rest,
+    ...(Array.isArray(facet)
+      ? { facet: JSON.stringify(facet), facetPath: facet }
+      : { facet }),
     ...(Array.isArray(series)
       ? { series: JSON.stringify(series), rowPath: series }
       : { series }),
@@ -125,15 +131,17 @@ export async function series(
         count(*)::int AS samples FROM totals GROUP BY 1,2 ORDER BY 1,2`);
   }
   const field = (key: ShelfAxis) =>
-    isAttribute(key)
-      ? sql`coalesce(attrs->>${key.slice(5)},'')`
-      : key === "measure"
-        ? p.measure === "metric"
-          ? sql`name`
-          : sql`${p.measure}::text`
-        : key === "day"
-          ? sql`(at AT TIME ZONE 'Asia/Tokyo')::date::text`
-          : sql.raw(key);
+    isTimeField(key)
+      ? sql`to_char(date_bin(make_interval(secs=>${Number(key.slice(5))}::int),at,'2000-01-01'::timestamptz) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`
+      : isAttribute(key)
+        ? sql`coalesce(attrs->>${key.slice(5)},'')`
+        : key === "measure"
+          ? p.measure === "metric"
+            ? sql`name`
+            : sql`${p.measure}::text`
+          : key === "day"
+            ? sql`(at AT TIME ZONE 'Asia/Tokyo')::date::text`
+            : sql.raw(key);
   const group = pivot
     ? shelfKey(pivot.row, field)
     : p.group === "all"
@@ -159,13 +167,28 @@ export async function series(
         : p.measure === "metric"
           ? sql.raw(`${p.aggregation}(value)`)
           : sql.raw("count(*)");
-  const units = pivot?.metrics?.length
-    ? sql`min(unit) AS "metricUnit",`
+  const units =
+    pivot && p.measure === "metric" ? sql`min(unit) AS "metricUnit",` : sql``;
+  const hasFacet = shelfFields(pivot?.series).length > 0;
+  const wantsCpu =
+    p.measure === "metric" &&
+    [p.metric, ...(pivot?.metrics ?? [])].includes(cpuPercent);
+  // Different containers have independent counters. Exclude counter resets and the first sample.
+  const readings = wantsCpu
+    ? sql`WITH counters AS (
+    SELECT e.*, lag(value) OVER w AS prev, lag(at) OVER w AS prev_at
+    FROM telemetry_events e WHERE ${matches(p, end)} AND kind='metric' AND name='cpu.usage'
+    WINDOW w AS (PARTITION BY source, workload, instance, slot, revision ORDER BY at,batch_id,ordinal)
+  ), readings AS (
+    SELECT at,source,workload,instance,slot,revision,kind,name,body,attrs,value,unit,entry,failed FROM telemetry_events WHERE ${matches(p, end)} AND ${filter}
+    UNION ALL SELECT at,source,workload,instance,slot,revision,kind,${cpuPercent},body,attrs,
+    (value-prev)/(extract(epoch FROM at-prev_at)*10000), '%',entry,failed FROM counters WHERE at>prev_at AND value>=prev
+  )`
     : sql``;
-  const keys = pivot?.series ? sql`1,2,3,4` : pivot ? sql`1,2,3` : sql`1,2`;
+  const keys = hasFacet ? sql`1,2,3,4` : pivot ? sql`1,2,3` : sql`1,2`;
   return (
     await db.queryAll<GroupPoint>(
-      sql`SELECT ${period} AS bucket,${group} AS series,${pivot ? sql`${shelfKey(pivot.column, field)} AS "column",` : sql``} ${pivot?.series ? sql`${field(pivot.series)} AS facet,` : sql``} ${units} (${aggregate}::float8 / ${p.unit === "MiB" ? 1048576 : 1}::float8) AS value,count(*)::int AS samples FROM telemetry_events WHERE ${matches(p, end)} AND ${filter} GROUP BY ${keys} HAVING ${aggregate} IS NOT NULL ORDER BY ${keys}`,
+      sql`${readings} SELECT ${period} AS bucket,${group} AS series,${pivot ? sql`${shelfKey(pivot.column, field)} AS "column",` : sql``} ${hasFacet && pivot?.series ? sql`${shelfKey(pivot.series, field)} AS facet,` : sql``} ${units} (${aggregate}::float8 / ${p.unit === "MiB" ? 1048576 : 1}::float8) AS value,count(*)::int AS samples FROM ${wantsCpu ? sql.raw("readings") : sql.raw("telemetry_events")} WHERE ${matches(p, end)} AND ${filter} GROUP BY ${keys} HAVING ${aggregate} IS NOT NULL ORDER BY ${keys}`,
     )
   ).map(decodePoint);
 }
