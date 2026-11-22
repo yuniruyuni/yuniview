@@ -58,15 +58,13 @@ export function displayPoints(panel: Panel, points: Point[]) {
     const unit = panel.fieldUnits?.[key];
     const source =
       panel.unit ?? p.metricUnit ?? nativeUnit(panel, metric ?? panel.metric);
-    if (!unit) return panel.unit ? { ...p, metricUnit: panel.unit } : p;
     const scale = compatibleUnits(source);
+    if (!unit || !scale || !Object.hasOwn(scale, unit))
+      return panel.unit ? { ...p, metricUnit: panel.unit } : p;
     return {
       ...p,
       metricUnit: unit,
-      value:
-        scale && Object.hasOwn(scale, unit)
-          ? (p.value * scale[source]) / scale[unit]
-          : p.value,
+      value: (p.value * scale[source]) / scale[unit],
     };
   });
 }
@@ -87,6 +85,5 @@ export function displayField(panel: Panel, field: ShelfAxis, value: string) {
       return new Date(value).toISOString().slice(0, 10);
     return dateFormats[fieldZone(panel.pivot, field)].format(new Date(value));
   }
-  const unit = panel.fieldUnits?.["field/" + field];
-  return value && unit ? value + " " + unit : value;
+  return value;
 }

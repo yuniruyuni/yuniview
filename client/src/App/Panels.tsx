@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useState } from "react";
 import type { Overview, Panel, Point } from "../../../shared/console";
 import {
   changeGroup,
@@ -13,7 +13,8 @@ import {
   slotTotalChoice,
 } from "../../../shared/console";
 import { clock, Feedback, number, useQuery } from "../api";
-import { displayField, displayPoints } from "./fieldDisplay";
+import { displayField, displayPoints, nativeUnit } from "./fieldDisplay";
+import { InspectablePlot } from "./InspectablePlot";
 import { dashPatterns, lineWidths, PointSymbol, palette } from "./SeriesStyle";
 import { WorksheetPlot } from "./WorksheetPlot";
 
@@ -212,7 +213,7 @@ const colors = [
   "#6b852c",
 ];
 export function Chart({
-  seriesLabel = (value) => value,
+  unit,
   fixedStyle,
   legendAction,
   formatTime = clock,
@@ -222,7 +223,7 @@ export function Chart({
   end,
   choose,
 }: {
-  seriesLabel?: (value: string) => string;
+  unit?: string;
   fixedStyle?: Panel["fixedStyle"];
   legendAction?: React.ReactNode;
   gapMs?: number;
@@ -239,7 +240,6 @@ export function Chart({
   const strokeWidth = lineWidths[fixedStyle?.width ?? 1],
     dash = dashPatterns[fixedStyle?.dash ?? 0],
     shape = fixedStyle?.shape ?? 0;
-  const id = useId();
   const groups = Array.from(new Set(points.map((p) => p.series)));
   const [active, setActive] = useState("");
   const shown =
@@ -256,12 +256,42 @@ export function Chart({
         45 + (550 * (Date.parse(p.bucket) - start)) / (end - start),
       ),
     );
+  const buckets = new Map<string, Map<string, Point>>();
+  for (const p of shown) {
+    const bucket = buckets.get(p.bucket) ?? new Map<string, Point>();
+    bucket.set(p.series, p);
+    buckets.set(p.bucket, bucket);
+  }
   const y = (p: Point) => 135 - (112 * (p.value - low)) / (high - low);
   return (
     <div className="chart-with-legend">
       <div>
-        <svg viewBox="0 0 610 155" role="img" aria-labelledby={id}>
-          <title id={id}>集計値の推移</title>
+        <InspectablePlot
+          viewBox="0 0 610 155"
+          label="集計値の推移"
+          bounds={{ left: 45, right: 595, top: 23, bottom: 135 }}
+          samples={Array.from(buckets, ([key, values]) => ({
+            key,
+            position: x(values.values().next().value!),
+          })).sort((a, b) => a.position - b.position)}
+          heading={formatTime}
+          readings={(key) =>
+            groups.flatMap((group, i) => {
+              if (active && groups.includes(active) && active !== group)
+                return [];
+              const p = buckets.get(key)?.get(group);
+              return [
+                {
+                  id: group,
+                  label: group || "未指定",
+                  value: p?.value,
+                  unit: p?.metricUnit ?? unit,
+                  color: color(i),
+                },
+              ];
+            })
+          }
+        >
           {[0, 0.5, 1].map((n) => (
             <g key={n}>
               <line
@@ -305,8 +335,7 @@ export function Chart({
                       r={3}
                     >
                       <title>
-                        {formatTime(p.bucket)} · {seriesLabel(g)} ·{" "}
-                        {number(p.value)}
+                        {formatTime(p.bucket)} · {g} · {number(p.value)}
                       </title>
                     </PointSymbol>
                   );
@@ -325,7 +354,7 @@ export function Chart({
               </g>
             );
           })}
-        </svg>
+        </InspectablePlot>
         <div className="range">
           <span>{formatTime(new Date(start).toISOString())}</span>
           <span>{formatTime(new Date(end).toISOString())}</span>
@@ -360,7 +389,7 @@ export function Chart({
                 />
                 <PointSymbol shape={shape} x={16} y={6} r={3} />
               </svg>
-              {seriesLabel(g) || "未指定"}
+              {g || "未指定"}
             </button>
           ))}
       </div>
@@ -417,14 +446,7 @@ export function PanelView({
     buckets: panel.display === "chart",
   });
   const data = rawPoints && displayPoints(panel, rawPoints);
-  const unit =
-    panel.fieldUnits?.[
-      panel.measure === "metric" ? "metric/" + panel.metric : panel.measure
-    ] ?? panel.unit;
-  const seriesLabel = (value: string) =>
-    panel.fieldUnits?.["field/" + panel.group]
-      ? value + " " + panel.fieldUnits["field/" + panel.group]
-      : value;
+  const unit = data?.[0]?.metricUnit ?? panel.unit;
   return (
     <article className="card">
       <div className="cardhead">
@@ -470,7 +492,7 @@ export function PanelView({
         />
       ) : panel.display === "chart" ? (
         <Chart
-          seriesLabel={seriesLabel}
+          unit={unit ?? nativeUnit(panel, panel.metric)}
           legendAction={legendAction}
           fixedStyle={{ ...panel.fixedStyle, ...panel.styleDefaults }}
           points={data}
@@ -488,7 +510,7 @@ export function PanelView({
           {data.map((p) => (
             <div key={p.series}>
               <strong>{number(p.value)}</strong>
-              <small>{seriesLabel(p.series)}</small>
+              <small>{p.series}</small>
             </div>
           ))}
         </div>
@@ -504,7 +526,7 @@ export function PanelView({
           <tbody>
             {data.map((p) => (
               <tr key={p.series}>
-                <td>{seriesLabel(p.series)}</td>
+                <td>{p.series}</td>
                 <td>{number(p.value)}</td>
                 <td>{p.samples}</td>
               </tr>

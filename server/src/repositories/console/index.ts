@@ -331,14 +331,23 @@ export async function overview(
     Overview["services"][number]
   >(sql`WITH stats AS (SELECT source,count(*) FILTER(WHERE entry)::int AS requests,count(*) FILTER(WHERE entry AND failed)::int AS errors,percentile_cont(0.95) WITHIN GROUP(ORDER BY value) FILTER(WHERE entry) AS latency FROM telemetry_events WHERE ${matches(f, end)} GROUP BY source)
  SELECT s.id AS source,(SELECT max(received_at) FROM telemetry_batches WHERE source_id=s.id) AS last,coalesce(requests,0) AS requests,coalesce(errors,0) AS errors,latency FROM sources s LEFT JOIN stats ON stats.source=s.id ORDER BY s.id`);
-  const options = await db.queryAll<{ field: string; item: string }>(
-    sql`SELECT DISTINCT 'metric' AS field,name AS item FROM telemetry_events WHERE kind='metric' UNION SELECT DISTINCT 'daily',field FROM daily_sets UNION SELECT DISTINCT 'slot',slot FROM telemetry_batches WHERE slot<>'' UNION SELECT DISTINCT 'revision',revision FROM telemetry_batches WHERE revision<>'' ORDER BY 1,2`,
+  const options = await db.queryAll<{
+    field: string;
+    item: string;
+    unit: string | null;
+  }>(
+    sql`SELECT 'metric' AS field,name AS item,CASE WHEN min(unit)=max(unit) THEN min(unit) END AS unit FROM telemetry_events WHERE kind='metric' GROUP BY name UNION SELECT DISTINCT 'daily',field,NULL FROM daily_sets UNION SELECT DISTINCT 'slot',slot,NULL FROM telemetry_batches WHERE slot<>'' UNION SELECT DISTINCT 'revision',revision,NULL FROM telemetry_batches WHERE revision<>'' ORDER BY 1,2`,
   );
   const values = (key: string) =>
     options.filter((o) => o.field === key).map((o) => o.item);
   return {
     services,
     metrics: values("metric"),
+    metricUnits: Object.fromEntries(
+      options.flatMap((o) =>
+        o.field === "metric" && o.unit ? [[o.item, o.unit]] : [],
+      ),
+    ),
     dailyFields: values("daily"),
     slots: values("slot"),
     revisions: values("revision"),

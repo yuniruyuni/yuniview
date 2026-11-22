@@ -225,6 +225,7 @@ export interface Overview {
     latency: number | null;
   }[];
   metrics: string[];
+  metricUnits?: Record<string, string>;
   dailyFields: string[];
   slots: string[];
   revisions: string[];

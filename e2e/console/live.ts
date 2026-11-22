@@ -378,6 +378,23 @@ test("slot totals align gauge samples and exclude incomplete minutes", async ({
         Array.from((line as SVGPolylineElement).points, ({ x, y }) => [x, y]),
       ),
     );
+  const target = await area.evaluate((svg, x) => {
+    const point = new DOMPoint(x, 70).matrixTransform(
+      (svg as SVGSVGElement).getScreenCTM()!,
+    );
+    return { x: point.x, y: point.y };
+  }, curves[0][0][0]);
+  await page.mouse.move(target.x, target.y);
+  const tip = form.getByRole("tooltip");
+  await expect(tip).toContainText("観測合計32 MiB");
+  await expect(tip).toContainText("スロット=green20 MiB");
+  await area.focus();
+  await area.press("ArrowRight");
+  await expect(tip).toContainText("観測合計60 MiB");
+  await area.press("ArrowRight");
+  await expect(tip).toContainText("スロット=green未観測");
+  await area.press("Escape");
+  await expect(tip).toHaveCount(0);
   const bands = await area
     .locator('polygon[fill-opacity="0.25"]')
     .evaluateAll((polygons) =>
@@ -735,6 +752,9 @@ test("worksheet encodes time or categories on either axis and splits observed se
     .filter({ hasText: "CPU 使用率" })
     .first()
     .click();
+  await expect(
+    form.locator(".metric-menu:popover-open").getByLabel("表示単位"),
+  ).toHaveCount(0);
   await form
     .locator(".metric-menu:popover-open")
     .getByRole("button", { name: "最小", exact: true })

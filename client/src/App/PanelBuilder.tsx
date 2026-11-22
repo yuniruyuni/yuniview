@@ -50,34 +50,16 @@ function UnitInput({
 }) {
   const id = useId();
   const units = compatibleUnits(source);
+  if (!units) return null;
   return (
     <label htmlFor={id}>
       表示単位
-      {units ? (
-        <select id={id} value={value} onChange={(e) => write(e.target.value)}>
-          <option value="">自動（{source}）</option>
-          {Object.keys(units).map((unit) => (
-            <option key={unit}>{unit}</option>
-          ))}
-        </select>
-      ) : (
-        <input
-          id={id}
-          key={value}
-          maxLength={32}
-          defaultValue={value}
-          placeholder={source || "単位なし"}
-          onBlur={(e) => {
-            if (e.target.value.trim() !== value) write(e.target.value);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              e.currentTarget.blur();
-            }
-          }}
-        />
-      )}
+      <select id={id} value={value} onChange={(e) => write(e.target.value)}>
+        <option value="">自動（{source}）</option>
+        {Object.keys(units).map((unit) => (
+          <option key={unit}>{unit}</option>
+        ))}
+      </select>
     </label>
   );
 }
@@ -534,6 +516,11 @@ export function PanelBuilder({
       </>
     );
   }
+  const measureUnit = nativeUnit(p, p.metric);
+  const measureHasUnits =
+    p.measure !== "metric" && !!compatibleUnits(measureUnit);
+  const hasFieldSettings = (field: ShelfAxis) =>
+    isTemporalField(field) || (field === "measure" && measureHasUnits);
   function metricMenu(metric: string) {
     const id = worksheetId + "-aggregation-" + encodeURIComponent(metric);
     return (
@@ -543,7 +530,10 @@ export function PanelBuilder({
         className="metric-menu"
         aria-label={metricName(metric) + "の集計"}
       >
-        {unitInput("metric/" + metric, nativeUnit(p, metric))}
+        {unitInput(
+          "metric/" + metric,
+          nativeUnit(p, metric) || meta.metricUnits?.[metric] || "",
+        )}
         <span>集計</span>
         {(Object.keys(aggregationNames) as Panel["aggregation"][])
           .filter((k) => p.group !== "slot_total" || k !== "sum")
@@ -1183,7 +1173,7 @@ export function PanelBuilder({
                         {aggregationNames[aggregation(p.metric)]}
                       </button>
                     )}
-                    {!pivot && id === "row" && p.measure !== "metric" && (
+                    {!pivot && id === "row" && measureHasUnits && (
                       <>
                         <button
                           type="button"
@@ -1239,12 +1229,16 @@ export function PanelBuilder({
                               className="drag-source"
                               title={
                                 field === "measure" && p.measure === "metric"
-                                  ? "クリックして集計・表示単位を変更"
-                                  : "クリックして表示設定を変更"
+                                  ? "クリックして指標を設定"
+                                  : hasFieldSettings(field)
+                                    ? "クリックして表示設定を変更"
+                                    : "ドラッグまたは Alt＋左右矢印で移動"
                               }
                               {...(field === "measure" && p.measure === "metric"
                                 ? metricTrigger(p.metric)
-                                : metricTrigger(id + "/" + i))}
+                                : hasFieldSettings(field)
+                                  ? metricTrigger(id + "/" + i)
+                                  : {})}
                               onPointerDown={(e) =>
                                 drag.start(e, { kind: "placed", key: field })
                               }
@@ -1279,9 +1273,7 @@ export function PanelBuilder({
                                 {aggregationNames[aggregation(p.metric)]}
                               </small>
                             )}
-                            {!(
-                              field === "measure" && p.measure === "metric"
-                            ) && (
+                            {hasFieldSettings(field) && (
                               <fieldset
                                 popover="auto"
                                 className="metric-menu"
@@ -1289,14 +1281,7 @@ export function PanelBuilder({
                               >
                                 {isTemporalField(field)
                                   ? timeSettings(id, field, label)
-                                  : unitInput(
-                                      field === "measure"
-                                        ? p.measure
-                                        : "field/" + field,
-                                      field === "measure"
-                                        ? nativeUnit(p, p.metric)
-                                        : "",
-                                    )}
+                                  : unitInput(p.measure, measureUnit)}
                               </fieldset>
                             )}
                             {isTemporalField(field) && (
@@ -1376,7 +1361,7 @@ export function PanelBuilder({
                     </button>
                   )}
                   {p.measure === "metric" && metricMenu(p.metric)}
-                  {p.measure !== "metric" && (
+                  {measureHasUnits && (
                     <>
                       <button type="button" {...metricTrigger("value-unit")}>
                         表示単位
@@ -1426,9 +1411,7 @@ export function PanelBuilder({
                       select={(v) =>
                         change(changeGroup(p, v as Panel["group"]))
                       }
-                    >
-                      {p.group !== "all" && unitInput("field/" + p.group)}
-                    </ShelfPicker>
+                    />
                   )}
                 </div>
               )}
@@ -1499,11 +1482,7 @@ export function PanelBuilder({
                           select={(v) =>
                             change(withStyle(channel, v as ShelfAxis))
                           }
-                        >
-                          {field &&
-                            field !== "measure" &&
-                            unitInput("field/" + field)}
-                        </ShelfPicker>
+                        />
                       )}
                     </div>
                   );

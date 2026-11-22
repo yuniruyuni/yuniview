@@ -12,7 +12,8 @@ import {
   shelfName,
 } from "../../../shared/console";
 import { number } from "../api";
-import { displayField } from "./fieldDisplay";
+import { displayField, nativeUnit } from "./fieldDisplay";
+import { InspectablePlot } from "./InspectablePlot";
 import { dashPatterns, lineWidths, PointSymbol, palette } from "./SeriesStyle";
 
 const ticks = [0, 0.25, 0.5, 0.75, 1];
@@ -57,7 +58,10 @@ export function WorksheetPlot({
     const facet = p.facetPath ?? [p.facet ?? ""];
     const key = JSON.stringify([values, facet]);
     const categoryKey = JSON.stringify(category);
-    const unit = p.metricUnit ?? panel.unit ?? "";
+    const unit =
+      p.metricUnit ??
+      panel.unit ??
+      nativeUnit(panel, values[valueFields.indexOf("measure")] ?? panel.metric);
     if (!groups.has(key)) {
       const labelParts = [
         ...values.map((v, i) =>
@@ -240,10 +244,42 @@ export function WorksheetPlot({
         {mixed ? "　単位ごとに目盛を正規化" : ""}
       </small>
       <div className="chart-with-legend">
-        <svg
+        <InspectablePlot
           viewBox="0 0 625 190"
-          role="img"
-          aria-label={
+          bounds={{ left: 68, right: 558, top: 30, bottom: 155 }}
+          vertical={horizontal}
+          samples={ordered.map((key) => ({
+            key,
+            position: xy(coord(key), 0)[horizontal ? 1 : 0],
+          }))}
+          heading={(key) =>
+            formatCategory(key) +
+            (temporal ? " " + fieldZone(pivot, categoryFields[0]) : "")
+          }
+          readings={(key) => {
+            const rows = visible.map(([id, g]) => ({
+              id,
+              label:
+                g.labelParts.filter((_, i) => varyingParts[i]).join(" · ") ||
+                g.labelParts.join(" · "),
+              value: g.marks.find((m) => m.category === key)?.value,
+              unit: g.unit,
+              color: styles.get(id)!.color,
+            }));
+            const total = totals.get(key);
+            if (total)
+              return [
+                ...rows,
+                {
+                  id: "total",
+                  label: "観測合計",
+                  value: total.positive + total.negative,
+                  unit: visible.find(([, g]) => isStacked(g.format))?.[1].unit,
+                },
+              ];
+            return rows;
+          }}
+          label={
             formats.size > 1
               ? "複合グラフ"
               : formats.has("area")
@@ -468,7 +504,7 @@ export function WorksheetPlot({
                 </g>
               );
             })}
-        </svg>
+        </InspectablePlot>
         <div className="legend">
           {legendAction}
           {all.length > 1 &&
