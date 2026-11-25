@@ -1,11 +1,10 @@
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { defaults } from "../../../shared/console";
-import { dashboard, monitor, panel } from "../models/console";
-import {
-  listConfiguration,
-  saveConfiguration,
-} from "../repositories/console/mcp";
+import { dashboard, monitor, panel } from "../models/panel";
+import { listConfiguration } from "../usecases/configuration/list-configuration";
+import { saveDashboard } from "../usecases/configuration/save-dashboard";
+import { saveMonitor } from "../usecases/configuration/save-monitor";
 import type { Context } from "../usecases/context";
 import { appRouter } from "./trpc/routers";
 
@@ -17,6 +16,7 @@ const version = z
     "Use null to create a new UUID, or the version from list_configuration to replace the complete definition.",
   );
 const readOnly = { readOnlyHint: true };
+const webhookConfigured = () => Boolean(process.env.MONITOR_WEBHOOK_URL);
 function result(value: object) {
   return { content: [{ type: "text" as const, text: JSON.stringify(value) }] };
 }
@@ -27,7 +27,8 @@ function failure(text: string) {
 export function managementMcp(ctx: Context) {
   return createMcpHandler(() => {
     const server = new McpServer({ name: "yuniview", version: "1.0.0" });
-    const api = appRouter.createCaller(ctx);
+    const fresh = () => ({ ...ctx, now: new Date() });
+    const api = appRouter.createCaller(fresh());
     server.registerTool(
       "list_configuration",
       {
@@ -36,7 +37,12 @@ export function managementMcp(ctx: Context) {
         inputSchema: z.object({}),
         annotations: readOnly,
       },
-      async () => result(await listConfiguration(ctx.db)),
+      async () => {
+        const listed = await listConfiguration(webhookConfigured()).run(
+          fresh(),
+        );
+        return listed.ok ? result(listed.value) : failure(listed.error.message);
+      },
     );
     server.registerTool(
       "list_telemetry",
@@ -72,14 +78,18 @@ export function managementMcp(ctx: Context) {
       item: z.output<typeof dashboard> | z.output<typeof monitor>,
       expected: string | null,
     ) {
-      if ("notify" in item && item.notify && !process.env.MONITOR_WEBHOOK_URL)
+      const saved = await ("panel" in item
+        ? saveMonitor(item, webhookConfigured(), expected)
+        : saveDashboard(item, expected)
+      ).run(fresh());
+      if (saved.ok && saved.value) return result(saved.value);
+      if (!saved.ok && saved.error.code === "INVALID_INPUT")
         return failure("Monitor notifications require a configured webhook.");
-      const saved = await saveConfiguration(ctx.db, item, expected);
-      return saved
-        ? result(saved)
-        : failure(
-            "The ID or edit version conflicts with the stored configuration. Read list_configuration before retrying.",
-          );
+      if (!saved.ok && saved.error.code !== "CONFLICT")
+        return failure(saved.error.message);
+      return failure(
+        "The ID or edit version conflicts with the stored configuration. Read list_configuration before retrying.",
+      );
     }
     server.registerTool(
       "save_dashboard",

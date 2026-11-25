@@ -430,3 +430,52 @@ export const userRouter = router({
 8. **テスト**: 各 Repository (`postgres/index.test.ts`)、各 Usecase の主要パスをカバー
 
 新クエリ条件が必要になっても **Repository インターフェースは触らない** — `models/<entity>/index.ts` の `_specs` に 1 行追加するだけ。
+
+---
+
+## yuniview での拡張
+
+template の規約に、テレメトリの集計に必要な次の要素を加える。
+
+### 集計は Aggregate を spec とする Cell の list
+
+サービス一覧、APM のルート、ダッシュボードのパネル、フィルターの候補は、どれも「どの行を選ぶか」と「どう分けて測るか」の組で表せる。前者は各 entity の Spec、後者は `models/aggregate` の `Aggregate` が担う。
+
+```typescript
+interface Aggregate {
+  from: Relation;          // 読む行。entity の Spec を持つ (例: { type: "events", where: Event.Spec })
+  by: Group[];             // 分ける軸 ({ as, field: Field })
+  measures: Output[];      // 測る値 ({ as, measure: Measure, cast? })
+  having?: Having;
+}
+// 呼出側
+const page = await ctx.repos.cells.list(routes(filter, end), { limit: 200 });
+```
+
+- `Field` (`models/field`) は行の次元を表す。同じ Field を Spec の条件 (`Event.FieldIn(field, values)`) にも分ける軸にも使う。条件では観測値 (属性はスカラーのみ)、軸ではラベル (欠けた属性は空文字) として SQL に変換する
+- Relation には別の Aggregate も置ける。スロット合計 (スロットごとの分平均 → 合計) や日次集合 (サービス・日ごとの重複除去 → 合計) は入れ子の Aggregate になる
+- Panel・Filter から Aggregate への変換は Model の純関数 (`models/panel`、`models/overview`) に置く。SQL を組み立てるのは `repositories/cell/postgres/common.ts` だけにする
+- `Cell.Spec` は `Aggregate` そのもの。Aggregate の AND/OR は意味を持たないので `Comp` にはしない。`cursor.after` による続きの取得は未対応
+
+### 行ロック
+
+Repository の読み取りは `Lock` (`models/common/pagination.ts`) を受け取れる。list は `cursor.lock`、get は第 3 引数で指定する。
+
+- `skip_locked`: 複数のサーバーが同じ仕事を取り合う処理 (未索引バッチ、評価待ちモニター、通知) で、他のワーカーが保持する行を飛ばす
+- `update`: 楽観ロック付きの保存で、読んでから書くまでの間に他の更新を挟ませない
+
+ロックはトランザクションの終わりまで続くので、write phase を持つ usecase の read phase で使う。
+
+### 集約ルート
+
+`Batch` は受信したペイロードと、そこから索引化した `Event` の行を持つ。`batches.upsert` は両方を同じトランザクションで書く。Event の Repository は読み取りだけを公開する。保存済みのバッチは変更しない。再 upsert で変わるのは `indexed` だけ。
+
+### Usecase runner
+
+- phase は `pre → read → process → write → post → finish → result`。`finish` は post の後に新しいトランザクションで書く (例: Webhook の送信結果を記録する)
+- 省略した phase は identity なので、型も前の phase から引き継ぐ。戻り値の型から `Fail` は除かれる
+- `Context.now` は実行ごとに新しくする。presentation (HTTP リクエスト、`presentation/worker.ts` の定期実行) が `{ ...ctx, now: new Date() }` を渡す
+
+### 外部サービス Repository
+
+Webhook (`repositories/webhook`) と利用記録ソケット (`repositories/usage-agent`) は `ServiceCtx` のメソッドを持ち、usecase の post phase から呼ぶ。失敗は例外ではなく `Fail` か結果値で返す。設定値 (Webhook の URL など) は `createRawRepos(config)` で渡す。

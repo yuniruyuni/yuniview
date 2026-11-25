@@ -206,6 +206,8 @@ export interface Point {
 }
 export interface EventRow {
   id: string;
+  batchId: string;
+  ordinal: number;
   at: string;
   source: string;
   instance: string;
@@ -221,6 +223,7 @@ export interface EventRow {
   value: number | null;
   unit: string;
   failed: boolean;
+  entry: boolean;
   attrs: Record<string, unknown>;
 }
 export interface Overview {

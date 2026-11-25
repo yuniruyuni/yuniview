@@ -1,25 +1,34 @@
-import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { sql } from "../../../infra/db";
 import {
   dashboard,
   filter,
   filterField,
   monitor,
   panel,
-} from "../../../models/console";
-import {
-  filterOptions,
-  listEvents,
-  overview,
-  routes,
-  series,
-  traceDetails,
-} from "../../../repositories/console";
-import { saveConfiguration } from "../../../repositories/console/mcp";
+} from "../../../models/panel";
+import { getLibrary } from "../../../usecases/configuration/get-library";
+import { remove } from "../../../usecases/configuration/remove";
+import { saveDashboard } from "../../../usecases/configuration/save-dashboard";
+import { saveMonitor } from "../../../usecases/configuration/save-monitor";
+import { getOverview } from "../../../usecases/console/get-overview";
+import { getSeries } from "../../../usecases/console/get-series";
+import { getTrace } from "../../../usecases/console/get-trace";
+import { listAttributes } from "../../../usecases/console/list-attributes";
+import { listEvents } from "../../../usecases/console/list-events";
+import { listFilterOptions } from "../../../usecases/console/list-filter-options";
+import { listRoutes } from "../../../usecases/console/list-routes";
+import { handleResult } from "../handle-result";
 import { publicProcedure as p, router } from "../init";
 
+const notificationsAvailable = () => Boolean(process.env.MONITOR_WEBHOOK_URL);
 const windowInput = filter.extend({ end: z.iso.datetime() });
+const kind = z.enum(["metric", "log", "span", "event"]);
+const eventCursor = z.object({
+  at: z.string().max(64),
+  source: z.string().max(512),
+  batchId: z.string().max(512),
+  ordinal: z.string().regex(/^\d{1,9}$/),
+});
 export const appRouter = router({
   worksheetFilterOptions: p
     .input(
@@ -31,65 +40,68 @@ export const appRouter = router({
       }),
     )
     .query(({ ctx, input }) =>
-      filterOptions(
-        ctx.db,
+      listFilterOptions(
         input.panel,
         input.field,
         new Date(input.end),
         input.search,
-      ),
+      )
+        .run(ctx)
+        .then(handleResult),
     ),
   worksheetAttributes: p
     .input(
       z.object({
         source: z.string().max(512),
-        kind: z.enum(["metric", "log", "span", "event"]),
+        kind,
         metric: z.string().max(512),
         end: z.iso.datetime(),
         minutes: z.number().int().min(1).max(43200),
       }),
     )
-    .query(async ({ ctx, input }) => {
-      const rows = await ctx.db.queryAll<{
-        key: string;
-      }>(sql`SELECT DISTINCT a.key FROM (
-      SELECT attrs FROM ${input.kind === "event" ? sql`analysis_events` : sql`telemetry_events`} WHERE at<=${input.end}::timestamptz AND at>${input.end}::timestamptz-make_interval(mins=>${input.minutes}::int) AND kind=${input.kind} AND ${input.source ? sql`source=${input.source}` : sql`true`} AND ${input.kind === "metric" ? sql`name=${input.metric}` : sql`true`} ORDER BY at DESC LIMIT 512
-    ) sample CROSS JOIN LATERAL json_each(sample.attrs) a WHERE json_typeof(a.value) IN ('string','number','boolean') AND length(a.key) BETWEEN 1 AND 256 ORDER BY a.key LIMIT 128`);
-      return rows.map((r) => r.key);
-    }),
+    .query(({ ctx, input }) =>
+      listAttributes({ ...input, end: new Date(input.end) })
+        .run(ctx)
+        .then(handleResult),
+    ),
   overview: p
     .input(windowInput)
-    .query(({ ctx, input }) => overview(ctx.db, input, new Date(input.end))),
+    .query(({ ctx, input }) =>
+      getOverview(input, new Date(input.end)).run(ctx).then(handleResult),
+    ),
   events: p
     .input(
       windowInput.extend({
-        kind: z.enum(["log", "metric", "span", "event"]),
+        kind,
         conditions: panel.shape.conditions,
         logContains: filter.shape.text.optional(),
-        offset: z.number().int().min(0).max(1000000),
+        after: eventCursor.optional(),
       }),
     )
     .query(({ ctx, input }) =>
-      listEvents(ctx.db, input, input.kind, new Date(input.end), input.offset),
+      listEvents(input, new Date(input.end), input.after)
+        .run(ctx)
+        .then(handleResult),
     ),
   routes: p
     .input(windowInput)
-    .query(({ ctx, input }) => routes(ctx.db, input, new Date(input.end))),
+    .query(({ ctx, input }) =>
+      listRoutes(input, new Date(input.end)).run(ctx).then(handleResult),
+    ),
   trace: p
     .input(z.string().regex(/^[a-f0-9]{32}$/))
-    .query(({ ctx, input }) => traceDetails(ctx.db, input)),
+    .query(({ ctx, input }) => getTrace(input).run(ctx).then(handleResult)),
   series: p
     .input(z.object({ panel, end: z.iso.datetime(), buckets: z.boolean() }))
     .query(({ ctx, input }) =>
-      series(ctx.db, input.panel, new Date(input.end), input.buckets),
+      getSeries(input.panel, new Date(input.end), input.buckets)
+        .run(ctx)
+        .then(handleResult),
     ),
-  dashboardLibrary: p.query(({ ctx }) =>
-    ctx.db.queryAll<{
-      definition: z.output<typeof dashboard>;
-      version: string;
-    }>(
-      sql`SELECT definition,md5(definition::text) AS version FROM dashboards ORDER BY definition->>'title',id`,
-    ),
+  dashboardLibrary: p.query(
+    async ({ ctx }) =>
+      (await getLibrary(notificationsAvailable()).run(ctx).then(handleResult))
+        .versionedDashboards,
   ),
   applyDashboard: p
     .input(
@@ -99,43 +111,29 @@ export const appRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const saved = await saveConfiguration(
-        ctx.db,
-        input.definition,
-        input.expectedVersion,
+      handleResult(
+        await saveDashboard(input.definition, input.expectedVersion).run(ctx),
       );
-      if (!saved)
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "別の編集が保存されました。最新の設定を開き直してください。",
-        });
       return true;
     }),
-  library: p.query(async ({ ctx }) => ({
-    dashboards: await ctx.repos.dashboards.list(),
-    monitors: await ctx.repos.monitors.list(),
-    history: await ctx.repos.monitorHistory.list(),
-    webhook: Boolean(process.env.MONITOR_WEBHOOK_URL),
-  })),
+  library: p.query(async ({ ctx }) => {
+    const { versionedDashboards: _, ...library } = handleResult(
+      await getLibrary(notificationsAvailable()).run(ctx),
+    );
+    return library;
+  }),
   saveDashboard: p.input(dashboard).mutation(async ({ ctx, input }) => {
-    await ctx.repos.dashboards.upsert(input);
+    handleResult(await saveDashboard(input).run(ctx));
     return true;
   }),
   saveMonitor: p.input(monitor).mutation(async ({ ctx, input }) => {
-    if (input.notify && !process.env.MONITOR_WEBHOOK_URL)
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "通知先が設定されていません",
-      });
-    await ctx.repos.monitors.upsert(input);
+    handleResult(await saveMonitor(input, notificationsAvailable()).run(ctx));
     return true;
   }),
   remove: p
     .input(z.object({ kind: z.enum(["dashboard", "monitor"]), id: z.uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      const repo =
-        input.kind === "dashboard" ? ctx.repos.dashboards : ctx.repos.monitors;
-      return (await repo.delete(input.id)) > 0;
-    }),
+    .mutation(({ ctx, input }) =>
+      remove(input.kind, input.id).run(ctx).then(handleResult),
+    ),
 });
 export type AppRouter = typeof appRouter;
