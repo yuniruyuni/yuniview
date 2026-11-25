@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { context, trace } from "@opentelemetry/api";
+import { context, SpanKind, trace } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import {
   BasicTracerProvider,
@@ -77,8 +77,9 @@ describe("要求の記録", () => {
     context.setGlobalContextManager(
       new AsyncLocalStorageContextManager().enable(),
     );
+    const exporter = new InMemorySpanExporter();
     const provider = new BasicTracerProvider({
-      spanProcessors: [new SimpleSpanProcessor(new InMemorySpanExporter())],
+      spanProcessors: [new SimpleSpanProcessor(exporter)],
     });
     trace.setGlobalTracerProvider(provider);
 
@@ -88,6 +89,10 @@ describe("要求の記録", () => {
     app.get("/t", (c) => c.text("ok"));
     await app.request("/t");
 
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    expect(spans[0].kind).toBe(SpanKind.SERVER);
+    expect(spans[0].attributes["http.route"]).toBe("/t");
     expect(lines[0]).toMatch(/trace_id=[0-9a-f]{32}/);
   });
 

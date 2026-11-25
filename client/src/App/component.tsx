@@ -8,12 +8,14 @@ import {
   type Point,
 } from "../../../shared/console";
 import { clock, number, useQuery } from "../api";
+import { DashboardTime } from "./DashboardTime";
 import { Explorer, Trace } from "./Explore";
 import { Library } from "./Library";
 import { PanelView, Select } from "./Panels";
 
 const pages = {
   overview: "サービス一覧",
+  events: "イベント",
   logs: "ログ",
   apm: "APM",
   metrics: "メトリクス",
@@ -33,6 +35,11 @@ function read() {
 }
 function link(params: Record<string, string>) {
   const p = read();
+  if (params.page && params.page !== p.get("page")) {
+    p.delete("sheet");
+    p.delete("logContains");
+    p.delete("conditions");
+  }
   for (const [k, v] of Object.entries(params)) {
     if (v) p.set(k, v);
     else p.delete(k);
@@ -63,6 +70,17 @@ export function App() {
   const key =
     url.get("page") === "usage" ? "dashboards" : (url.get("page") ?? "");
   const page: Page = Object.hasOwn(pages, key) ? (key as Page) : "overview";
+  const logContains =
+    page === "logs" ? url.get("logContains") || undefined : undefined;
+  let conditions: Panel["conditions"];
+  if (page === "events" && url.has("conditions")) {
+    try {
+      const list = JSON.parse(url.get("conditions") ?? "[]");
+      if (Array.isArray(list)) conditions = list;
+    } catch {
+      /* Ignore malformed links. */
+    }
+  }
   const f: Filter = {
     ...defaults,
     source: url.get("source") ?? "",
@@ -119,6 +137,9 @@ export function App() {
               {title}
             </button>
           ))}
+          <a className="privacy-link" href="/privacy/">
+            プライバシーポリシー
+          </a>
         </nav>
       </aside>
       <main>
@@ -246,7 +267,7 @@ export function App() {
               <button type="submit">検索</button>
             </form>
           )}
-        {fixed && (
+        {fixed && page !== "dashboards" && (
           <p>
             終了時刻 {clock(end)}{" "}
             <button type="button" onClick={refresh}>
@@ -348,6 +369,17 @@ export function App() {
             incoming={incoming}
             consumed={() => setIncoming(null)}
             key={page}
+            timeControl={
+              <DashboardTime
+                minutes={f.minutes}
+                end={end}
+                fixed={!!fixed}
+                change={(minutes, stamp) => {
+                  setNow(new Date().toISOString());
+                  navigate({ minutes: String(minutes), end: stamp ?? "" });
+                }}
+              />
+            }
             mode={page}
             end={end}
             filter={f}
@@ -372,18 +404,25 @@ export function App() {
                     ? "metric"
                     : page === "logs"
                       ? "logs"
-                      : "requests";
+                      : page === "events"
+                        ? "events"
+                        : "requests";
                 setIncoming({
                   ...blankPanel,
                   ...f,
                   measure,
+                  conditions: logContains
+                    ? [{ field: "log", contains: logContains }]
+                    : conditions,
                   metric: measure === "metric" ? metric : "",
                   title:
                     measure === "metric"
                       ? metric
                       : measure === "logs"
                         ? "ログ件数"
-                        : "リクエスト数",
+                        : measure === "events"
+                          ? "イベント実行回数"
+                          : "リクエスト数",
                 });
                 navigate({ page: "dashboards" });
               }}
@@ -398,12 +437,36 @@ export function App() {
                 name={url.get("metric") ?? ""}
               />
             )}
+            {logContains && (
+              <div className="tools">
+                <span>ログ本文に含む文字列：{logContains}</span>
+                <button
+                  type="button"
+                  onClick={() => navigate({ logContains: "" })}
+                >
+                  本文条件を外す
+                </button>
+              </div>
+            )}
             <Explorer
-              key={page + JSON.stringify(f) + end}
+              key={
+                page +
+                JSON.stringify([f, conditions]) +
+                end +
+                (logContains ?? "")
+              }
+              conditions={conditions}
+              logContains={logContains}
               f={f}
               end={end}
               kind={
-                page === "logs" ? "log" : page === "metrics" ? "metric" : "span"
+                page === "events"
+                  ? "event"
+                  : page === "logs"
+                    ? "log"
+                    : page === "metrics"
+                      ? "metric"
+                      : "span"
               }
               showTrace={showTrace}
             />

@@ -1,8 +1,15 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { sql } from "../../../infra/db";
-import { dashboard, filter, monitor, panel } from "../../../models/console";
 import {
+  dashboard,
+  filter,
+  filterField,
+  monitor,
+  panel,
+} from "../../../models/console";
+import {
+  filterOptions,
   listEvents,
   overview,
   routes,
@@ -14,13 +21,51 @@ import { publicProcedure as p, router } from "../init";
 
 const windowInput = filter.extend({ end: z.iso.datetime() });
 export const appRouter = router({
+  worksheetFilterOptions: p
+    .input(
+      z.object({
+        panel,
+        field: filterField,
+        end: z.iso.datetime(),
+        search: z.string().max(512),
+      }),
+    )
+    .query(({ ctx, input }) =>
+      filterOptions(
+        ctx.db,
+        input.panel,
+        input.field,
+        new Date(input.end),
+        input.search,
+      ),
+    ),
+  worksheetAttributes: p
+    .input(
+      z.object({
+        source: z.string().max(512),
+        kind: z.enum(["metric", "log", "span", "event"]),
+        metric: z.string().max(512),
+        end: z.iso.datetime(),
+        minutes: z.number().int().min(1).max(43200),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db.queryAll<{
+        key: string;
+      }>(sql`SELECT DISTINCT a.key FROM (
+      SELECT attrs FROM ${input.kind === "event" ? sql`analysis_events` : sql`telemetry_events`} WHERE at<=${input.end}::timestamptz AND at>${input.end}::timestamptz-make_interval(mins=>${input.minutes}::int) AND kind=${input.kind} AND ${input.source ? sql`source=${input.source}` : sql`true`} AND ${input.kind === "metric" ? sql`name=${input.metric}` : sql`true`} ORDER BY at DESC LIMIT 512
+    ) sample CROSS JOIN LATERAL json_each(sample.attrs) a WHERE json_typeof(a.value) IN ('string','number','boolean') AND length(a.key) BETWEEN 1 AND 256 ORDER BY a.key LIMIT 128`);
+      return rows.map((r) => r.key);
+    }),
   overview: p
     .input(windowInput)
     .query(({ ctx, input }) => overview(ctx.db, input, new Date(input.end))),
   events: p
     .input(
       windowInput.extend({
-        kind: z.enum(["log", "metric", "span"]),
+        kind: z.enum(["log", "metric", "span", "event"]),
+        conditions: panel.shape.conditions,
+        logContains: filter.shape.text.optional(),
         offset: z.number().int().min(0).max(1000000),
       }),
     )

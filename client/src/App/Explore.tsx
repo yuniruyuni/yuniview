@@ -1,14 +1,23 @@
 import { useState } from "react";
-import type { EventRow, Filter, RouteRow } from "../../../shared/console";
+import type {
+  EventRow,
+  FieldCondition,
+  Filter,
+  RouteRow,
+} from "../../../shared/console";
 import { clock, Feedback, number, useQuery } from "../api";
 
 export function Explorer({
   kind,
+  conditions,
+  logContains,
   f,
   end,
   showTrace,
 }: {
-  kind: "span" | "log" | "metric";
+  kind: "event" | "span" | "log" | "metric";
+  conditions?: FieldCondition[];
+  logContains?: string;
   f: Filter;
   end: string;
   showTrace: (id: string) => void;
@@ -17,6 +26,8 @@ export function Explorer({
   const [opened, open] = useState("");
   const { data, error } = useQuery<EventRow[]>("events", {
     ...f,
+    conditions,
+    logContains,
     end,
     kind,
     offset,
@@ -28,6 +39,7 @@ export function Explorer({
       <h3>
         {
           {
+            event: "イベント実行履歴",
             log: "ログストリーム",
             span: "直近のスパン",
             metric: "メトリクスサンプル",
@@ -47,7 +59,13 @@ export function Explorer({
                   <th>時刻</th>
                   <th>サービス / 系</th>
                   <th>{kind === "log" ? "本文" : "名前"}</th>
-                  <th>{kind === "log" ? "レベル" : "値"}</th>
+                  <th>
+                    {kind === "log"
+                      ? "レベル"
+                      : kind === "event"
+                        ? "実行回数"
+                        : "値"}
+                  </th>
                   <th>詳細</th>
                 </tr>
               </thead>

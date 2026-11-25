@@ -18,7 +18,7 @@
  * ログを書く時点で既に終わっており、trace_id を載せられない。張っておけば
  * トレースの根が要求そのものになり、構造としても素直になる。
  */
-import { SpanStatusCode, trace } from "@opentelemetry/api";
+import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import type { Context, MiddlewareHandler } from "hono";
 import type { ILogger } from "../../infra/logger/types";
 import { ingestPath } from "../agent";
@@ -69,37 +69,41 @@ export function requestLog(logger: ILogger): MiddlewareHandler {
     // 購読に必要な資格情報を配ってしまうものが載る。
     // 名前は経路が決まってから updateName で入れる。仮の名前に実際のパスを
     // 使うと、伏せたい値がスパンに残る。
-    return tracer.startActiveSpan(c.req.method, async (span) => {
-      try {
-        await next();
-      } finally {
-        const route = routeOf(c);
-        span.updateName(`${c.req.method} ${route}`);
-        const status = c.res.status;
-        const ms = Math.round(performance.now() - started);
-        span.setAttributes({
-          "http.request.method": c.req.method,
-          "http.route": route,
-          "http.response.status_code": status,
-        });
-        if (status >= 500) {
-          span.setStatus({ code: SpanStatusCode.ERROR });
-        }
-        span.end();
+    return tracer.startActiveSpan(
+      c.req.method,
+      { kind: SpanKind.SERVER },
+      async (span) => {
+        try {
+          await next();
+        } finally {
+          const route = routeOf(c);
+          span.updateName(`${c.req.method} ${route}`);
+          const status = c.res.status;
+          const ms = Math.round(performance.now() - started);
+          span.setAttributes({
+            "http.request.method": c.req.method,
+            "http.route": route,
+            "http.response.status_code": status,
+          });
+          if (status >= 500) {
+            span.setStatus({ code: SpanStatusCode.ERROR });
+          }
+          span.end();
 
-        const fields: [string, string | number][] = [
-          ["method", c.req.method],
-          ["path", route],
-          ["status", status],
-          ["ms", ms],
-          // 終えた後でも文脈から引ける。これが無いとログとトレースが繋がらない。
-          ["trace_id", span.spanContext().traceId],
-        ];
-        const line = fields.map(([k, v]) => `${k}=${value(v)}`).join(" ");
-        // 5xx だけ error にする。4xx は呼ぶ側の誤りで、こちらの異常ではない。
-        if (status >= 500) log.error(line);
-        else log.info(line);
-      }
-    });
+          const fields: [string, string | number][] = [
+            ["method", c.req.method],
+            ["path", route],
+            ["status", status],
+            ["ms", ms],
+            // 終えた後でも文脈から引ける。これが無いとログとトレースが繋がらない。
+            ["trace_id", span.spanContext().traceId],
+          ];
+          const line = fields.map(([k, v]) => `${k}=${value(v)}`).join(" ");
+          // 5xx だけ error にする。4xx は呼ぶ側の誤りで、こちらの異常ではない。
+          if (status >= 500) log.error(line);
+          else log.info(line);
+        }
+      },
+    );
   };
 }

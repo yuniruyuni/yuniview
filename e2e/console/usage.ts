@@ -40,21 +40,65 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
     );
     expect(r.status()).toBe(204);
   }
+  const first = new Date(Date.parse(previous) - 86400000)
+    .toISOString()
+    .slice(0, 10);
+  await visit("blue", first, "a".repeat(64));
   await visit("blue", previous, "");
   await visit("blue", day, "a".repeat(64));
   await visit("green", day, "a".repeat(64));
   await visit("green", day, "b".repeat(64));
   await visit("green", day, "c".repeat(64), "checkout.cart");
-  await page.goto("/#page=dashboards");
+  await page.goto("/#page=dashboards&minutes=10080");
   await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
   const form = page.locator("form.editor");
   await form
-    .getByRole("combobox", { name: "指標", exact: true })
-    .selectOption("distinct");
+    .locator(".field-catalog")
+    .getByRole("button", { name: "ユニーク数", exact: true })
+    .click();
+  const format = form.getByRole("combobox", { name: "表示形式", exact: true });
+  await expect(format.locator("option")).toHaveCount(8);
+  await form.getByLabel("集合名").fill("visit.account");
+  for (const [mark, name] of [
+    ["auto", "系列別の折れ線グラフ"],
+    ["bar", "カテゴリ別の棒グラフ"],
+    ["area", "全系列のエリアグラフ"],
+    ["stacked_area", "全系列の積み上げ面グラフ"],
+    ["line", "系列別の折れ線グラフ"],
+  ]) {
+    await format.selectOption(mark);
+    await expect(form.getByRole("img", { name, exact: true })).toBeVisible();
+  }
+  await format.selectOption("summary");
+  await expect(
+    form
+      .getByRole("row")
+      .filter({ hasText: "checkout" })
+      .getByRole("cell")
+      .nth(1),
+  ).toHaveText("3");
+  await format.selectOption("value");
+  await expect(form.locator(".values strong")).toHaveText("3");
+  await format.selectOption("table");
+  await form
+    .locator('[data-drop="row"] .shelf-chip')
+    .getByRole("button", { name: "時刻", exact: true })
+    .click();
+  const dailyGrain = form.getByLabel("行の時刻の粒度");
+  await expect(dailyGrain.locator("option")).toHaveText(["1日"]);
+  await expect(dailyGrain).toBeDisabled();
+  await expect(form.getByLabel("行のタイムゾーン")).toHaveValue("JST");
+  await page.keyboard.press("Escape");
+  await expect(
+    form
+      .locator(".field-catalog")
+      .getByRole("button", { name: "時刻", exact: true }),
+  ).toHaveCount(1);
   await form.getByLabel("集合名").fill("visit.account");
   for (const [date, count] of [
     [day, "2"],
     [previous, "0"],
+    [first, "1"],
   ]) {
     await expect(
       form
@@ -71,8 +115,22 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
       .getByRole("cell"),
   ).toHaveText("1");
   await expect(form.getByRole("rowheader", { name: previous })).toHaveCount(0);
-  await form.getByRole("button", { name: "パネルを複製" }).click();
+  const actions = form.getByRole("button", { name: "パネル操作" });
+  const copy = form.getByRole("button", { name: "パネルを複製" });
+  const remove = form.getByRole("button", { name: "パネルを削除" });
+  await expect(copy).toBeHidden();
+  await actions.click();
+  await expect(remove).toBeDisabled();
+  await actions.press("Escape");
+  await expect(copy).toBeHidden();
+  await actions.click();
+  await copy.click();
   await expect(form.getByLabel("パネル名")).toHaveValue(/のコピー/);
+  await expect(remove).toBeHidden();
+  await actions.click();
+  await remove.click();
+  await expect(form.locator(".canvas-grid article")).toHaveCount(1);
+  await expect(form.locator(".canvas-grid")).not.toContainText("のコピー");
   await form.getByRole("button", { name: "キャンセル" }).click();
   await page.goto(
     "/#page=metrics&source=checkout&slot=blue&metric=memory.current",
@@ -82,11 +140,12 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
     .click();
   await page.getByRole("button", { name: "編集して追加" }).click();
   await expect(
-    form.getByRole("combobox", { name: "スロット", exact: true }),
-  ).toHaveValue("blue");
+    form.getByRole("button", { name: "スロット · blue", exact: true }),
+  ).toBeVisible();
   await form
-    .getByRole("combobox", { name: "表示", exact: true })
-    .selectOption("pivot");
+    .getByRole("combobox", { name: "表示形式", exact: true })
+    .selectOption("table");
+  await form.getByRole("button", { name: "セーブ" }).click();
   await form.getByLabel("名前", { exact: true }).fill("Resource pivot");
   await form.getByRole("button", { name: "保存", exact: true }).click();
   await expect(
@@ -94,6 +153,91 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
   ).toBeVisible();
   await page.getByRole("button", { name: "memory.current を編集" }).click();
   await expect(
-    form.getByRole("combobox", { name: "表示", exact: true }),
-  ).toHaveValue("pivot");
+    form.getByRole("combobox", { name: "表示形式", exact: true }),
+  ).toHaveValue("table");
+});
+
+test("event panels count occurrences, deduplicate delivery, and open the filtered records", async ({
+  request,
+  page,
+}) => {
+  const { blankPanel } = await import("../../shared/console");
+  const at = new Date().toISOString();
+  const batch = {
+    id: crypto.randomUUID().replaceAll("-", ""),
+    source: {
+      service: "checkout",
+      workload: "app",
+      slot: "blue",
+      instance: "events-test",
+    },
+    time: at,
+    signal: "logs",
+    payload: {
+      bufferedEvents: [
+        { name: "feature.open", at, count: 100, attrs: { feature: "editor" } },
+        { name: "feature.open", at, count: 1, attrs: { feature: "preview" } },
+      ],
+    },
+  };
+  const ingest = (data: unknown) =>
+    request.post(
+      `http://127.0.0.1:${process.env.INGEST_PORT}/api/agent/v1/batches`,
+      {
+        headers: { Authorization: "Bearer " + process.env.CONSOLE_TOKEN },
+        data,
+      },
+    );
+  expect(
+    (
+      await ingest({
+        ...batch,
+        payload: {
+          bufferedEvents: [{ name: "invalid", at, count: -1, attrs: {} }],
+        },
+      })
+    ).status(),
+  ).toBe(400);
+  for (let retry = 0; retry < 2; retry++)
+    expect((await ingest(batch)).status()).toBe(204);
+  const panel = {
+    ...blankPanel,
+    instance: "events-test",
+    group: "all",
+    measure: "events",
+  };
+  const conditions = [{ field: "attr:feature", values: ["preview"] }];
+  for (const [overrides, count] of [
+    [{}, 101],
+    [{ conditions }, 1],
+    [
+      { measure: "distinct", distinct: { dataset: "event", field: "feature" } },
+      2,
+    ],
+  ] as const) {
+    const response = await request.get("/api/trpc/series", {
+      params: {
+        input: JSON.stringify({
+          panel: { ...panel, ...overrides },
+          buckets: false,
+          end: at,
+        }),
+      },
+    });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    expect((await response.json()).result.data[0].value).toBe(count);
+  }
+  await page.goto(
+    "/#" +
+      new URLSearchParams({
+        page: "events",
+        instance: "events-test",
+        conditions: JSON.stringify(conditions),
+        end: at,
+      }),
+  );
+  await expect(page.getByRole("cell", { name: "feature.open" })).toHaveCount(1);
+  await expect(
+    page.getByRole("cell", { name: "1 件", exact: true }),
+  ).toBeVisible();
 });

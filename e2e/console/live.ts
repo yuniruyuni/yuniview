@@ -129,6 +129,44 @@ test("agent records → trace and logs → saved panel → monitor and notificat
       });
       expect((await result.json()).result.data[0].value).toBe(count);
     }
+    const end = new Date().toISOString();
+    const attributes = await request.get("/api/trpc/worksheetAttributes", {
+      params: {
+        input: JSON.stringify({
+          end,
+          minutes: 60,
+          source: "checkout",
+          kind: "log",
+          metric: "",
+        }),
+      },
+    });
+    expect((await attributes.json()).result.data).toContain("order.id");
+    const pivot = {
+      ...blankPanel,
+      source: "checkout",
+      measure: "logs",
+      display: "pivot",
+      text: "order",
+      pivot: { row: "attr:order.id", column: "slot", series: "source" },
+    };
+    const cells = await request.get("/api/trpc/series", {
+      params: { input: JSON.stringify({ panel: pivot, end, buckets: false }) },
+    });
+    expect((await cells.json()).result.data).toEqual([
+      expect.objectContaining({
+        series: "order-a",
+        column: "blue",
+        facet: "checkout",
+        value: 2,
+      }),
+      expect.objectContaining({
+        series: "order-b",
+        column: "blue",
+        facet: "checkout",
+        value: 1,
+      }),
+    ]);
     await ingest("resources", { cpuUsageUsec: 100, memoryBytes: 2048 });
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
@@ -161,31 +199,36 @@ test("agent records → trace and logs → saved panel → monitor and notificat
       .click();
     await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
     const form = page.locator("form.editor");
-    await form.getByLabel("名前", { exact: true }).fill("Checkout SLO");
     await form
-      .getByRole("combobox", { name: "表示", exact: true })
-      .selectOption("pivot");
+      .getByRole("combobox", { name: "表示形式", exact: true })
+      .selectOption("table");
     const details = form.getByRole("link", { name: "checkout blue の詳細" });
     await expect(details).toHaveAttribute("href", /source=checkout/);
     await expect(details).toHaveAttribute("href", /slot=blue/);
-    await form
-      .getByRole("combobox", { name: "行", exact: true })
-      .selectOption("slot");
+    await form.getByRole("button", { name: "行にフィールドを追加" }).click();
+    const picker = page.getByRole("dialog", { name: "行に追加" });
+    await picker.getByRole("searchbox").fill("スロット");
+    await picker.getByRole("button", { name: "スロット", exact: true }).click();
     await expect(
-      form.getByRole("combobox", { name: "列", exact: true }),
-    ).toHaveValue("source");
+      form.locator(
+        '.worksheet-shelves [data-drop="row"] .shelf-chip .drag-source',
+      ),
+    ).toHaveText(["サービス", "スロット"]);
     await expect(
-      form.getByRole("link", { name: "blue checkout の詳細" }),
+      form.getByRole("link", { name: "checkout blue 合計 の詳細" }),
     ).toBeVisible();
     await form.getByRole("button", { name: "元に戻す" }).click();
     await expect(details).toBeVisible();
     await form.getByLabel("パネル名").fill("失敗率");
     await form
-      .getByRole("combobox", { name: "指標", exact: true })
-      .selectOption("errors");
+      .locator(".field-catalog")
+      .getByRole("button", { name: "失敗率 (%)", exact: true })
+      .click();
     await form
-      .getByRole("combobox", { name: "表示", exact: true })
+      .getByRole("combobox", { name: "表示形式", exact: true })
       .selectOption("value");
+    await form.getByRole("button", { name: "セーブ" }).click();
+    await form.getByLabel("名前", { exact: true }).fill("Checkout SLO");
     await form.getByRole("button", { name: "保存" }).click();
     await expect(
       page.getByRole("heading", { name: "Checkout SLO" }),
@@ -296,10 +339,1092 @@ test("slot totals align gauge samples and exclude incomplete minutes", async ({
   await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
   const form = page.locator("form.editor");
   await form
-    .getByRole("combobox", { name: "系列", exact: true })
-    .selectOption("slot_total");
+    .getByRole("combobox", { name: "表示形式", exact: true })
+    .selectOption("stacked_area");
+  await form.getByRole("button", { name: "色に属性を割り当て" }).press("Enter");
+  await page
+    .getByRole("dialog", { name: "色に追加" })
+    .getByRole("button", { name: "スロット", exact: true })
+    .click();
+  const svg = form.getByRole("img", { name: "全系列の積み上げ面グラフ" });
+  await expect(
+    svg.locator("polygon title").filter({ hasText: "観測合計 32 MiB" }),
+  ).toHaveCount(2);
+  await expect(
+    svg.locator("polygon title").filter({ hasText: "観測合計 500 MiB" }),
+  ).toHaveCount(1);
+  await expect(
+    svg.locator("polygon title").filter({ hasText: "観測合計 60 MiB" }),
+  ).toHaveCount(2);
+  await expect(
+    form.locator(".worksheet-shelves > [data-drop] strong"),
+  ).toHaveText(["横軸", "縦軸", "色"]);
+  await expect(form.getByRole("group", { name: "固定スタイル" })).toHaveCount(
+    0,
+  );
+  const format = form.getByRole("combobox", { name: "表示形式", exact: true });
+  await format.selectOption("summary");
+  await expect(
+    form.getByRole("columnheader", { name: "値（MiB）" }),
+  ).toBeVisible();
+  const reading = form
+    .locator(".builder-main table tbody tr")
+    .first()
+    .locator("td")
+    .nth(1);
+  const mib = Number((await reading.innerText()).replaceAll(",", ""));
+  await form.locator('[data-drop="measure"] .shelf-chip button').click();
   await form
-    .getByRole("combobox", { name: "表示", exact: true })
+    .locator(".metric-menu:popover-open")
+    .getByLabel("表示単位")
+    .selectOption("KiB");
+  await page.keyboard.press("Escape");
+  await expect(
+    form.getByRole("columnheader", { name: "値（KiB）" }),
+  ).toBeVisible();
+  expect(Number((await reading.innerText()).replaceAll(",", ""))).toBeCloseTo(
+    mib * 1024,
+    -1,
+  );
+  await form.locator('[data-drop="measure"] .shelf-chip button').click();
+  await form
+    .locator(".metric-menu:popover-open")
+    .getByLabel("表示単位")
+    .selectOption("MiB");
+  await page.keyboard.press("Escape");
+  await format.selectOption("stacked_area");
+  await form.getByRole("button", { name: "色に属性を割り当て" }).click();
+  await page
+    .getByRole("dialog", { name: "色に追加" })
+    .getByRole("button", { name: "スロット", exact: true })
+    .click();
+  await format.selectOption("area");
+  const area = form.getByRole("img", { name: "全系列のエリアグラフ" });
+  const entries = form.locator(".worksheet-plot .legend button[aria-pressed]");
+  await expect(entries).toHaveText(["スロット=blue", "スロット=green"]);
+  await entries.first().click();
+  await expect(entries).toHaveText(["スロット=blue", "スロット=green"]);
+  await entries.first().click();
+  await expect(area.locator("polyline")).toHaveCount(2);
+  const curves = await area
+    .locator("polyline")
+    .evaluateAll((lines) =>
+      lines.map((line) =>
+        Array.from((line as SVGPolylineElement).points, ({ x, y }) => [x, y]),
+      ),
+    );
+  const target = await area.evaluate((svg, x) => {
+    const point = new DOMPoint(x, 70).matrixTransform(
+      (svg as SVGSVGElement).getScreenCTM()!,
+    );
+    return { x: point.x, y: point.y };
+  }, curves[0][0][0]);
+  await page.mouse.move(target.x, target.y);
+  const tip = form.getByRole("tooltip");
+  await expect(tip).toContainText("観測合計32 MiB");
+  await expect(tip).toContainText("スロット=green20 MiB");
+  await area.focus();
+  await area.press("ArrowRight");
+  await expect(tip).toContainText("観測合計60 MiB");
+  await area.press("ArrowRight");
+  await expect(tip).toContainText("スロット=green未観測");
+  await area.press("Escape");
+  await expect(tip).toHaveCount(0);
+  const bands = await area
+    .locator('polygon[fill-opacity="0.25"]')
+    .evaluateAll((polygons) =>
+      polygons.map((polygon) =>
+        Array.from((polygon as SVGPolygonElement).points, ({ x, y }) => [x, y]),
+      ),
+    );
+  for (const [i, curve] of curves.entries()) {
+    expect(bands[i].slice(0, curve.length)).toEqual(curve);
+    expect(bands[i]).toHaveLength(2 * curve.length);
+  }
+  // The second band starts exactly at the first band's cumulative line.
+  expect(bands[1].slice(curves[1].length).reverse()).toEqual(
+    curves[0].slice(0, curves[1].length),
+  );
+  await expect(
+    area.locator("title").filter({ hasText: "観測合計 60 MiB" }),
+  ).toHaveCount(2);
+  await format.selectOption("stacked_area");
+  await form.getByRole("button", { name: "セーブ" }).click();
+  await form.getByLabel("名前", { exact: true }).fill("Stacked memory");
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Stacked memory" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page
+      .getByRole("img", { name: "全系列の積み上げ面グラフ" })
+      .locator("polygon"),
+  ).toHaveCount(5);
+});
+
+test("drag previews, cancellation, field shelves and saved panel order", async ({
+  page,
+}) => {
+  await page.goto("/#page=dashboards");
+  await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
+  const form = page.locator("form.editor");
+  await form.getByLabel("パネル名").fill("First");
+  await form.getByRole("button", { name: "セーブ" }).click();
+  await form.getByRole("button", { name: "＋ パネル追加" }).click();
+  await form.getByLabel("パネル名").fill("Second");
+  await form.getByRole("button", { name: "セーブ" }).click();
+  const titles = form.locator(".canvas-grid article h3 .handle-text");
+  await form.getByRole("button", { name: "First の設定" }).click();
+  await form.getByLabel("パネル名").fill("discard me");
+  await page.reload();
+  await form.getByRole("button", { name: "キャンセル", exact: true }).click();
+  await expect(titles).toHaveText(["First", "Second"]);
+  await form.getByRole("button", { name: "＋ パネル追加" }).click();
+  await form.getByRole("button", { name: "キャンセル", exact: true }).click();
+  await page.reload();
+  await expect(titles).toHaveText(["First", "Second"]);
+  const tiles = form.locator(".canvas-grid .panel-handle");
+  await tiles
+    .first()
+    .evaluate((tile) =>
+      tile.scrollIntoView({ block: "center", behavior: "instant" }),
+    );
+  const a = await tiles.first().boundingBox(),
+    b = await tiles.last().boundingBox();
+  if (!a || !b) throw Error("Missing panels");
+  await page.mouse.move(a.x + 20, a.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(b.x + 20, b.y + 20, { steps: 8 });
+  await expect(titles).toHaveText(["Second", "First"]);
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await expect(titles).toHaveText(["First", "Second"]);
+  await tiles.first().dragTo(tiles.last());
+  await expect(titles).toHaveText(["Second", "First"]);
+  await expect(form.getByLabel("パネル名")).toHaveCount(0);
+  await form.getByRole("button", { name: "First の設定" }).click();
+  await expect(form.getByLabel("パネル名")).toHaveValue("First");
+  await form
+    .locator(".field-catalog")
+    .getByRole("button", { name: "スロット", exact: true })
+    .scrollIntoViewIfNeeded();
+  const axis = await form
+    .locator(".field-catalog")
+    .getByRole("button", { name: "スロット", exact: true })
+    .boundingBox();
+  if (!axis) throw Error("Missing field");
+  await page.mouse.move(axis.x + 10, axis.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(axis.x + 22, axis.y + 10);
+  const shelf = await form
+    .locator('.worksheet-shelves [data-drop="column"]')
+    .boundingBox();
+  if (!shelf) throw Error("Missing pivot destination");
+  await page.mouse.move(shelf.x + 10, shelf.y + 10);
+  await expect(form.locator(".preview-head h4")).toContainText("横軸");
+  await page.mouse.up();
+  await expect(
+    form.getByRole("combobox", { name: "表示形式", exact: true }),
+  ).toHaveValue("line");
+  await expect(page).toHaveURL(/sheet=/);
+  await expect(form.locator(".canvas-grid")).toHaveCount(0);
+  const catalog = form.locator(".field-catalog");
+  const row = form.locator('.worksheet-shelves [data-drop="row"]');
+  await catalog
+    .getByRole("button", { name: "メモリ使用量", exact: true })
+    .dragTo(row);
+  await expect(row.locator(".shelf-chip .drag-source")).toHaveText(
+    "メモリ使用量",
+  );
+  await catalog
+    .getByRole("button", { name: "CPU 使用時間（累積）", exact: true })
+    .dragTo(row);
+  await expect(
+    row.getByRole("button", { name: "cpu.usage を外す" }),
+  ).toBeVisible();
+  await form
+    .getByRole("combobox", { name: "表示形式", exact: true })
+    .selectOption("table");
+  await expect(
+    form.getByRole("rowheader", { name: "memory.current" }),
+  ).toBeVisible();
+  await expect(
+    form.getByRole("rowheader", { name: "cpu.usage" }),
+  ).toBeVisible();
+  await expect(
+    form.getByRole("cell").filter({ hasText: / B$/ }).first(),
+  ).toBeVisible();
+  await expect(
+    form.getByRole("cell").filter({ hasText: / µs$/ }).first(),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    form.getByRole("rowheader", { name: "memory.current" }),
+  ).toBeVisible();
+  await form.getByRole("button", { name: "セーブ" }).click();
+  await form
+    .getByRole("button", { name: "＋ パネル追加" })
+    .dragTo(tiles.first());
+  await expect(titles).toHaveText(["メモリ使用量", "Second", "First"]);
+  await tiles.first().focus();
+  await page.keyboard.press("Alt+ArrowRight");
+  await expect(titles).toHaveText(["Second", "メモリ使用量", "First"]);
+  await form.getByLabel("名前", { exact: true }).fill("Drag studio");
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Drag studio" }),
+  ).toBeVisible();
+  await expect(page.locator(".cards article h3")).toHaveText([
+    "Second",
+    "メモリ使用量",
+    "First",
+  ]);
+  await page.getByRole("button", { name: "編集モード" }).click();
+  await expect(
+    form.getByRole("complementary", { name: "パネル設定" }),
+  ).toHaveCount(0);
+  await expect(form.locator(".canvas-grid article")).toHaveCount(3);
+  await form.getByRole("button", { name: "全幅" }).first().click();
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.locator(".canvas-cell[data-wide] h3")).toHaveText("Second");
+  await page.getByRole("button", { name: "編集モード" }).click();
+  await tiles.first().dragTo(tiles.last());
+  await form.getByRole("button", { name: "キャンセル", exact: true }).click();
+  await expect(page.locator(".canvas-grid h3").first()).toHaveText("Second");
+});
+
+test("compound row and column shelves preserve their hierarchy on save", async ({
+  page,
+  request,
+}) => {
+  const id = randomUUID();
+  const panel = {
+    ...blankPanel,
+    id: randomUUID(),
+    title: "Nested memory",
+    measure: "metric",
+    metric: "memory.current",
+    display: "pivot",
+    pivot: {
+      row: ["source", "slot"],
+      column: ["workload", "measure"],
+      metrics: ["cpu.usage"],
+    },
+  };
+  const saved = await request.post("/api/trpc/applyDashboard", {
+    data: {
+      definition: { id, title: "Hierarchy", panels: [panel] },
+      expectedVersion: null,
+    },
+  });
+  expect(saved.ok()).toBeTruthy();
+  await page.goto("/#page=dashboards&dashboard=" + id);
+  const table = page.locator(".pivot-scroll table");
+  await expect(
+    table.getByRole("rowheader", { name: "checkout" }),
+  ).toHaveAttribute("rowspan", "2");
+  await expect(
+    table.getByRole("columnheader", { name: "app", exact: true }),
+  ).toHaveAttribute("colspan", "2");
+  await expect(table.getByRole("rowheader", { name: "green" })).toBeVisible();
+  await expect(
+    table.getByRole("columnheader", { name: "cpu.usage" }),
+  ).toBeVisible();
+  const cell = table.getByRole("link", {
+    name: "checkout green app memory.current の詳細",
+  });
+  await expect(cell).toHaveAttribute("href", /slot=green/);
+  await expect(cell).toHaveAttribute("href", /workload=app/);
+  await page.getByRole("button", { name: "Nested memory を編集" }).click();
+  const row = page.locator('.worksheet-shelves [data-drop="row"]');
+  const chips = row.locator(".shelf-chip .drag-source");
+  await chips.last().dragTo(chips.first());
+  await expect(chips).toHaveText(["スロット", "サービス"]);
+  await page.getByRole("button", { name: "ワークロード を列から外す" }).click();
+  await page
+    .locator(".field-catalog")
+    .getByRole("button", { name: "リビジョン", exact: true })
+    .dragTo(page.locator('.worksheet-shelves [data-drop="column"]'));
+  await page.getByRole("button", { name: "セーブ" }).click();
+  await expect(page.getByRole("heading", { name: "Hierarchy" })).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Nested memory を編集" }).click();
+  await expect(chips).toHaveText(["スロット", "サービス"]);
+  await expect(
+    page.locator(
+      '.worksheet-shelves [data-drop="column"] .shelf-chip .drag-source',
+    ),
+  ).toHaveText(["メモリ使用量", "リビジョン"]);
+  await page.getByLabel("パネル名").fill("cancelled name");
+  await page.getByRole("button", { name: "キャンセル", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Nested memory を編集" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Nested memory を編集" }),
+  ).toBeVisible();
+});
+
+test("worksheet encodes time or categories on either axis and splits observed series tuples", async ({
+  page,
+  request,
+}) => {
+  const t = Math.floor(Date.now() / 60000) * 60000 - 180000;
+  for (const [slot, revision] of [
+    ["blue", "A"],
+    ["blue", "B"],
+    ["green", "B"],
+  ]) {
+    for (const [i, cpu] of [
+      [0, 0],
+      [1, 5000000],
+      [2, 1000],
+    ]) {
+      const res = await request.post(
+        `http://127.0.0.1:${process.env.INGEST_PORT}/api/agent/v1/batches`,
+        {
+          headers: {
+            Authorization: `Bearer ${slot === "blue" ? process.env.CONSOLE_TOKEN : process.env.GREEN_TEST_TOKEN}`,
+          },
+          data: {
+            id: randomUUID().replaceAll("-", ""),
+            time: new Date(t + i * 10000).toISOString(),
+            source: {
+              service: "checkout",
+              workload: "app",
+              slot,
+              revision,
+              instance: "axis-test",
+            },
+            signal: "resources",
+            payload: { cpuUsageUsec: cpu, memoryBytes: 1048576 * (i + 1) },
+          },
+        },
+      );
+      expect(res.status(), await res.text()).toBe(204);
+    }
+  }
+  await page.goto("/#page=dashboards");
+  await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
+  const form = page.locator("form.editor");
+  const place = async (label: string, shelf: string) =>
+    form
+      .locator(".field-catalog")
+      .getByRole("button", { name: label, exact: true })
+      .dragTo(form.locator('[data-drop="' + shelf + '"]'));
+  await place("時刻", "column");
+  const catalog = form.locator(".field-catalog");
+  await expect(
+    catalog.getByRole("button", { name: "時刻", exact: true }),
+  ).toHaveCount(1);
+  await expect(catalog.getByRole("button", { name: /日付/ })).toHaveCount(0);
+  const timeChip = form
+    .locator('[data-drop="column"] .shelf-chip')
+    .getByRole("button", { name: "時刻", exact: true });
+  const grain = form.getByLabel("横軸の時刻の粒度");
+  const zone = form.getByLabel("横軸のタイムゾーン");
+  await timeChip.click();
+  await grain.selectOption({ label: "1日" });
+  await expect(zone).toHaveValue("JST");
+  await page.reload();
+  await timeChip.click();
+  await expect(grain).toHaveValue("time:86400");
+  await zone.selectOption("UTC");
+  await expect(grain).toHaveValue("time:86400");
+  await grain.selectOption("time:10");
+  await page.reload();
+  await timeChip.click();
+  await expect(grain).toHaveValue("time:10");
+  await expect(zone).toHaveValue("UTC");
+  await page.keyboard.press("Escape");
+  await place("CPU 使用率 (%)", "row");
+  await place("メモリ使用量", "row");
+  await place("スロット", "style-color");
+  await place("リビジョン", "style-dash");
+  await form
+    .locator(".field-catalog")
+    .getByRole("button", { name: "インスタンス", exact: true })
+    .dragTo(form.locator('[data-drop="filter"]'));
+  const filterEditor = form.getByRole("region", {
+    name: "インスタンス の条件",
+  });
+  await filterEditor.getByLabel("axis-test", { exact: true }).check();
+  await filterEditor.getByRole("button", { name: "閉じる" }).click();
+  const plot = form.locator(".worksheet-plot");
+  await expect(
+    plot.getByRole("img", { name: "系列別の折れ線グラフ" }),
+  ).toBeVisible();
+  await expect(plot.locator(".legend button[aria-pressed]")).toHaveCount(6);
+  const utcClock = new Date(t).toISOString().slice(11, 19);
+  await expect(
+    plot
+      .getByRole("img")
+      .locator("title")
+      .filter({ hasText: utcClock })
+      .first(),
+  ).toBeAttached();
+  await timeChip.click();
+  await zone.selectOption("JST");
+  await page.keyboard.press("Escape");
+  const jstClock = new Date(t + 9 * 3600000).toISOString().slice(11, 19);
+  await expect(
+    plot
+      .getByRole("img")
+      .locator("title")
+      .filter({ hasText: jstClock })
+      .first(),
+  ).toBeAttached();
+
+  const format = form.getByRole("combobox", { name: "表示形式", exact: true });
+  await expect(format).toHaveCount(1);
+  await format.selectOption("bar");
+  await expect(
+    form.locator('.worksheet-shelves [data-drop^="style-"]'),
+  ).toHaveCount(1);
+  const metricButton = form
+    .locator(".shelf-chip button")
+    .filter({ hasText: "メモリ使用量" })
+    .first();
+  const colorZone = form.locator('[data-drop="style-color"]');
+  const before = await colorZone.boundingBox();
+  await metricButton.click();
+  const unit = form.locator(".metric-menu:popover-open").getByLabel("表示単位");
+  await unit.selectOption("MiB");
+  await expect(
+    plot.getByRole("img").locator("title").filter({ hasText: "MiB" }).first(),
+  ).toBeAttached();
+
+  const control = await metricButton.boundingBox();
+  const menu = await form.locator(".metric-menu:popover-open").boundingBox();
+  if (!control || !menu) throw Error("Missing aggregation popup");
+  expect(menu.y).toBeGreaterThanOrEqual(control.y + control.height - 1);
+  expect(await colorZone.boundingBox()).toEqual(before);
+  await form
+    .locator(".metric-menu:popover-open")
+    .getByRole("button", { name: "最大", exact: true })
+    .click();
+  await form
+    .locator(".shelf-chip button")
+    .filter({ hasText: "CPU 使用率" })
+    .first()
+    .click();
+  await expect(
+    form.locator(".metric-menu:popover-open").getByLabel("表示単位"),
+  ).toHaveCount(0);
+  await form
+    .locator(".metric-menu:popover-open")
+    .getByRole("button", { name: "最小", exact: true })
+    .click();
+  await format.selectOption("stacked_area");
+  await expect(
+    form.getByText("積み上げ面には同じ単位の指標を配置してください。"),
+  ).toBeVisible();
+  await format.selectOption("line");
+  await place("リビジョン", "style-dash");
+  await expect(plot.locator(".legend")).toContainText(
+    "スロット=green · リビジョン=B",
+  );
+  await expect(
+    plot.locator("circle title").filter({ hasText: "50 %" }),
+  ).toHaveCount(3);
+  await expect(
+    plot.locator("circle title").filter({ hasText: "CPU 使用率" }),
+  ).toHaveCount(3);
+  const dialog = page.getByRole("dialog", { name: "凡例のスタイルを編集" });
+  const editStyles = async (label: string) => {
+    await form.getByRole("button", { name: "凡例のスタイルを編集" }).click();
+    await dialog.getByRole("button", { name: label, exact: true }).click();
+  };
+  const constant = async (role: string, name: string) => {
+    await editStyles(role);
+    await dialog.getByLabel("全項目の割り当て").selectOption({ label: name });
+    await dialog.getByRole("button", { name: "閉じる" }).click();
+  };
+  await constant("点の形", "三角");
+  await form.getByRole("button", { name: "色に属性を割り当て" }).click();
+  const colorDialog = page.getByRole("dialog", { name: "色に追加" });
+  await expect(colorDialog.getByText("全系列に適用")).toHaveCount(0);
+  await colorDialog
+    .getByRole("button", { name: "スロット", exact: true })
+    .click();
+  await form.getByRole("button", { name: "色の割り当てを外す" }).click();
+  await constant("線種", "破線");
+  await constant("線の太さ", "太い");
+  await expect(
+    plot
+      .getByRole("img")
+      .locator('path[stroke-dasharray="7 4"][stroke-width="3.5"]'),
+  ).toHaveCount(4);
+  const styleShelves = form.getByRole("group", {
+    name: "フィールドの割り当て",
+    exact: true,
+  });
+  const assignStyle = async (field: string, channel: string) =>
+    form
+      .locator(".field-catalog")
+      .getByRole("button", { name: field, exact: true })
+      .dragTo(styleShelves.locator('[data-drop="style-' + channel + '"]'));
+  await assignStyle("スロット", "color");
+  await assignStyle("リビジョン", "dash");
+  await assignStyle("スロット", "width");
+  await form
+    .getByRole("button", { name: "点の形に属性を割り当て" })
+    .press("Enter");
+  await page
+    .getByRole("dialog", { name: "点の形に追加" })
+    .getByRole("button", { name: "リビジョン", exact: true })
+    .click();
+  await expect(styleShelves.locator('[data-drop="style-shape"]')).toContainText(
+    "リビジョン",
+  );
+  await styleShelves
+    .getByRole("button", { name: "点の形の割り当てを外す" })
+    .click();
+  await expect(styleShelves.locator('[data-drop="style-shape"]')).toContainText(
+    "三角",
+  );
+  await constant("線種", "自動");
+  await constant("線の太さ", "自動");
+  await constant("点の形", "自動");
+  await assignStyle("スロット", "shape");
+  await assignStyle("リビジョン", "shape");
+  await expect(
+    plot.getByRole("img").locator('path[stroke-dasharray="1 4"]'),
+  ).toHaveCount(4);
+  await expect(
+    plot.getByRole("img").locator('path[stroke-width="1"]'),
+  ).toHaveCount(4);
+  await expect(plot.getByRole("img").locator("rect")).toHaveCount(8);
+  const diagram = await plot.getByRole("img").boundingBox(),
+    legend = await plot.locator(".legend").boundingBox();
+  expect(legend!.x).toBeGreaterThanOrEqual(diagram!.x + diagram!.width - 1);
+  await expect(
+    plot.locator('.legend-key line[stroke-dasharray="1 4"]'),
+  ).toHaveCount(4);
+  await editStyles("点の形");
+  const originalViewport = page.viewportSize()!;
+  const rowGeometry = () =>
+    dialog.locator(".legend-style-entry").evaluateAll((rows) =>
+      rows.map((row) => {
+        const label = row.querySelector("span")!;
+        const text = document.createRange();
+        text.selectNodeContents(label.lastChild!);
+        return [row, text, row.querySelector("select")!].map((item) => {
+          const { x, y, width, height } = item.getBoundingClientRect();
+          return [x, y, width, height];
+        });
+      }),
+    );
+  const individual = dialog.getByLabel("B の個別指定");
+  for (const viewport of [originalViewport, { width: 375, height: 667 }]) {
+    await page.setViewportSize(viewport);
+    const before = await rowGeometry();
+    await individual.selectOption({ label: "三角" });
+    await expect(dialog.locator(".style-sample polygon")).toBeVisible();
+    expect(await rowGeometry()).toEqual(before);
+    await individual.selectOption({ label: "全項目に従う" });
+    expect(await rowGeometry()).toEqual(before);
+  }
+  await page.setViewportSize(originalViewport);
+  await individual.selectOption({ label: "三角" });
+  await dialog.getByRole("button", { name: "閉じる" }).click();
+  await expect(plot.getByRole("img").locator("polygon")).toHaveCount(8);
+  await expect(plot.locator(".legend-key polygon")).toHaveCount(4);
+  await expect(form.locator('[data-drop="filter"] select')).toHaveCount(0);
+  await constant("点の形", "四角");
+  await expect(plot.getByRole("img").locator("rect")).toHaveCount(4);
+  await expect(plot.getByRole("img").locator("polygon")).toHaveCount(8);
+  await expect(styleShelves.locator('[data-drop="style-shape"]')).toContainText(
+    "リビジョン",
+  );
+  await page.reload();
+  await editStyles("点の形");
+  await expect(dialog.getByLabel("全項目の割り当て")).toHaveValue("1");
+  await expect(dialog.getByLabel("B の個別指定")).toHaveValue("2");
+  await dialog
+    .getByLabel("B の個別指定")
+    .selectOption({ label: "全項目に従う" });
+  await dialog.getByRole("button", { name: "閉じる" }).click();
+  await expect(plot.getByRole("img").locator("rect")).toHaveCount(12);
+  await format.selectOption("auto");
+  await form
+    .getByRole("button", { name: "時刻（10秒） を横軸から外す" })
+    .click();
+  await place("ワークロード", "column");
+  await expect(
+    plot.getByRole("img", { name: "カテゴリ別の棒グラフ" }),
+  ).toBeVisible();
+  await place("ワークロード", "row");
+  await form
+    .locator('[data-drop="row"] .shelf-chip .drag-source')
+    .filter({ hasText: "メモリ使用量" })
+    .dragTo(form.locator('.worksheet-shelves [data-drop="column"]'));
+  await expect(plot).toContainText("横軸 指標");
+  await expect(plot.getByRole("img").locator("rect")).toHaveCount(4);
+  await form.getByRole("button", { name: "セーブ" }).click();
+  await form.getByLabel("名前", { exact: true }).fill("Axis chart");
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Axis chart", exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.locator(".worksheet-plot svg[role=img] rect")).toHaveCount(
+    4,
+  );
+  await expect(
+    page.locator("rect title").filter({ hasText: "3 MiB" }),
+  ).toHaveCount(2);
+  await page.locator("button.panel-title").first().click();
+  await expect(form.locator(".worksheet-shelves")).toContainText("最大");
+  await expect(form.locator(".worksheet-shelves")).toContainText("最小");
+  await expect(
+    form.getByRole("button", { name: "ダッシュボードの期間" }),
+  ).toBeVisible();
+  await expect(form.locator('[data-drop="series"]')).toHaveCount(0);
+});
+
+test("worksheet shows only panel controls and fits inside the viewport", async ({
+  page,
+}) => {
+  await page.goto("/#page=dashboards");
+  await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
+  const form = page.locator("form.editor");
+  await expect(page.getByRole("heading", { name: "パネル編集" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "ダッシュボード", exact: true }),
+  ).toHaveCount(0);
+  await expect(form.getByLabel("名前", { exact: true })).toHaveCount(0);
+  await expect(
+    form.getByRole("button", { name: "保存", exact: true }),
+  ).toHaveCount(0);
+  for (const [width, height] of [
+    [1280, 720],
+    [375, 667],
+  ]) {
+    await page.setViewportSize({ width, height });
+    const header = form.locator(".worksheet-heading");
+    const controls = await Promise.all(
+      [
+        header.getByRole("heading", { name: "パネル編集" }),
+        header.getByRole("textbox", { name: "パネル名" }),
+        header.getByRole("button", { name: "ダッシュボードの期間" }),
+        header.getByRole("button", { name: "キャンセル" }),
+        header.getByRole("button", { name: "セーブ" }),
+        header.getByRole("button", { name: "パネル操作" }),
+      ].map((control) => control.boundingBox()),
+    );
+    for (const i of [0, 2, 3, 4]) {
+      const left = controls[i],
+        right = controls[i + 1];
+      if (!left || !right) throw Error("Missing worksheet header control");
+      expect(left.x + left.width).toBeLessThanOrEqual(right.x);
+      expect(left.y + left.height / 2).toBeCloseTo(
+        right.y + right.height / 2,
+        0,
+      );
+    }
+    const format = await form.locator(".worksheet-format").boundingBox();
+    const catalog = await form.locator(".field-catalog").boundingBox();
+    const zones = await form
+      .locator(".worksheet-shelves > [data-drop]")
+      .evaluateAll((els) =>
+        els.map((el) => {
+          const { left, top, bottom, width } = el.getBoundingClientRect();
+          return { left, top, bottom, width };
+        }),
+      );
+    if (!format || !catalog || zones.length !== 6)
+      throw Error("Missing worksheet controls");
+    expect(format.x).toBeCloseTo(catalog.x);
+    expect(format.y + format.height).toBeLessThanOrEqual(catalog.y);
+    const filter = await form
+      .locator(".assignment-pane .filter-shelf")
+      .boundingBox();
+    const preview = await form.locator(".builder-main").boundingBox();
+    if (!filter || !preview) throw Error("Missing filter or preview");
+    expect(filter.x).toBeCloseTo(zones[0].left);
+    expect(filter.y + filter.height).toBeLessThanOrEqual(zones[0].top);
+    expect(zones[0].left + zones[0].width).toBeLessThanOrEqual(catalog.x);
+    if (width > 800)
+      expect(preview.x + preview.width).toBeLessThanOrEqual(filter.x);
+    else expect(preview.y).toBeGreaterThanOrEqual(catalog.y + catalog.height);
+    zones.slice(1).forEach((zone, i) => {
+      expect(zone.left).toBeCloseTo(zones[0].left);
+      expect(zone.width).toBeCloseTo(zones[0].width);
+      expect(zone.top).toBeGreaterThanOrEqual(zones[i].bottom);
+    });
+    for (const element of [
+      form.getByRole("button", { name: "セーブ", exact: true }),
+      form.locator(".field-catalog"),
+      form.locator(".assignment-pane"),
+      form.locator(".builder-main > .card"),
+    ]) {
+      await expect(element).toBeInViewport({ ratio: 1 });
+    }
+    expect(
+      await page.evaluate(() => document.documentElement.scrollHeight),
+    ).toBeLessThanOrEqual(height);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+  }
+  const formatSelect = form.getByRole("combobox", {
+    name: "表示形式",
+    exact: true,
+  });
+  for (const format of ["summary", "value"]) {
+    await formatSelect.selectOption(format);
+    const value = form.locator('[data-drop="measure"]');
+    const group = form.locator('[data-drop="group"]');
+    await expect(value.locator(".shelf-target strong")).toHaveText("値");
+    await expect(group.locator(".shelf-target strong")).toHaveText("分類");
+    await value
+      .locator(".shelf-chip")
+      .getByRole("button", { name: "メモリ使用量" })
+      .click();
+    await expect(
+      form.locator(".metric-menu:popover-open").getByLabel("表示単位"),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await group.getByRole("button", { name: "分類にフィールドを追加" }).click();
+    await page
+      .getByRole("dialog", { name: "分類に追加" })
+      .getByRole("button", { name: "サービス", exact: true })
+      .click();
+    await expect(group.locator(".shelf-chip")).toContainText("サービス");
+    await group.getByRole("button", { name: "分類の割り当てを外す" }).click();
+    await expect(group.locator(".shelf-chip")).toHaveText("全体");
+  }
+  const range = form.getByRole("button", { name: "ダッシュボードの期間" });
+  await range.click();
+  await page.getByRole("button", { name: "直近15分", exact: true }).click();
+  await expect(form.locator(".builder-main .card small").first()).toContainText(
+    "15分",
+  );
+  await range.click();
+  const days = page.locator(".range-calendar button");
+  await days.nth(1).click();
+  await days.nth(3).click();
+  await expect(days.nth(2)).toHaveAttribute("aria-pressed", "true");
+  await page.getByLabel("開始日", { exact: true }).fill("2026-03-01");
+  await page.getByLabel("終了日", { exact: true }).fill("2026-03-02");
+  await page.getByRole("button", { name: "範囲を適用" }).click();
+  await expect(page).toHaveURL(/minutes=2880/);
+  await form.getByRole("button", { name: "セーブ" }).click();
+  await form.getByRole("button", { name: "＋ パネル追加" }).click();
+  await form.getByRole("button", { name: "セーブ" }).click();
+  await expect(
+    form.locator(".canvas-grid article small").filter({ hasText: "2880分" }),
+  ).toHaveCount(2);
+  await expect(range).toHaveText(/2026-03-01.*2026-03-02/);
+});
+
+test("filter shelf combines observed choices with numeric and time ranges before aggregation", async ({
+  page,
+}) => {
+  await page.goto("/#page=dashboards");
+  await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
+  const form = page.locator("form.editor"),
+    catalog = form.locator(".field-catalog"),
+    shelf = form.locator('[data-drop="filter"]');
+  await form
+    .locator(".field-catalog")
+    .getByRole("button", { name: "リクエスト数", exact: true })
+    .click();
+  await form
+    .getByRole("combobox", { name: "表示形式", exact: true })
     .selectOption("value");
-  await expect(form.locator(".values strong")).toHaveText("46");
+  await catalog
+    .getByRole("button", { name: "http.response.status_code", exact: true })
+    .dragTo(shelf);
+  const code = form.getByRole("region", {
+    name: "http.response.status_code の条件",
+  });
+  await code.getByLabel("下限").fill("504");
+  await code.getByRole("button", { name: "範囲を適用" }).click();
+  await expect(form.locator(".builder-main .empty")).toBeVisible();
+  await code.getByLabel("下限").fill("503");
+  await code.getByLabel("上限").fill("503");
+  await code.getByRole("button", { name: "範囲を適用" }).click();
+  await expect(form.locator(".values strong")).toHaveText("1");
+  await code.getByRole("button", { name: "閉じる" }).click();
+  await catalog
+    .getByRole("button", { name: "http.route", exact: true })
+    .dragTo(shelf);
+  await form.getByRole("checkbox", { name: "/pay", exact: true }).check();
+  await form
+    .getByRole("region", { name: "http.route の条件" })
+    .getByRole("button", { name: "閉じる" })
+    .click();
+  await catalog
+    .getByRole("button", { name: "時刻", exact: true })
+    .dragTo(shelf);
+  const time = form.getByRole("region", { name: "時刻 の条件" });
+  await expect(time.getByLabel("上限")).toHaveAttribute(
+    "type",
+    "datetime-local",
+  );
+  await time.getByRole("button", { name: "日単位（JST）で指定" }).click();
+  const dateFilter = form.getByRole("region", {
+    name: "時刻（1日・JST） の条件",
+  });
+  await expect(dateFilter.getByLabel("上限")).toHaveAttribute("type", "date");
+  await dateFilter.getByRole("button", { name: "日時で指定" }).click();
+  await time.getByLabel("上限").fill("2000-01-01T00:00");
+  await time.getByRole("button", { name: "範囲を適用" }).click();
+  await expect(form.locator(".builder-main .empty")).toBeVisible();
+  await form.getByRole("button", { name: "時刻 のフィルターを外す" }).click();
+  await expect(form.locator(".values strong")).toHaveText("1");
+  await form.getByRole("button", { name: "セーブ" }).click();
+  await form.getByLabel("名前", { exact: true }).fill("Filtered requests");
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Filtered requests" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.locator(".values strong")).toHaveText("1");
+  await page.locator("button.panel-title").first().click();
+  await expect(
+    page.getByRole("button", { name: "http.route · /pay", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", {
+      name: "http.response.status_code · 503 ～ 503",
+      exact: true,
+    })
+    .click();
+  await expect(page.getByLabel("上限")).toHaveValue("503");
+});
+
+test("log body is a literal free-text filter, independent of grouping", async ({
+  page,
+  request,
+}) => {
+  const term = "ReTrY 50%_";
+  const t = new Date(Date.now() - 5000).toISOString();
+  const source = {
+    service: "checkout",
+    workload: "app",
+    slot: "blue",
+    instance: "body-search",
+    revision: "body-search",
+  };
+  const r = await request.post(
+    `http://127.0.0.1:${process.env.INGEST_PORT}/api/agent/v1/batches`,
+    {
+      headers: { Authorization: `Bearer ${process.env.CONSOLE_TOKEN}` },
+      data: {
+        id: randomUUID().replaceAll("-", ""),
+        time: t,
+        source,
+        signal: "logs",
+        payload: {
+          resourceLogs: [
+            {
+              scopeLogs: [
+                {
+                  logRecords: [
+                    { body: { stringValue: "will retry 50%_ now" } },
+                    { body: { stringValue: "will retry 500 now" } },
+                    { severityText: term, body: { stringValue: "unrelated" } },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    },
+  );
+  expect(r.status()).toBe(204);
+  await page.goto("/#page=dashboards&revision=body-search");
+  await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
+  const form = page.locator("form.editor"),
+    catalog = form.locator(".field-catalog");
+  const log = catalog.getByRole("button", { name: "ログ", exact: true });
+  await expect(log).toBeDisabled();
+  await form
+    .locator(".field-catalog")
+    .getByRole("button", { name: "ログ件数", exact: true })
+    .click();
+  const verifyCountAxis = async (name: string) => {
+    const chart = form.getByRole("img", { name, exact: true });
+    const labels = chart.locator(":scope > g > text");
+    await expect(labels).toHaveText(["0", "1", "2", "3"]);
+    const cy = Number(await chart.locator("circle").first().getAttribute("cy"));
+    const grid = Number(
+      await chart
+        .locator(":scope > g")
+        .filter({ has: page.locator("text", { hasText: /^3$/ }) })
+        .locator("line")
+        .getAttribute("y1"),
+    );
+    expect(cy).toBeCloseTo(grid);
+  };
+  await verifyCountAxis("集計値の推移");
+  await catalog
+    .getByRole("button", { name: "時刻", exact: true })
+    .dragTo(form.locator('[data-drop="column"]'));
+  await verifyCountAxis("系列別の折れ線グラフ");
+  await form
+    .getByRole("combobox", { name: "表示形式", exact: true })
+    .selectOption("value");
+  await expect(
+    form.locator(".worksheet-shelves > [data-drop] strong"),
+  ).toHaveText(["値", "分類"]);
+  await catalog
+    .getByRole("button", { name: "サービス", exact: true })
+    .dragTo(form.locator('[data-drop="group"]'));
+  await expect(form.locator('[data-drop="group"]')).toContainText("サービス");
+  await expect(form.locator(".values strong")).toHaveText("3");
+  await expect(form.locator('[data-drop="column"]')).toHaveCount(0);
+  await log.dragTo(form.locator('[data-drop="group"]'));
+  await expect(
+    form.getByRole("combobox", { name: "表示形式", exact: true }),
+  ).toHaveValue("value");
+  await log.dragTo(form.locator('[data-drop="filter"]'));
+  const editor = form.getByRole("region", { name: "ログ の条件" });
+  await editor.getByLabel("本文に含む文字列").fill(term);
+  await editor.getByLabel("本文に含む文字列").press("Enter");
+  await expect(form.locator(".values strong")).toHaveText("1");
+  await editor.getByRole("button", { name: "閉じる" }).click();
+  await form.locator('[data-drop="group"] button').first().click();
+  const picker = page.getByRole("dialog");
+  await expect(
+    picker.getByRole("button", { name: "ログ", exact: true }),
+  ).toHaveCount(0);
+  await picker.getByRole("button", { name: "閉じる" }).click();
+  await form.getByRole("button", { name: "セーブ" }).click();
+  await form.getByLabel("名前", { exact: true }).fill("Literal log filter");
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Literal log filter" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.locator(".values strong")).toHaveText("1");
+  const boardUrl = page.url();
+  await page.getByRole("link", { name: "調査", exact: true }).click();
+  await expect(
+    page.getByRole("cell", { name: "will retry 50%_ now", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "unrelated", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "本文条件を外す" }).click();
+  await expect(
+    page.getByRole("cell", { name: "unrelated", exact: true }),
+  ).toBeVisible();
+  await page.goto(boardUrl);
+  await page.locator("button.panel-title").first().click();
+  await form.getByRole("button", { name: "ログ のフィルターを外す" }).click();
+  await expect(form.locator(".values strong")).toHaveText("3");
+});
+
+test("method-filtered counts use the filtered axis and follow the pointer over the tooltip", async ({
+  page,
+  request,
+}) => {
+  const end = Math.floor(Date.now() / 90000) * 90000;
+  const filtered = [2, 5, 3];
+  const revision = "method-axis";
+  const logRecords = filtered.flatMap((count, i) =>
+    Array.from({ length: 42 }, (_, j) => ({
+      timeUnixNano: String(BigInt(end - (36 - i * 16) * 90000) * 1000000n),
+      body: { stringValue: j < count ? "method=GET" : "worker idle" },
+    })),
+  );
+  const batch = await request.post(
+    `http://127.0.0.1:${process.env.INGEST_PORT}/api/agent/v1/batches`,
+    {
+      headers: { Authorization: "Bearer " + process.env.CONSOLE_TOKEN },
+      data: {
+        id: randomUUID().replaceAll("-", ""),
+        time: new Date(end).toISOString(),
+        source: {
+          service: "checkout",
+          workload: "app",
+          slot: "blue",
+          revision,
+          instance: "axis",
+        },
+        signal: "logs",
+        payload: { resourceLogs: [{ scopeLogs: [{ logRecords }] }] },
+      },
+    },
+  );
+  expect(batch.status()).toBe(204);
+  const id = randomUUID();
+  const panel = {
+    ...blankPanel,
+    measure: "logs",
+    metric: "",
+    display: "chart",
+    group: "source",
+    revision,
+    minutes: 60,
+  };
+  const saved = await request.post("/api/trpc/applyDashboard", {
+    data: {
+      expectedVersion: null,
+      definition: {
+        id,
+        title: "Filter scale",
+        panels: [
+          { ...panel, title: "All" },
+          { ...panel, title: "HTTP", text: "method=" },
+        ],
+      },
+    },
+  });
+  expect(saved.ok()).toBeTruthy();
+  await page.goto(
+    "/#page=dashboards&dashboard=" + id + "&end=" + new Date(end).toISOString(),
+  );
+  for (const [title, values] of [
+    ["All", [42, 42, 42]],
+    ["HTTP", filtered],
+  ] as const) {
+    const card = page.locator("article").filter({
+      has: page.getByRole("button", { name: title + " を編集", exact: true }),
+    });
+    const chart = card.getByRole("img", { name: "集計値の推移" });
+    await expect(chart.locator("circle")).toHaveCount(values.length);
+    const ticks = chart.locator(":scope > g > text");
+    await expect(ticks.last()).toHaveText(title === "HTTP" ? "6" : "60");
+    await chart.scrollIntoViewIfNeeded();
+    const coords = await chart.evaluate((svg) => {
+      const el = svg as SVGSVGElement,
+        lines = el.querySelectorAll(":scope > g > line");
+      const bottom = Number(lines[0].getAttribute("y1")),
+        top = Number(lines[lines.length - 1].getAttribute("y1"));
+      const max = Number(
+        el.querySelectorAll(":scope > g > text")[lines.length - 1].textContent,
+      );
+      return [...el.querySelectorAll("circle")].map((c) => {
+        const point = new DOMPoint(
+          c.cx.baseVal.value,
+          c.cy.baseVal.value,
+        ).matrixTransform(el.getScreenCTM()!);
+        return {
+          x: point.x,
+          y: point.y,
+          value: (max * (bottom - c.cy.baseVal.value)) / (bottom - top),
+        };
+      });
+    });
+    const tip = card.getByRole("tooltip");
+    for (const [i, pos] of coords.entries()) {
+      expect(pos.value).toBeCloseTo(values[i]);
+      if (i === 0) await page.mouse.move(pos.x, pos.y);
+      else
+        await tip.dispatchEvent("pointermove", {
+          clientX: pos.x,
+          clientY: pos.y,
+        });
+      await expect(tip.locator("dd")).toHaveText(values[i] + " 件");
+    }
+    await page.mouse.move(0, 0);
+  }
 });

@@ -3,7 +3,12 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { sql } from "../../infra/db";
 import type { Database } from "../../infra/db/database";
-import { batchSchema, dailySet, usageMark } from "../../models/telemetry";
+import {
+  batchSchema,
+  bufferedEvents,
+  dailySet,
+  usageMark,
+} from "../../models/telemetry";
 import { credential, storeBatch } from "../../repositories/telemetry";
 
 export const ingestPath = "/api/agent/v1/batches";
@@ -41,6 +46,12 @@ export function agentRoutes(db: Database) {
       );
       return c.body(null, 204);
     }
+    if (
+      batch.signal === "logs" &&
+      "bufferedEvents" in batch.payload &&
+      !bufferedEvents.safeParse(batch.payload.bufferedEvents).success
+    )
+      return c.body(null, 400);
     await storeBatch(db, batch);
     return c.body(null, 204);
   });

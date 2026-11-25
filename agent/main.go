@@ -34,6 +34,7 @@ func run() error {
 	flag.StringVar(&src.Slot, "slot", "", "blue/green slot")
 	flag.StringVar(&src.Revision, "revision", "", "deployment revision")
 	listen := flag.String("listen", "127.0.0.1:4317", "OTLP/gRPC listen address")
+	eventFields := flag.String("event-fields", "", "comma-separated allowed categorical attributes of named yuniview.events records")
 	signals := flag.String("otlp", "traces,metrics,logs", "enabled comma-separated OTLP signals (empty disables receiver)")
 	endpoint := flag.String("endpoint", "", "central batch URL including /api/agent/v1/batches")
 	token := flag.String("token-file", "", "file containing source-specific bearer credential")
@@ -89,7 +90,13 @@ func run() error {
 			case "traces":
 				traces.RegisterTraceServiceServer(g, traceService{q: q})
 			case "logs":
-				logs.RegisterLogsServiceServer(g, logService{q: q})
+				fields := map[string]bool{}
+				for _, f := range strings.Split(*eventFields, ",") {
+					if f = strings.TrimSpace(f); f != "" && f != "event.name" {
+						fields[f] = true
+					}
+				}
+				logs.RegisterLogsServiceServer(g, logService{q: q, fields: fields})
 			case "metrics":
 				metrics.RegisterMetricsServiceServer(g, metricService{q: q})
 			default:

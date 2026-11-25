@@ -5,6 +5,22 @@ const label = z
   .min(1)
   .max(256)
   .refine((s) => !s.includes("\0"));
+export const bufferedEvents = z.array(
+  z
+    .object({
+      name: z
+        .string()
+        .min(1)
+        .refine((s) => !s.includes("\0")),
+      at: z.iso.datetime({ offset: true }),
+      count: z.number().int().positive(),
+      attrs: z.record(
+        z.string().refine((s) => !s.includes("\0")),
+        z.string().refine((s) => !s.includes("\0")),
+      ),
+    })
+    .strict(),
+);
 export const batchSchema = z.object({
   id: z.string().regex(/^[0-9a-f]{32}$/),
   source: z.object({

@@ -64,6 +64,29 @@ function base(b: Batch) {
 export function* events(b: Batch) {
   const p = obj(b.payload),
     seed = base(b);
+  if (b.signal === "logs") {
+    for (const e of rows(p.bufferedEvents)) {
+      if (
+        typeof e.name !== "string" ||
+        !e.name ||
+        typeof e.count !== "number" ||
+        !Number.isSafeInteger(e.count) ||
+        e.count < 1 ||
+        typeof e.at !== "string" ||
+        !Number.isFinite(Date.parse(e.at))
+      )
+        continue;
+      yield {
+        ...seed,
+        at: e.at,
+        kind: "event",
+        name: e.name,
+        value: e.count,
+        unit: "件",
+        attrs: { ...obj(e.attrs), "event.name": e.name },
+      };
+    }
+  }
   if (b.signal === "stdout") {
     for (const text of Array.isArray(b.payload) ? b.payload : []) {
       const line = str(text);

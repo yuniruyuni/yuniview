@@ -52,3 +52,15 @@ CREATE VIEW daily_sets AS
  SELECT day,source,field,digest FROM daily_set_members
  UNION ALL SELECT day,source,'visit.' || kind AS field,digest FROM daily_visitors;
 GRANT SELECT ON daily_sets TO yuniview_app;
+
+-- Count the server spans already retained for HTTP traffic without copying them.
+CREATE VIEW analysis_events AS
+ SELECT * FROM telemetry_events WHERE kind='event'
+ UNION ALL
+ SELECT source,batch_id,ordinal,workload,instance,at,slot,revision,
+ 'event','http.request','',trace,span,parent,1::double precision,'件',failed,entry,
+ json_strip_nulls(json_build_object('event.name','http.request',
+ 'http.route',attrs->>'http.route','http.request.method',coalesce(attrs->>'http.request.method',attrs->>'http.method'),
+ 'http.response.status_code',coalesce(attrs->'http.response.status_code',attrs->'http.status_code')))
+ FROM telemetry_events WHERE kind='span' AND entry AND attrs->>'http.route' IS NOT NULL;
+GRANT SELECT ON analysis_events TO yuniview_app;
