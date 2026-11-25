@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.14 AS build-client
+FROM oven/bun:1.4.5@sha256:3aa040e5445efa09d75bb428a64ba50db13e2b3ac9b6b0c7f145615f62b2ee18 AS build-client
 WORKDIR /work
 COPY package.json bun.lock /work/
 COPY client/package.json /work/client/
@@ -10,7 +10,7 @@ COPY shared/ /work/shared/
 WORKDIR /work/client
 RUN bun run build
 
-FROM oven/bun:1.3.14 AS build-server
+FROM oven/bun:1.4.5@sha256:3aa040e5445efa09d75bb428a64ba50db13e2b3ac9b6b0c7f145615f62b2ee18 AS build-server
 WORKDIR /work
 COPY package.json bun.lock /work/
 COPY client/package.json /work/client/
