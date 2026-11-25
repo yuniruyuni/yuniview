@@ -7,6 +7,13 @@ import type {
 } from "../../../shared/console";
 import { clock, Feedback, number, useQuery } from "../api";
 
+type EventCursor = Record<"at" | "source" | "batchId" | "ordinal", string>;
+interface EventPage {
+  items: EventRow[];
+  hasMore: boolean;
+  nextCursor?: EventCursor;
+}
+
 export function Explorer({
   kind,
   conditions,
@@ -22,16 +29,20 @@ export function Explorer({
   end: string;
   showTrace: (id: string) => void;
 }) {
-  const [offset, page] = useState(0);
+  // Cursors of the pages before the current one; the last is the current page.
+  const [pages, setPages] = useState<(EventCursor | undefined)[]>([undefined]);
+  const after = pages[pages.length - 1];
+  const offset = (pages.length - 1) * 100;
   const [opened, open] = useState("");
-  const { data, error } = useQuery<EventRow[]>("events", {
+  const { data: page, error } = useQuery<EventPage>("events", {
     ...f,
     conditions,
     logContains,
     end,
     kind,
-    offset,
+    after,
   });
+  const data = page?.items;
   return (
     <>
       {kind === "span" && <Routes f={f} end={end} showTrace={showTrace} />}
@@ -70,7 +81,7 @@ export function Explorer({
                 </tr>
               </thead>
               <tbody>
-                {data.slice(0, 100).map((r) => (
+                {data.map((r) => (
                   <tr key={r.id}>
                     <td className="nowrap">{clock(r.at)}</td>
                     <td>
@@ -121,8 +132,8 @@ export function Explorer({
           <div className="tools">
             <button
               type="button"
-              disabled={!offset}
-              onClick={() => page(Math.max(0, offset - 100))}
+              disabled={pages.length < 2}
+              onClick={() => setPages(pages.slice(0, -1))}
             >
               前へ
             </button>
@@ -132,8 +143,8 @@ export function Explorer({
             </small>
             <button
               type="button"
-              disabled={data.length <= 100}
-              onClick={() => page(offset + 100)}
+              disabled={!page?.nextCursor}
+              onClick={() => setPages([...pages, page?.nextCursor])}
             >
               次へ
             </button>
@@ -144,14 +155,15 @@ export function Explorer({
   );
 }
 export function Trace({ id }: { id: string }) {
-  const { data, error } = useQuery<EventRow[]>("trace", id);
+  const { data: page, error } = useQuery<EventPage>("trace", id);
+  const data = page?.items;
   if (!data)
     return (
       <p>
         <Feedback error={error} />
       </p>
     );
-  const list = data.slice(0, 2000),
+  const list = data,
     spans = list.filter((r) => r.kind === "span");
   const logs = list.filter((r) => r.kind === "log");
   const start = Math.min(...spans.map((r) => Date.parse(r.at)));
@@ -217,7 +229,7 @@ export function Trace({ id }: { id: string }) {
         ))}
         {!logs.length && <p>同じ trace ID のログはありません。</p>}
       </div>
-      {data.length > 2000 && <p>先頭 2,000 件を表示しています。</p>}
+      {page?.hasMore && <p>先頭 2,000 件を表示しています。</p>}
     </>
   );
 }

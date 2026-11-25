@@ -10,7 +10,9 @@ export function createContext(db: Database, logger: ILogger): Context {
   const callbackClient = new CallbackClientImpl();
 
   // 2. rawRepos 構築（将来 callbackClient を必要なリポジトリに注入する）
-  const rawRepos = createRawRepos();
+  const rawRepos = createRawRepos({
+    webhookUrl: process.env.MONITOR_WEBHOOK_URL,
+  });
   const repos = bindAllRepos(rawRepos, createFullCtx(db));
 
   const ctx: Context = {

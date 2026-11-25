@@ -55,7 +55,17 @@ interface UsecaseDefinition<
   result?: (state: Unfail<TFinish>) => MaybePromise<TResult>;
 }
 
-export function usecase<TPre, TRead, TProcess, TWrite, TPost, TFinish, TResult>(
+// 省略した phase は identity なので、型も前の phase から引き継ぐ。
+// 推論の候補が無い型引数には既定値が使われる。
+export function usecase<
+  TPre = Record<string, never>,
+  TRead = TPre,
+  TProcess = TRead,
+  TWrite = TProcess,
+  TPost = TWrite,
+  TFinish = TPost,
+  TResult = Unfail<TFinish>,
+>(
   def: UsecaseDefinition<
     TPre,
     TRead,
@@ -65,9 +75,9 @@ export function usecase<TPre, TRead, TProcess, TWrite, TPost, TFinish, TResult>(
     TFinish,
     TResult
   >,
-): Usecase<TResult> {
+): Usecase<Unfail<TResult>> {
   return {
-    async run(ctx: Context): Promise<Result<TResult, Fail>> {
+    async run(ctx: Context): Promise<Result<Unfail<TResult>, Fail>> {
       // usecase はすべてこの入口を通るので、包む場所はここだけで足りる。
       // 中の phase も分けて計測すると、読み・処理・書きのどれで時間を使って
       // いるかまで分かる。
@@ -170,7 +180,7 @@ export function usecase<TPre, TRead, TProcess, TWrite, TPost, TFinish, TResult>(
           // Phase 7: result
           const result = await (def.result?.(state as Unfail<TFinish>) ??
             state);
-          return { ok: true, value: result as TResult };
+          return { ok: true, value: result as Unfail<TResult> };
         } catch (error) {
           ctx.logger.error("Unexpected error in usecase:", error);
           return {

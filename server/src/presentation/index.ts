@@ -4,6 +4,7 @@ import { serveStatic } from "hono/bun";
 import { compress } from "hono/compress";
 import { secureHeaders } from "hono/secure-headers";
 import type { Context } from "../usecases/context";
+import { recordVisit } from "../usecases/usage/record-visit";
 import { managementMcp } from "./mcp";
 import { adminAccess } from "./middleware/admin-access";
 import { requestLog } from "./middleware/request-log";
@@ -13,6 +14,8 @@ const STATIC_DIR = process.env.STATIC_DIR ?? "./static";
 
 export function createApp(ctx: Context) {
   const app = new Hono();
+  // Each request observes its own time.
+  const fresh = (): Context => ({ ...ctx, now: new Date() });
 
   // 何よりも先に。後段が何を返しても記録が残るようにする。
   app.use(requestLog(ctx.logger));
@@ -41,19 +44,8 @@ export function createApp(ctx: Context) {
   app.post("/api/usage/visit", async (c) => {
     c.header("Cache-Control", "no-store");
     if (c.req.header("X-Yuniview-Visit") !== "1") return c.body(null, 400);
-    const id = c.get("usageSubject");
-    if (!id) return c.body(null, 204);
-    try {
-      const response = await fetch("http://localhost/visit", {
-        unix: "/run/yuniview-otlp/usage.sock",
-        method: "POST",
-        body: id,
-        signal: AbortSignal.timeout(1500),
-      });
-      return c.body(null, response.status === 204 ? 204 : 503);
-    } catch {
-      return c.body(null, 503);
-    }
+    const visit = await recordVisit(c.get("usageSubject")).run(fresh());
+    return c.body(null, visit.ok && visit.value === "recorded" ? 204 : 503);
   });
 
   const mcp = managementMcp(ctx);
@@ -74,7 +66,7 @@ export function createApp(ctx: Context) {
     "/api/trpc/*",
     trpcServer({
       router: appRouter,
-      createContext: () => ctx as unknown as Record<string, unknown>,
+      createContext: () => fresh() as unknown as Record<string, unknown>,
     }),
   );
 

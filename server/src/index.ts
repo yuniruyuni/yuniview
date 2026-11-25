@@ -4,7 +4,7 @@ import { createLogger } from "./infra/logger";
 import { startTracing, stopTracing } from "./infra/tracing/start";
 import { createApp } from "./presentation";
 import { agentRoutes } from "./presentation/agent";
-import { startWorker } from "./usecases/monitor";
+import { startWorker } from "./presentation/worker";
 
 // 何よりも先に始める。後から呼ぶと、それまでのスパンが送られない。
 startTracing();
@@ -18,10 +18,10 @@ const app = createApp(ctx);
 const ingest = Bun.serve({
   hostname: process.env.INGEST_BIND ?? "127.0.0.1",
   port: Number(process.env.INGEST_PORT ?? 3001),
-  fetch: agentRoutes(db).fetch,
+  fetch: agentRoutes(ctx).fetch,
 });
 const stopWorker =
-  process.env.SKIP_DB_VERIFY === "1" ? async () => {} : startWorker(db);
+  process.env.SKIP_DB_VERIFY === "1" ? async () => {} : startWorker(ctx);
 
 async function shutdown() {
   // 溜まっているぶんを送り切る。これが無いと落ちる直前の — いちばん見たい —
