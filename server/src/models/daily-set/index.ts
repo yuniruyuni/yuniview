@@ -1,5 +1,5 @@
 import type { Panel } from "../../../../shared/console";
-import { and, type Comp, defineSpecs, type SpecsOf } from "../common";
+import { and, type Comp, defineSpecs, or, type SpecsOf } from "../common";
 import { Field } from "../field";
 
 /**
@@ -49,10 +49,15 @@ export namespace DailySet {
   export const FieldMatches = _specs.FieldMatches;
   export type Spec = Comp<SpecsOf<typeof _specs>>;
 
-  /** Members a daily-set panel covers: its set, its days ending at `end`. */
-  export function scope(p: Panel, end: Date): Spec {
+  /** Members a daily-set panel covers: its sets, its days ending at `end`. */
+  export function scope(
+    p: Panel,
+    sets: string | readonly string[],
+    end: Date,
+  ): Spec {
+    const names = typeof sets === "string" ? [sets] : sets;
     const specs: Spec[] = [
-      Named(p.distinct?.field ?? ""),
+      names.length ? or(...names.map((name) => Named(name))) : Named(""),
       DayBetween(
         japaneseDate(end, Math.ceil(p.minutes / 1440) - 1),
         japaneseDate(end),

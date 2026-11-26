@@ -1,17 +1,29 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { Overview, Panel, Point } from "../../../shared/console";
 import {
+  aggNames,
+  aggsFor,
   changeGroup,
   chartBucketSeconds,
+  countsWhole,
+  type DataKind,
+  dataKinds,
+  defaultAgg,
   defaultTotalSlots,
+  initialValue,
   isAttribute,
   isTimeField,
-  measures,
+  measurableFields,
+  metricOf,
   pivotFields,
   type ShelfAxis,
   shelfFields,
   shelfName,
   slotTotalChoice,
+  type ValueField,
+  valueAt,
+  valueFieldName,
+  valueName,
 } from "../../../shared/console";
 import { clock, Feedback, number, useQuery } from "../api";
 import { countAxis } from "./countAxis";
@@ -64,6 +76,7 @@ export function PanelFields({
 }) {
   const update = <K extends keyof Panel>(key: K, value: Panel[K]) =>
     set({ ...p, [key]: value });
+  const value = p.values[0];
   const choices = (opts: string[]): [string, string][] => [
     ["", "すべて"],
     ...opts.map((s): [string, string] => [s, s]),
@@ -80,50 +93,62 @@ export function PanelFields({
         />
       </label>
       <Select
-        label="指標"
-        value={p.measure}
-        choices={Object.entries(measures).filter(([k]) => k !== "distinct")}
-        change={(v) =>
+        label="データ"
+        value={p.data}
+        choices={(Object.entries(dataKinds) as [DataKind, string][]).filter(
+          ([k]) => k !== "daily",
+        )}
+        change={(v) => {
+          const data = v as DataKind;
           set({
             ...p,
-            measure: v as Panel["measure"],
+            data,
+            values: [initialValue(data, meta)],
             group: p.group === "slot_total" ? "source" : p.group,
             unit: undefined,
-          })
-        }
+          });
+        }}
       />
-      {p.measure === "metric" && (
-        <>
-          <label>
-            メトリクス名
-            <input
-              required
-              list="metric-options"
-              value={p.metric}
-              onChange={(e) =>
-                set({ ...p, metric: e.target.value, unit: undefined })
-              }
-            />
-            <datalist id="metric-options">
-              {meta.metrics.map((m) => (
-                <option key={m}>{m}</option>
-              ))}
-            </datalist>
-          </label>
-          <Select
-            label="集計"
-            value={p.aggregation}
-            choices={[
-              ["avg", "平均"],
-              ["max", "最大"],
-              ["min", "最小"],
-              ...(p.group === "slot_total"
-                ? []
-                : [["sum", "合計"] as [string, string]]),
-            ]}
-            change={(v) => update("aggregation", v as Panel["aggregation"])}
-          />
-        </>
+      <Select
+        label="値"
+        value={value.of.join(",")}
+        choices={[
+          ...(aggsFor(p.data, []).length
+            ? [
+                ["", valueName(p.data, { agg: "count", of: [] })] as [
+                  string,
+                  string,
+                ],
+              ]
+            : []),
+          ...measurableFields(p.data, meta).map((f): [string, string] => [
+            f,
+            valueFieldName(p.data, f),
+          ]),
+        ]}
+        change={(v) => {
+          const of = v ? [v as ValueField] : [];
+          set({
+            ...p,
+            values: [{ agg: defaultAgg(p.data, of), of }],
+            unit: undefined,
+          });
+        }}
+      />
+      {aggsFor(p.data, value.of).length > 1 && (
+        <Select
+          label="集計"
+          value={value.agg}
+          choices={aggsFor(p.data, value.of)
+            .filter(
+              (a) =>
+                p.group !== "slot_total" || ["avg", "min", "max"].includes(a),
+            )
+            .map((a): [string, string] => [a, aggNames[a]])}
+          change={(v) =>
+            set({ ...p, values: [{ ...value, agg: v as typeof value.agg }] })
+          }
+        />
       )}
       <Select
         label="サービス"
@@ -184,7 +209,7 @@ export function PanelFields({
         value={p.group}
         choices={[
           ["all", "全体"],
-          ...(p.measure === "metric" ? [slotTotalChoice] : []),
+          ...(p.data === "metric" ? [slotTotalChoice] : []),
           ["source", "サービス"],
           ["slot", "系"],
           ["revision", "リビジョン"],
@@ -215,7 +240,7 @@ const colors = [
   "#6b852c",
 ];
 export function Chart({
-  measure,
+  whole,
   unit,
   fixedStyle,
   legendAction,
@@ -226,7 +251,8 @@ export function Chart({
   end,
   choose,
 }: {
-  measure: Panel["measure"];
+  /** Whether the values count things, so the axis uses whole numbers. */
+  whole: boolean;
   unit?: string;
   fixedStyle?: Panel["fixedStyle"];
   legendAction?: React.ReactNode;
@@ -263,7 +289,7 @@ export function Chart({
       : points;
   const low = shown.reduce((v, p) => Math.min(v, p.value), 0);
   const maximum = shown.reduce((v, p) => Math.max(v, p.value), low + 1);
-  const counts = countAxis(measure, maximum);
+  const counts = countAxis(whole, maximum);
   const high = counts?.maximum ?? maximum;
   const labels = counts?.ticks ?? [low, (low + high) / 2, high];
   const valueY = (value: number) => 135 - (112 * (value - low)) / (high - low);
@@ -496,13 +522,14 @@ export function PanelView({
         {actions}
       </div>
       <small>
-        {measures[panel.measure]} · {panel.source || "全サービス"} ·{" "}
-        {panel.minutes}分{" "}
-        {panel.display !== "table" && !panel.pivot?.metrics?.length && unit}
+        {dataKinds[panel.data]} ·{" "}
+        {panel.values.map((v) => valueName(panel.data, v)).join("・")} ·{" "}
+        {panel.source || "全サービス"} · {panel.minutes}分{" "}
+        {panel.display !== "table" && panel.values.length === 1 && unit}
         {panel.display === "chart" &&
-          panel.measure === "logs" &&
+          panel.values[0].agg === "count" &&
           ` · ${chartBucketSeconds(panel.minutes)}秒ごとの件数`}
-        {panel.distinct?.dataset === "daily" &&
+        {panel.data === "daily" &&
           " · サービス別・日別のユニーク数（複数をまとめた値は延べ件数）"}
         {panel.group === "slot_total" &&
           ` · ${(panel.totalSlots ?? defaultTotalSlots).join(" + ")}（全スロットを観測した分のみ）`}
@@ -513,7 +540,7 @@ export function PanelView({
         </p>
       ) : data.length === 0 ? (
         <p className="empty">
-          {["requests", "errors", "latency"].includes(panel.measure)
+          {panel.data === "request"
             ? "この条件で受信した server span がありません。期間またはサービスを変更してください。"
             : "この期間と絞り込み条件に一致するデータがありません。"}
         </p>
@@ -526,8 +553,8 @@ export function PanelView({
         />
       ) : panel.display === "chart" ? (
         <Chart
-          measure={panel.measure}
-          unit={unit ?? nativeUnit(panel, panel.metric)}
+          whole={countsWhole(panel.data, panel.values[0])}
+          unit={unit ?? nativeUnit(panel)}
           legendAction={legendAction}
           fixedStyle={{ ...panel.fixedStyle, ...panel.styleDefaults }}
           points={data}
@@ -582,30 +609,25 @@ export function investigatePanel(p: Panel, end: string) {
     "#" +
     new URLSearchParams({
       page:
-        p.measure === "events" || p.distinct?.dataset === "event"
+        p.data === "event"
           ? "events"
-          : p.measure === "distinct"
-            ? p.distinct?.dataset === "log"
-              ? "logs"
-              : "apm"
-            : p.measure === "logs"
-              ? "logs"
-              : p.measure === "metric"
-                ? "metrics"
-                : "apm",
+          : p.data === "log"
+            ? "logs"
+            : p.data === "metric"
+              ? "metrics"
+              : "apm",
       source: p.source,
       slot: p.slot,
       instance: p.instance,
       workload: p.workload,
       revision: p.revision,
       text: p.text,
-      ...(p.conditions?.length &&
-      (p.measure === "events" || p.distinct?.dataset === "event")
+      ...(p.conditions?.length && p.data === "event"
         ? { conditions: JSON.stringify(p.conditions) }
         : {}),
       ...(logContains ? { logContains } : {}),
       minutes: String(p.minutes),
-      metric: p.metric,
+      metric: metricOf(p.values[0].of[0]) ?? "",
       end,
     }).toString()
   );
@@ -633,13 +655,10 @@ function PivotView({
     const plot: Point[] = [],
       table: Point[] = [];
     for (const point of points) {
-      const metric = measureRow
+      const key = measureRow
         ? (point.rowPath ?? [point.series])[index]
         : (point.columnPath ?? [point.column ?? ""])[index];
-      const mark =
-        pivot.metricOptions?.find((o) => o.metric === metric)?.mark ??
-        pivot.mark ??
-        "table";
+      const mark = valueAt(panel, key).mark ?? pivot.mark ?? "table";
       (mark === "table" ? table : plot).push(point);
     }
     return (
@@ -776,10 +795,7 @@ function PivotTable({
         ];
         continue;
       }
-      if (
-        (isTimeField(axis) || axis === "day") &&
-        (p.measure === "events" || p.distinct?.dataset === "event")
-      ) {
+      if ((isTimeField(axis) || axis === "day") && p.data === "event") {
         const start = Date.parse(
           axis === "day" ? val + "T00:00:00+09:00" : val,
         );
@@ -805,7 +821,7 @@ function PivotTable({
         continue;
       }
       if (axis === "measure") {
-        if (p.measure === "metric") p.metric = val;
+        p.values = [valueAt(p, val)];
         continue;
       }
       if (axis === "day") {
@@ -878,16 +894,22 @@ function PivotTable({
                 return (
                   <td key={c.key}>
                     {p &&
-                    (panel.distinct?.dataset === "daily" ||
-                      (panel.measure !== "events" &&
-                        panel.distinct?.dataset !== "event" &&
+                    (panel.data === "daily" ||
+                      (panel.data !== "event" &&
                         pivotFields(pivot).some(isAttribute))) ? (
                       value
                     ) : p ? (
                       <a
                         href={cellLink(r.values, c.values)}
                         aria-label={
-                          [...r.values, ...c.values].join(" ") + " の詳細"
+                          [
+                            ...r.values.map((v, i) =>
+                              displayField(panel, rowFields[i], v),
+                            ),
+                            ...c.values.map((v, i) =>
+                              displayField(panel, colFields[i], v),
+                            ),
+                          ].join(" ") + " の詳細"
                         }
                       >
                         {value}

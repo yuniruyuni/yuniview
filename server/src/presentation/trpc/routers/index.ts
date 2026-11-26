@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  conditions,
   dashboard,
   filter,
   filterField,
@@ -73,7 +74,7 @@ export const appRouter = router({
     .input(
       windowInput.extend({
         kind,
-        conditions: panel.shape.conditions,
+        conditions: conditions.optional(),
         logContains: filter.shape.text.optional(),
         after: eventCursor.optional(),
       }),

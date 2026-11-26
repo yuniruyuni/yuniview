@@ -2,7 +2,7 @@ import type { Database } from "../../../infra/db/database";
 import { sql } from "../../../infra/db/sql";
 import { compToSQL, lockClause } from "../../../infra/db/sql-helpers";
 import type { Lock } from "../../../models/common";
-import type { Monitor, MonitorRecord } from "../../../models/monitor";
+import { Monitor, type MonitorRecord } from "../../../models/monitor";
 import { monitorColumns, monitorSpecToSQL } from "./common";
 
 export async function get(
@@ -10,7 +10,8 @@ export async function get(
   spec: Monitor.Spec,
   lock?: Lock,
 ): Promise<MonitorRecord | null> {
-  return db.queryGet<MonitorRecord & Record<string, unknown>>(
+  const row = await db.queryGet<MonitorRecord & Record<string, unknown>>(
     sql`SELECT ${monitorColumns} FROM monitors WHERE ${compToSQL(spec, monitorSpecToSQL)} LIMIT 1${lockClause(lock)}`,
   );
+  return row && { ...row, definition: Monitor.stored(row.definition) };
 }

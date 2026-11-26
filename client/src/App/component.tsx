@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import {
   blankPanel,
+  type DataKind,
   defaults,
   type Filter,
   type Overview,
   type Panel,
   type Point,
+  type Value,
 } from "../../../shared/console";
 import { clock, number, useQuery } from "../api";
 import { DashboardTime } from "./DashboardTime";
@@ -103,10 +105,11 @@ export function App() {
   const meta = query.data ?? empty;
   const trace = url.get("trace") ?? "";
   const showTrace = (id: string) => navigate({ page: "apm", trace: id });
-  const panel = (measure: Panel["measure"], title: string): Panel => ({
+  const panel = (value: Value, title: string): Panel => ({
     ...blankPanel,
     ...f,
-    measure,
+    data: "request",
+    values: [value],
     title,
   });
   const investigate = (p: Point) => {
@@ -300,12 +303,12 @@ export function App() {
             </div>
             <div className="cards">
               <PanelView
-                panel={panel("requests", "リクエスト数")}
+                panel={panel({ agg: "count", of: [] }, "リクエスト数")}
                 end={end}
                 choose={investigate}
               />
               <PanelView
-                panel={panel("latency", "p95 応答時間")}
+                panel={panel({ agg: "p95", of: ["value"] }, "p95 応答時間")}
                 end={end}
                 choose={investigate}
               />
@@ -399,28 +402,34 @@ export function App() {
               onClick={() => {
                 const metric =
                   url.get("metric") || meta.metrics[0] || "memory.current";
-                const measure =
+                const data: DataKind =
                   page === "metrics"
                     ? "metric"
                     : page === "logs"
-                      ? "logs"
+                      ? "log"
                       : page === "events"
-                        ? "events"
-                        : "requests";
+                        ? "event"
+                        : "request";
+                const value: Value =
+                  data === "metric"
+                    ? { agg: "avg", of: [`metric:${metric}`] }
+                    : data === "event"
+                      ? { agg: "sum", of: ["value"] }
+                      : { agg: "count", of: [] };
                 setIncoming({
                   ...blankPanel,
                   ...f,
-                  measure,
+                  data,
+                  values: [value],
                   conditions: logContains
                     ? [{ field: "log", contains: logContains }]
                     : conditions,
-                  metric: measure === "metric" ? metric : "",
                   title:
-                    measure === "metric"
+                    data === "metric"
                       ? metric
-                      : measure === "logs"
+                      : data === "log"
                         ? "ログ件数"
-                        : measure === "events"
+                        : data === "event"
                           ? "イベント実行回数"
                           : "リクエスト数",
                 });
@@ -501,8 +510,8 @@ function MetricChart({
         panel={{
           ...blankPanel,
           ...filter,
-          measure: "metric",
-          metric,
+          data: "metric",
+          values: [{ agg: "avg", of: [`metric:${metric}`] }],
           title: metric,
         }}
       />

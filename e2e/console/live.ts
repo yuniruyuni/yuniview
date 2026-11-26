@@ -221,8 +221,11 @@ test("agent records → trace and logs → saved panel → monitor and notificat
     await expect(details).toBeVisible();
     await form.getByLabel("パネル名").fill("失敗率");
     await form
+      .getByRole("combobox", { name: "データ", exact: true })
+      .selectOption("request");
+    await form
       .locator(".field-catalog")
-      .getByRole("button", { name: "失敗率 (%)", exact: true })
+      .getByRole("button", { name: "失敗", exact: true })
       .click();
     await form
       .getByRole("combobox", { name: "表示形式", exact: true })
@@ -541,16 +544,16 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
     .getByRole("button", { name: "CPU 使用時間（累積）", exact: true })
     .dragTo(row);
   await expect(
-    row.getByRole("button", { name: "cpu.usage を外す" }),
+    row.getByRole("button", { name: "CPU 使用時間（累積） を外す" }),
   ).toBeVisible();
   await form
     .getByRole("combobox", { name: "表示形式", exact: true })
     .selectOption("table");
   await expect(
-    form.getByRole("rowheader", { name: "memory.current" }),
+    form.getByRole("rowheader", { name: "メモリ使用量" }),
   ).toBeVisible();
   await expect(
-    form.getByRole("rowheader", { name: "cpu.usage" }),
+    form.getByRole("rowheader", { name: "CPU 使用時間（累積）" }),
   ).toBeVisible();
   await expect(
     form.getByRole("cell").filter({ hasText: / B$/ }).first(),
@@ -560,7 +563,7 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   ).toBeVisible();
   await page.reload();
   await expect(
-    form.getByRole("rowheader", { name: "memory.current" }),
+    form.getByRole("rowheader", { name: "メモリ使用量" }),
   ).toBeVisible();
   await form.getByRole("button", { name: "セーブ" }).click();
   await form
@@ -629,10 +632,10 @@ test("compound row and column shelves preserve their hierarchy on save", async (
   ).toHaveAttribute("colspan", "2");
   await expect(table.getByRole("rowheader", { name: "green" })).toBeVisible();
   await expect(
-    table.getByRole("columnheader", { name: "cpu.usage" }),
+    table.getByRole("columnheader", { name: "CPU 使用時間（累積）" }),
   ).toBeVisible();
   const cell = table.getByRole("link", {
-    name: "checkout green app memory.current の詳細",
+    name: "checkout green app メモリ使用量 の詳細",
   });
   await expect(cell).toHaveAttribute("href", /slot=green/);
   await expect(cell).toHaveAttribute("href", /workload=app/);
@@ -655,7 +658,7 @@ test("compound row and column shelves preserve their hierarchy on save", async (
     page.locator(
       '.worksheet-shelves [data-drop="column"] .shelf-chip .drag-source',
     ),
-  ).toHaveText(["メモリ使用量", "リビジョン"]);
+  ).toHaveText(["メモリ使用量", "CPU 使用時間（累積）", "リビジョン"]);
   await page.getByLabel("パネル名").fill("cancelled name");
   await page.getByRole("button", { name: "キャンセル", exact: true }).click();
   await expect(
@@ -1130,9 +1133,8 @@ test("filter shelf combines observed choices with numeric and time ranges before
     catalog = form.locator(".field-catalog"),
     shelf = form.locator('[data-drop="filter"]');
   await form
-    .locator(".field-catalog")
-    .getByRole("button", { name: "リクエスト数", exact: true })
-    .click();
+    .getByRole("combobox", { name: "データ", exact: true })
+    .selectOption("request");
   await form
     .getByRole("combobox", { name: "表示形式", exact: true })
     .selectOption("value");
@@ -1246,9 +1248,8 @@ test("log body is a literal free-text filter, independent of grouping", async ({
   const log = catalog.getByRole("button", { name: "ログ", exact: true });
   await expect(log).toBeDisabled();
   await form
-    .locator(".field-catalog")
-    .getByRole("button", { name: "ログ件数", exact: true })
-    .click();
+    .getByRole("combobox", { name: "データ", exact: true })
+    .selectOption("log");
   const verifyCountAxis = async (name: string) => {
     const chart = form.getByRole("img", { name, exact: true });
     const labels = chart.locator(":scope > g > text");
@@ -1427,4 +1428,76 @@ test("method-filtered counts use the filtered axis and follow the pointer over t
     }
     await page.mouse.move(0, 0);
   }
+});
+
+test("values are built by dropping fields and choosing how each is aggregated", async ({
+  page,
+}) => {
+  await page.goto("/#page=dashboards");
+  await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
+  const form = page.locator("form.editor");
+  const catalog = form.locator(".field-catalog");
+  const row = form.locator('.worksheet-shelves [data-drop="row"]');
+  const chips = row.locator(".value-chip");
+  await form
+    .getByRole("combobox", { name: "データ", exact: true })
+    .selectOption("request");
+  await expect(catalog.locator("h4")).toHaveText(["測れるもの", "分けるもの"]);
+  await expect(chips).toHaveText(["リクエスト数"]);
+
+  await catalog
+    .getByRole("button", { name: "所要時間", exact: true })
+    .dragTo(row);
+  await expect(chips).toHaveText(["リクエスト数×", "所要時間p95×"]);
+  await chips
+    .filter({ hasText: "所要時間" })
+    .getByRole("button")
+    .first()
+    .click();
+  const menu = form.locator(".metric-menu:popover-open");
+  await expect(menu.getByRole("button")).toHaveText([
+    "平均",
+    "合計",
+    "最小",
+    "最大",
+    "p50",
+    "p95",
+    "p99",
+  ]);
+  await menu.getByRole("button", { name: "平均", exact: true }).click();
+  await expect(chips).toHaveText(["リクエスト数×", "所要時間平均×"]);
+
+  await catalog
+    .getByRole("button", { name: "サービス", exact: true })
+    .dragTo(row.locator(".value-chips"));
+  await expect(chips).toHaveText([
+    "リクエスト数×",
+    "所要時間平均×",
+    "サービス種類数×",
+  ]);
+  await catalog
+    .getByRole("button", { name: "スロット", exact: true })
+    .dragTo(chips.filter({ hasText: "サービス" }));
+  await expect(chips.last()).toHaveText("サービス × スロット組の種類数×");
+  await expect(form.locator(".preview-head h4")).toHaveText("プレビュー");
+
+  await form.getByLabel("パネル名").fill("Built values");
+  await form.getByRole("button", { name: "セーブ" }).click();
+  await form.getByLabel("名前", { exact: true }).fill("Values");
+  await form.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Values", exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Built values を編集" }).click();
+  await expect(chips).toHaveText([
+    "リクエスト数×",
+    "所要時間平均×",
+    "サービス × スロット組の種類数×",
+  ]);
+  await row.getByRole("button", { name: "所要時間 · 平均 を外す" }).click();
+  await expect(chips).toHaveText([
+    "リクエスト数×",
+    "サービス × スロット組の種類数×",
+  ]);
 });

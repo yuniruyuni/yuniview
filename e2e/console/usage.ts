@@ -52,13 +52,24 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
   await page.goto("/#page=dashboards&minutes=10080");
   await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
   const form = page.locator("form.editor");
+  const catalog = form.locator(".field-catalog");
+  const useSet = async (name: string) => {
+    await catalog.getByRole("button", { name, exact: true }).click();
+    for (const other of ["visit.account", "checkout.cart"].filter(
+      (n) => n !== name,
+    )) {
+      const chip = form.getByRole("button", {
+        name: `${other} · 日ごとの種類数 を外す`,
+      });
+      if (await chip.count()) await chip.click();
+    }
+  };
   await form
-    .locator(".field-catalog")
-    .getByRole("button", { name: "ユニーク数", exact: true })
-    .click();
+    .getByRole("combobox", { name: "データ", exact: true })
+    .selectOption("daily");
+  await useSet("visit.account");
   const format = form.getByRole("combobox", { name: "表示形式", exact: true });
   await expect(format.locator("option")).toHaveCount(8);
-  await form.getByLabel("集合名").fill("visit.account");
   for (const [mark, name] of [
     ["auto", "系列別の折れ線グラフ"],
     ["bar", "カテゴリ別の棒グラフ"],
@@ -94,7 +105,7 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
       .locator(".field-catalog")
       .getByRole("button", { name: "時刻", exact: true }),
   ).toHaveCount(1);
-  await form.getByLabel("集合名").fill("visit.account");
+  await useSet("visit.account");
   for (const [date, count] of [
     [day, "2"],
     [previous, "0"],
@@ -107,7 +118,7 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
         .getByRole("cell"),
     ).toHaveText(count);
   }
-  await form.getByLabel("集合名").fill("checkout.cart");
+  await useSet("checkout.cart");
   await expect(
     form
       .getByRole("row")

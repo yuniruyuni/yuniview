@@ -366,7 +366,7 @@ export function FilterShelf({
             </button>
           </div>
           {isTemporalField(active.field) &&
-            panel.distinct?.dataset !== "daily" &&
+            panel.data !== "daily" &&
             !active.values?.length &&
             !items.some((c) => c !== active && isTemporalField(c.field)) && (
               <button

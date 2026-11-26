@@ -86,6 +86,10 @@ export function measureToSQL(m: Measure): SQLFragment {
         m.where,
       );
     case "distinct":
+      if (m.of.type === "tuple") {
+        const parts = m.of.fields.map((f) => sql`${label(f)}<>''`);
+        return sql`count(DISTINCT CASE WHEN ${sql.join(parts, " AND ")} THEN ${label(m.of)} END)`;
+      }
       return sql`count(DISTINCT nullif(${label(m.of)},''))`;
     case "uniform":
       return sql`CASE WHEN min(${column(m.of)})=max(${column(m.of)}) THEN min(${column(m.of)}) END`;
@@ -97,13 +101,6 @@ export function measureToSQL(m: Measure): SQLFragment {
     }
     case "bound":
       return sql`${sql.raw(m.fn === "min" ? "min" : "max")}(${observed(m.of).num})`;
-    case "by_metric":
-      return sql`CASE min(name) ${sql.join(
-        m.cases.map(
-          ([name, c]) => sql`WHEN ${name}::text THEN ${measureToSQL(c)}`,
-        ),
-        " ",
-      )} ELSE ${measureToSQL(m.otherwise)} END`;
     case "scaled":
       return sql`(${measureToSQL(m.measure)}::float8 / ${m.by}::float8)`;
   }

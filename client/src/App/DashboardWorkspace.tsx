@@ -125,8 +125,8 @@ export function DashboardWorkspace({
   const initial = {
     ...seed,
     title: "メモリ使用量",
-    metric: "memory.current",
-    measure: "metric",
+    data: "metric",
+    values: [{ agg: "avg", of: ["metric:memory.current"] }],
     unit: "MiB",
   } as Panel;
   function begin(
@@ -480,7 +480,7 @@ export function DashboardWorkspace({
               >
                 複製
               </button>
-              {panel.distinct?.dataset !== "daily" && (
+              {panel.data !== "daily" && (
                 <a
                   href={investigatePanel(
                     { ...panel, minutes: seed.minutes },
@@ -490,14 +490,16 @@ export function DashboardWorkspace({
                   調査
                 </a>
               )}
-              {panel.display !== "pivot" && panel.measure !== "distinct" && (
-                <button
-                  type="button"
-                  onClick={() => monitor({ ...panel, minutes: seed.minutes })}
-                >
-                  モニター化
-                </button>
-              )}
+              {panel.display !== "pivot" &&
+                panel.data !== "daily" &&
+                panel.values.length === 1 && (
+                  <button
+                    type="button"
+                    onClick={() => monitor({ ...panel, minutes: seed.minutes })}
+                  >
+                    モニター化
+                  </button>
+                )}
             </div>
           )}
         />

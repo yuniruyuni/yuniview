@@ -50,7 +50,7 @@ export type Measure =
       readonly of: string;
       readonly where?: EventFilter;
     }
-  /** Number of different non-empty values of a field. */
+  /** Number of different non-empty values of a field; a tuple counts combinations whose parts are all non-empty. */
   | { readonly type: "distinct"; readonly of: Field }
   /** The column's value when every row agrees, otherwise null. */
   | { readonly type: "uniform"; readonly of: string }
@@ -60,12 +60,6 @@ export type Measure =
   | { readonly type: "numeric"; readonly of: Field }
   /** Smallest or largest numeric value of the field. */
   | { readonly type: "bound"; readonly fn: "min" | "max"; readonly of: Field }
-  /** Picks a measure by the metric name shared by the cell's rows. */
-  | {
-      readonly type: "by_metric";
-      readonly cases: readonly (readonly [string, Measure])[];
-      readonly otherwise: Measure;
-    }
   | { readonly type: "scaled"; readonly measure: Measure; readonly by: number };
 
 export interface Group {

@@ -1,4 +1,8 @@
-import type { Dashboard as Definition } from "../../../../shared/console";
+import {
+  type Dashboard as Definition,
+  type Panel,
+  upgradePanel,
+} from "../../../../shared/console";
 import { type Comp, defineSpecs, type SpecsOf } from "../common";
 
 export type Dashboard = Definition;
@@ -16,4 +20,9 @@ export namespace Dashboard {
   });
   export const ById = _specs.ById;
   export type Spec = Comp<SpecsOf<typeof _specs>>;
+
+  /** A stored definition, its panels rewritten to the current form. */
+  export function stored(d: Dashboard): Dashboard {
+    return { ...d, panels: d.panels.map((p) => upgradePanel(p) as Panel) };
+  }
 }

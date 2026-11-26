@@ -1,15 +1,16 @@
 import { useState } from "react";
 import {
+  countsWhole,
   fieldZone,
   isTemporalField,
-  measures,
-  metricName,
   type Panel,
   type Point,
   type ShelfAxis,
   type StyleChannel,
   shelfFields,
   shelfName,
+  valueAt,
+  valueName,
 } from "../../../shared/console";
 import { number } from "../api";
 import { countAxis } from "./countAxis";
@@ -59,17 +60,13 @@ export function WorksheetPlot({
     const facet = p.facetPath ?? [p.facet ?? ""];
     const key = JSON.stringify([values, facet]);
     const categoryKey = JSON.stringify(category);
-    const unit =
-      p.metricUnit ??
-      panel.unit ??
-      nativeUnit(panel, values[valueFields.indexOf("measure")] ?? panel.metric);
+    const value = valueAt(panel, values[valueFields.indexOf("measure")]);
+    const unit = p.metricUnit ?? panel.unit ?? nativeUnit(panel, value);
     if (!groups.has(key)) {
       const labelParts = [
         ...values.map((v, i) =>
           valueFields[i] === "measure"
-            ? panel.measure === "metric"
-              ? metricName(v)
-              : measures[panel.measure]
+            ? valueName(panel.data, valueAt(panel, v))
             : displayField(panel, valueFields[i], v) || "未指定",
         ),
         ...facets.map(
@@ -79,10 +76,7 @@ export function WorksheetPlot({
             (displayField(panel, field, facet[i]) || "未指定"),
         ),
       ];
-      const metric = values[valueFields.indexOf("measure")];
-      const mark =
-        pivot.metricOptions?.find((o) => o.metric === metric)?.mark ??
-        pivot.mark;
+      const mark = value.mark ?? pivot.mark;
       const format =
         !mark || mark === "auto" ? (temporal ? "line" : "bar") : mark;
       const dimensions = new Map<ShelfAxis, string>();
@@ -221,7 +215,12 @@ export function WorksheetPlot({
       </p>
     );
   const [low, maximum] = domains.values().next().value ?? [0, 1];
-  const counts = !mixed ? countAxis(panel.measure, maximum) : undefined;
+  const counts = !mixed
+    ? countAxis(
+        panel.values.every((v) => countsWhole(panel.data, v)),
+        maximum,
+      )
+    : undefined;
   const high = counts?.maximum ?? maximum;
   const tickValues =
     counts?.ticks ??

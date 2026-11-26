@@ -1,7 +1,9 @@
-import type {
-  Monitor as Definition,
-  Point,
-  Transition,
+import {
+  type Monitor as Definition,
+  type Panel,
+  type Point,
+  type Transition,
+  upgradePanel,
 } from "../../../../shared/console";
 import { type Comp, defineSpecs, type SpecsOf } from "../common";
 import { generateId } from "../common/id";
@@ -31,6 +33,11 @@ export namespace Monitor {
   export const ById = _specs.ById;
   export const Due = _specs.Due;
   export type Spec = Comp<SpecsOf<typeof _specs>>;
+
+  /** A stored definition, its panel rewritten to the current form. */
+  export function stored(m: Monitor): Monitor {
+    return { ...m, panel: upgradePanel(m.panel) as Panel };
+  }
 
   /** The minute boundary the latest complete window ends at. */
   export function windowEnd(now: Date) {

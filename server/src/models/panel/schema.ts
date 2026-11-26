@@ -1,10 +1,17 @@
 import { z } from "zod";
 import {
+  aggsFor,
   cpuPercent,
+  type DataKind,
+  fieldType,
+  metricOf,
   pivotFields,
   type TimeField,
   timeBuckets,
+  upgradePanel,
   usesLogRecords,
+  type ValueField,
+  valueKey,
 } from "../../../../shared/console";
 
 const label = z
@@ -55,9 +62,62 @@ const condition = z
       c.field === "day" ||
       c.field.startsWith("time:"),
   );
+/** Conditions of a worksheet, each field at most once. */
+export const conditions = z
+  .array(condition)
+  .max(32)
+  .refine((cs) => new Set(cs.map((c) => c.field)).size === cs.length);
 const shelf = shelfField.or(z.array(shelfField).max(32));
-const aggregation = z.enum(["avg", "max", "min", "sum"]);
 const mark = z.enum(["auto", "table", "line", "bar", "area", "stacked_area"]);
+const data = z.enum(["request", "span", "log", "event", "metric", "daily"]);
+const valueField = z.union([
+  z.enum(["value", "failed"]),
+  z
+    .templateLiteral(["metric:", z.string().min(1)])
+    .refine((k) => k.length <= 519 && !k.includes("\0")),
+  z
+    .templateLiteral(["set:", z.string().min(1)])
+    .refine((k) => k.length <= 516 && !k.includes("\0")),
+  axis,
+]);
+const value = z.object({
+  agg: z.enum([
+    "count",
+    "sum",
+    "avg",
+    "min",
+    "max",
+    "p50",
+    "p95",
+    "p99",
+    "distinct",
+    "ratio",
+    "daily",
+  ]),
+  of: z.array(valueField).max(8),
+  mark: mark.optional(),
+});
+/** Whether every value is something the panel's data can measure. */
+function measurable(kind: DataKind, v: z.infer<typeof value>) {
+  if (!aggsFor(kind, v.of).includes(v.agg)) return false;
+  if (new Set(v.of).size !== v.of.length) return false;
+  return v.of.every((f: ValueField) => {
+    switch (fieldType(f)) {
+      case "number":
+        return f === "value"
+          ? kind === "request" || kind === "span" || kind === "event"
+          : kind === "metric";
+      case "boolean":
+        return kind === "request" || kind === "span";
+      case "set":
+        return kind === "daily";
+      case "dimension":
+        return kind !== "daily" && kind !== "metric";
+      default:
+        return false;
+    }
+  });
+}
 const styles = z
   .object({
     color: z.number().int().min(0).max(6).optional(),
@@ -66,42 +126,23 @@ const styles = z
     shape: z.number().int().min(0).max(2).optional(),
   })
   .optional();
-export const panel = filter
+const current = filter
   .extend({
     id: z.uuid().optional(),
     wide: z.boolean().optional(),
     fieldUnits: z.record(label, z.string().trim().min(1).max(32)).optional(),
     fixedStyle: styles,
     styleDefaults: styles,
-    conditions: z
-      .array(condition)
-      .max(32)
-      .refine((cs) => new Set(cs.map((c) => c.field)).size === cs.length)
-      .optional(),
+    conditions: conditions.optional(),
     title: label.pipe(z.string().trim().min(1)),
-    measure: z.enum([
-      "events",
-      "requests",
-      "errors",
-      "latency",
-      "logs",
-      "metric",
-      "distinct",
-    ]),
-    distinct: z
-      .object({
-        dataset: z.enum(["event", "daily", "log", "span"]),
-        field: label.pipe(z.string().min(1)),
-      })
-      .optional(),
-    metric: label,
+    data,
+    values: z.array(value).min(1).max(12),
     totalSlots: z
       .array(label.pipe(z.string().min(1)))
       .min(1)
       .max(32)
       .refine((slots) => new Set(slots).size === slots.length)
       .optional(),
-    aggregation,
     group: z
       .enum([
         "slot_total",
@@ -146,21 +187,6 @@ export const panel = filter
         column: shelf,
         series: shelf.optional(),
         mark: mark.optional(),
-        metricOptions: z
-          .array(
-            z.object({
-              metric: label,
-              aggregation: aggregation.optional(),
-              mark: mark.optional(),
-            }),
-          )
-          .max(13)
-          .optional(),
-        metrics: z
-          .array(label.pipe(z.string().min(1)))
-          .min(1)
-          .max(12)
-          .optional(),
       })
       .optional(),
     unit: z.literal("MiB").optional(),
@@ -170,12 +196,30 @@ export const panel = filter
     "ログ本文はログを集計する指標で使用できます",
   )
   .refine(
+    (p) => p.values.every((v) => measurable(p.data, v)),
+    "値には選んだデータで集計できるフィールドと集計方法を指定してください",
+  )
+  .refine(
+    (p) => new Set(p.values.map(valueKey)).size === p.values.length,
+    "同じ値は一度だけ指定してください",
+  )
+  .refine(
+    (p) =>
+      p.values.length === 1 ||
+      (p.display === "pivot" &&
+        !!p.pivot &&
+        pivotFields(p.pivot).includes("measure") &&
+        !p.unit),
+    "複数の値には指標の軸を指定してください",
+  )
+  .refine(
     (p) =>
       p.group !== "slot_total" ||
-      (p.measure === "metric" &&
-        p.metric !== cpuPercent &&
+      (p.data === "metric" &&
+        p.values.length === 1 &&
+        metricOf(p.values[0].of[0]) !== cpuPercent &&
+        ["avg", "min", "max"].includes(p.values[0].agg) &&
         p.display !== "pivot" &&
-        p.aggregation !== "sum" &&
         !p.slot &&
         !p.instance),
     "スロット合計は両方のスロットを対象とするメトリクスで使用できます",
@@ -187,39 +231,23 @@ export const panel = filter
         new Set(pivotFields(p.pivot)).size === pivotFields(p.pivot).length),
     "行・列・系列には異なるフィールドを指定してください",
   )
-  .refine((p) => {
-    const opts = p.pivot?.metricOptions;
-    return (
-      !opts?.length ||
-      (p.display === "pivot" &&
-        p.measure === "metric" &&
-        !!p.pivot &&
-        pivotFields(p.pivot).includes("measure") &&
-        new Set(opts.map((o) => o.metric)).size === opts.length &&
-        opts.every((o) =>
-          [p.metric, ...(p.pivot?.metrics ?? [])].includes(o.metric),
-        ))
-    );
-  }, "指標設定は棚に配置した指標を指定してください")
   .refine(
     (p) =>
-      !p.pivot?.metrics ||
+      !p.values.some((v) => v.mark) ||
       (p.display === "pivot" &&
-        p.measure === "metric" &&
-        !p.unit &&
-        pivotFields(p.pivot).includes("measure") &&
-        !p.pivot.metrics.includes(p.metric) &&
-        new Set(p.pivot.metrics).size === p.pivot.metrics.length),
-    "複数のメトリクスには指標名の軸を指定してください",
+        !!p.pivot &&
+        pivotFields(p.pivot).includes("measure")),
+    "値ごとの表示形式は指標の軸を指定したときに使用できます",
   )
   .refine(
-    (p) => !p.unit || (p.measure === "metric" && p.metric === "memory.current"),
+    (p) =>
+      !p.unit ||
+      (p.values.length === 1 &&
+        metricOf(p.values[0].of[0]) === "memory.current"),
     "MiB はメモリに使用できます",
   )
   .refine((p) => {
-    if (p.measure !== "distinct") return !p.distinct;
-    if (!p.distinct) return false;
-    if (p.distinct.dataset !== "daily") return true;
+    if (p.data !== "daily") return true;
     if (p.conditions?.some((c) => c.field !== "day" && c.field !== "source"))
       return false;
     if (p.slot || p.instance || p.revision || p.workload || p.text)
@@ -234,11 +262,9 @@ export const panel = filter
           (axis) => axis === "source" || axis === "day" || axis === "measure",
         ))
     );
-  }, "日次集合で使用できるフィールドは時刻（1日・JST）、サービス、指標です")
-  .refine(
-    (p) => p.measure !== "metric" || p.metric.length > 0,
-    "指標を選択してください",
-  );
+  }, "日次集合で使用できるフィールドは時刻（1日・JST）、サービス、指標です");
+/** Accepts panels saved with a measure, rewriting them into data and values. */
+export const panel = z.preprocess(upgradePanel, current);
 export const dashboard = z.object({
   id: z.uuid(),
   title: label.pipe(z.string().trim().min(1)),
@@ -248,7 +274,7 @@ export const monitor = z.object({
   id: z.uuid(),
   title: label.pipe(z.string().trim().min(1)),
   panel: panel.refine(
-    (p) => p.display !== "pivot" && p.distinct?.dataset !== "daily",
+    (p) => p.display !== "pivot" && p.data !== "daily" && p.values.length === 1,
     "モニターには単一系列の集計を指定してください",
   ),
   threshold: z.number(),

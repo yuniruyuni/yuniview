@@ -3,8 +3,8 @@ import {
   MonitorEvent,
   type MonitorRecord,
 } from "../../models/monitor";
-import { seriesAggregate, toPoint } from "../../models/panel";
-import { cellLimit } from "../console/get-series";
+import { toPoint } from "../../models/panel";
+import { readSeries } from "../console/get-series";
 import { usecase } from "../runner";
 
 const evaluationStep = 1000;
@@ -24,11 +24,13 @@ export const evaluateMonitors = () =>
       });
       const observed = [];
       for (const record of due.items) {
-        const cells = await ctx.repos.cells.list(
-          seriesAggregate(record.definition.panel, end, false),
-          { limit: cellLimit },
+        const cells = await readSeries(
+          ctx,
+          record.definition.panel,
+          end,
+          false,
         );
-        observed.push({ record, points: cells.items.map(toPoint) });
+        observed.push({ record, points: cells.map(toPoint) });
       }
       return { end, observed };
     },

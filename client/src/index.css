@@ -545,6 +545,9 @@ summary {
   padding: 12px;
   border-radius: 6px;
 }
+.field-catalog > label + label {
+  margin-top: 8px;
+}
 .field-catalog button {
   display: block;
   text-align: left;
@@ -1090,6 +1093,17 @@ main:has(.worksheet) {
   border: 0;
   color: #154c46;
   padding: 4px 6px;
+}
+/* The values on a shelf; a dimension dropped here becomes a distinct count. */
+.value-chips {
+  border: 1px dashed transparent;
+  border-radius: 7px;
+  padding: 0 3px 3px;
+}
+.catalog-empty {
+  margin: 4px 8px;
+  font-size: 12px;
+  color: #617373;
 }
 .pivot-scroll th[rowspan],
 .pivot-scroll th[colspan] {

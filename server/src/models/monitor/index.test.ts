@@ -5,7 +5,11 @@ import { Monitor, type MonitorRecord, sameJson } from ".";
 const monitor: Monitor = {
   id: "00000000-0000-4000-8000-000000000001",
   title: "errors",
-  panel: { ...blankPanel, measure: "errors" },
+  panel: {
+    ...blankPanel,
+    data: "request",
+    values: [{ agg: "ratio", of: ["failed"] }],
+  },
   threshold: 2,
   operator: "above",
   minimum: 10,

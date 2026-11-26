@@ -6,6 +6,8 @@ import {
   type StyleChannel,
   shelfFields,
   shelfName,
+  valueAt,
+  valueName,
 } from "../../../shared/console";
 import {
   dashPatterns,
@@ -76,7 +78,12 @@ export function LegendStyleDialog({
       ? panel.fixedStyle?.[channel]
       : undefined);
   function entry(value: string | undefined, index: number | undefined) {
-    const label = value === undefined ? "全項目" : value || "（空の値）";
+    const label =
+      value === undefined
+        ? "全項目"
+        : field === "measure"
+          ? valueName(panel.data, valueAt(panel, value))
+          : value || "（空の値）";
     const sample = index ?? defaultIndex;
     return (
       <label

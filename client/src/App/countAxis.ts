@@ -1,13 +1,6 @@
-import type { Measure } from "../../../shared/console";
-
-export function countAxis(measure: Measure, maximum: number) {
-  if (
-    measure !== "events" &&
-    measure !== "logs" &&
-    measure !== "requests" &&
-    measure !== "distinct"
-  )
-    return;
+/** Whole-number ticks for values that count rows; none for other values. */
+export function countAxis(whole: boolean, maximum: number) {
+  if (!whole) return;
   const desired = Math.max(1, maximum / 4);
   const magnitude = 10 ** Math.floor(Math.log10(desired));
   const step =

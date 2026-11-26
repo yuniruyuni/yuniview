@@ -1,15 +1,20 @@
 import {
   chartBucketSeconds,
   cpuPercent,
+  type DataKind,
   defaultTotalSlots,
   type FilterField,
   type FilterOptions,
   isTimeField,
+  metricOf,
   type Panel,
   type Point,
   type ShelfAxis,
   type ShelfFields,
+  setOf,
   shelfFields,
+  type Value,
+  valueKey,
 } from "../../../../shared/console";
 import {
   Aggregate,
@@ -24,64 +29,63 @@ import { DailySet } from "../daily-set";
 import { Event } from "../event";
 import { Field } from "../field";
 
-export { dashboard, filter, filterField, monitor, panel } from "./schema";
+export {
+  conditions,
+  dashboard,
+  filter,
+  filterField,
+  monitor,
+  panel,
+} from "./schema";
 
 const { group, output } = Aggregate;
 const mib = 1048576;
 
-/** Whether the panel counts application events (and routed requests). */
-function countsEvents(p: Panel) {
-  return p.measure === "events" || p.distinct?.dataset === "event";
-}
-
-/** The metric names the panel reads, the first being its main metric. */
-function metricNames(p: Panel, pivot = p.pivot) {
-  return [p.metric, ...(pivot?.metrics ?? [])];
-}
-
-/** Rows the panel measures, beyond its window and conditions. */
-function kindOf(p: Panel, pivot = p.pivot): Event.Spec {
-  if (p.distinct) return Event.Kind(p.distinct.dataset as Event.Kind);
-  if (p.measure === "events") return Event.Kind("event");
-  if (p.measure === "logs") return Event.Kind("log");
-  if (p.measure === "metric")
-    return and(
-      Event.Kind("metric"),
-      Event.Named(metricNames(p, pivot)),
-      Event.HasValue(),
-    );
-  return and(Event.Kind("span"), Event.Entry());
-}
-
-function measureOf(p: Panel, pivot = p.pivot): Measure {
-  if (p.distinct) return { type: "distinct", of: Field.attr(p.distinct.field) };
-  switch (p.measure) {
-    case "events":
-      return { type: "aggregate", fn: "sum", of: "value" };
-    case "latency":
-      return { type: "percentile", fraction: 0.95, of: "value" };
-    case "errors":
-      return { type: "percent", where: Event.Failed() };
-    case "metric": {
-      const otherwise: Measure = {
-        type: "aggregate",
-        fn: p.aggregation,
-        of: "value",
-      };
-      const cases = (pivot?.metricOptions ?? []).flatMap((o) =>
-        o.aggregation && o.aggregation !== p.aggregation
-          ? [
-              [
-                o.metric,
-                { type: "aggregate", fn: o.aggregation, of: "value" },
-              ] as const,
-            ]
-          : [],
-      );
-      return cases.length ? { type: "by_metric", cases, otherwise } : otherwise;
-    }
+/** Rows of a kind of data, beyond the window and conditions. */
+function kindOf(data: DataKind): Event.Spec {
+  switch (data) {
+    case "request":
+      return and(Event.Kind("span"), Event.Entry());
+    case "span":
+      return Event.Kind("span");
+    case "log":
+      return Event.Kind("log");
+    case "event":
+      return Event.Kind("event");
     default:
+      return Event.Kind("metric");
+  }
+}
+
+/** Rows a value reads: its data, narrowed to its metric. */
+function rowsOf(p: Panel, v: Value): Event.Spec {
+  const metric = metricOf(v.of[0]);
+  if (metric === undefined) return kindOf(p.data);
+  return and(Event.Kind("metric"), Event.Named([metric]), Event.HasValue());
+}
+
+const fractions = { p50: 0.5, p95: 0.95, p99: 0.99 } as const;
+function measureOf(v: Value): Measure {
+  switch (v.agg) {
+    case "count":
       return { type: "count" };
+    case "ratio":
+      return { type: "percent", where: Event.Failed() };
+    case "distinct":
+      return {
+        type: "distinct",
+        of: Field.key(
+          v.of.map((f) => Field.ofTelemetry(f as Exclude<FilterField, "log">)),
+        ),
+      };
+    case "p50":
+    case "p95":
+    case "p99":
+      return { type: "percentile", fraction: fractions[v.agg], of: "value" };
+    case "daily":
+      throw Error("daily sets are measured per day");
+    default:
+      return { type: "aggregate", fn: v.agg, of: "value" };
   }
 }
 
@@ -92,21 +96,34 @@ function shelfKey(
   return Field.key(shelfFields(fields).map(field));
 }
 
-function wantsUnit(p: Panel) {
-  return p.display === "table" || Boolean(p.fieldUnits?.[`metric/${p.metric}`]);
+function unitKey(v: Value) {
+  const metric = metricOf(v.of[0]);
+  return metric === undefined ? valueKey(v) : "metric/" + metric;
+}
+
+function wantsUnit(p: Panel, v: Value) {
+  return p.display === "table" || Boolean(p.fieldUnits?.[unitKey(v)]);
 }
 
 /** Daily sets: distinct members per service and day, then summed. */
-function dailySeries(p: Panel, end: Date, buckets: boolean): Aggregate {
+function dailySeries(
+  p: Panel,
+  v: Value,
+  end: Date,
+  buckets: boolean,
+): Aggregate {
   const pivot = p.display === "pivot" ? p.pivot : undefined;
   const field = (key: ShelfAxis): Field =>
     key === "day"
       ? { type: "date", column: "day" }
       : key === "measure"
-        ? Field.text("distinct")
+        ? Field.text(valueKey(v))
         : Field.column("source");
   const perDay: Aggregate = {
-    from: { type: "daily_sets", where: DailySet.scope(p, end) },
+    from: {
+      type: "daily_sets",
+      where: DailySet.scope(p, setOf(v.of[0]) ?? "", end),
+    },
     by: [
       group("source", Field.column("source")),
       group("day", Field.column("day")),
@@ -153,16 +170,19 @@ function dailySeries(p: Panel, end: Date, buckets: boolean): Aggregate {
  * averaged within a minute before the slots are added, and only minutes
  * observed in every slot count.
  */
-function slotTotalSeries(p: Panel, end: Date, buckets: boolean): Aggregate {
+function slotTotalSeries(
+  p: Panel,
+  v: Value,
+  end: Date,
+  buckets: boolean,
+): Aggregate {
   const slots = p.totalSlots ?? defaultTotalSlots;
   const perSlot: Aggregate = {
     from: {
       type: "events",
       where: and(
         Event.matching(p, end),
-        Event.Kind("metric"),
-        Event.Named([p.metric]),
-        Event.HasValue(),
+        rowsOf(p, v),
         Event.FieldIn(Field.column("slot"), slots),
       ),
     },
@@ -185,16 +205,17 @@ function slotTotalSeries(p: Panel, end: Date, buckets: boolean): Aggregate {
     having: { type: "rows", count: slots.length },
   };
   const measures: Output[] = [];
-  if (wantsUnit(p))
+  if (wantsUnit(p, v))
     measures.push(
       output("metricUnit", { type: "aggregate", fn: "min", of: "unit" }),
     );
+  const fn = v.agg === "min" || v.agg === "max" ? v.agg : "avg";
   measures.push(
     output(
       "value",
       {
         type: "scaled",
-        measure: { type: "aggregate", fn: p.aggregation, of: "total" },
+        measure: { type: "aggregate", fn, of: "total" },
         by: p.unit === "MiB" ? mib : 1,
       },
       "float8",
@@ -220,23 +241,16 @@ function slotTotalSeries(p: Panel, end: Date, buckets: boolean): Aggregate {
   };
 }
 
-/** The cells a panel shows at `end`, one per bucket, series, column and facet. */
-export function seriesAggregate(
+/** The cells of one value, one per bucket, series, column and facet. */
+function valueSeries(
   p: Panel,
+  v: Value,
   end: Date,
   buckets: boolean,
 ): Aggregate {
-  if (p.measure === "distinct" && p.distinct?.dataset === "daily")
-    return dailySeries(p, end, buckets);
-  if (p.group === "slot_total") return slotTotalSeries(p, end, buckets);
-
   const pivot = p.display === "pivot" ? p.pivot : undefined;
   const field = (key: ShelfAxis): Field =>
-    key === "measure"
-      ? p.measure === "metric"
-        ? Field.column("name")
-        : Field.text(p.measure)
-      : Field.ofTelemetry(key);
+    key === "measure" ? Field.text(valueKey(v)) : Field.ofTelemetry(key);
   const by: Group[] = [
     group(
       "bucket",
@@ -257,9 +271,10 @@ export function seriesAggregate(
   if (pivot && shelfFields(pivot.series).length)
     by.push(group("facet", shelfKey(pivot.series, field)));
 
-  const measure = measureOf(p, pivot);
+  const measure = measureOf(v);
+  const events = p.data === "event";
   const measures: Output[] = [];
-  if (p.measure === "metric" && (pivot || wantsUnit(p)))
+  if (p.data === "metric" && (pivot || wantsUnit(p, v)))
     measures.push(
       output("metricUnit", { type: "aggregate", fn: "min", of: "unit" }),
     );
@@ -269,18 +284,36 @@ export function seriesAggregate(
       { type: "scaled", measure, by: p.unit === "MiB" ? mib : 1 },
       "float8",
     ),
-    countsEvents(p)
+    events
       ? output("samples", { type: "aggregate", fn: "sum", of: "value" })
       : output("samples", { type: "count" }, "int"),
   );
 
-  const where = and(Event.matching(p, end), kindOf(p, pivot));
-  const from: Relation = countsEvents(p)
+  const where = and(Event.matching(p, end), rowsOf(p, v));
+  const from: Relation = events
     ? { type: "analysis_events", where }
-    : p.measure === "metric" && metricNames(p, pivot).includes(cpuPercent)
+    : metricOf(v.of[0]) === cpuPercent
       ? { type: "cpu_readings", window: Event.matching(p, end), where }
       : { type: "events", where };
   return { from, by, measures, having: { type: "present", measure } };
+}
+
+/**
+ * The aggregates a panel shows at `end`, one per value; their cells together
+ * make the panel's points.
+ */
+export function seriesAggregates(
+  p: Panel,
+  end: Date,
+  buckets: boolean,
+): Aggregate[] {
+  if (p.group === "slot_total")
+    return [slotTotalSeries(p, p.values[0], end, buckets)];
+  return p.values.map((v) =>
+    p.data === "daily"
+      ? dailySeries(p, v, end, buckets)
+      : valueSeries(p, v, end, buckets),
+  );
 }
 
 /** Compound keys arrive as text arrays; points carry them as JSON and paths. */
@@ -317,37 +350,34 @@ export function filterChoices(
     ...panel,
     conditions: panel.conditions?.filter((c) => c.field !== name),
   };
-  const daily = p.distinct?.dataset === "daily";
+  const daily = p.data === "daily";
   if (daily && name !== "source" && name !== "day") return null;
   const field = daily
     ? Field.ofDailySet(name as "day" | "source")
     : Field.ofTelemetry(name);
+  const sets = p.values.map((v) => setOf(v.of[0]) ?? "");
   const scope = (extra?: "search"): Relation => {
-    if (daily)
+    if (daily) {
+      const where = DailySet.scope(p, sets, end);
       return {
         type: "daily_sets",
-        where: extra
-          ? and(DailySet.scope(p, end), DailySet.FieldMatches(field, search))
-          : DailySet.scope(p, end),
+        where: extra ? and(where, DailySet.FieldMatches(field, search)) : where,
       };
-    const names = metricNames(p).map((m) =>
-      m === cpuPercent ? "cpu.usage" : m,
-    );
-    const kind: Event.Spec = countsEvents(p)
-      ? Event.Kind("event")
-      : p.measure === "metric"
+    }
+    const names = p.values.flatMap((v) => {
+      const m = metricOf(v.of[0]);
+      return m === undefined ? [] : [m === cpuPercent ? "cpu.usage" : m];
+    });
+    const kind: Event.Spec =
+      p.data === "metric"
         ? and(Event.Kind("metric"), Event.Named(names))
-        : p.measure === "logs" || p.distinct?.dataset === "log"
-          ? Event.Kind("log")
-          : p.distinct?.dataset === "span"
-            ? Event.Kind("span")
-            : and(Event.Kind("span"), Event.Entry());
+        : kindOf(p.data);
     const where: Event.Spec = and(
       Event.matching(p, end),
       kind,
       ...(extra ? [Event.FieldMatches(field, search)] : []),
     );
-    return countsEvents(p)
+    return p.data === "event"
       ? { type: "analysis_events", where }
       : { type: "events", where };
   };
