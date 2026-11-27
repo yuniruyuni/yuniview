@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   blankPanel,
   type DataKind,
@@ -65,6 +66,22 @@ const columnNames: Record<string, Record<RowData, string> | string> = {
   },
   failed: "失敗",
 };
+/**
+ * The row table's columns in the stored order, keeping only those this data
+ * has; a default column left out goes back to its usual place.
+ */
+export function orderColumns(data: RowData, stored: string[]): Column[] {
+  const defaults = defaultColumns[data];
+  const list = stored.filter(
+    (c, i) =>
+      (defaults.includes(c) || isAttribute(c)) && stored.indexOf(c) === i,
+  );
+  defaults.forEach((d, i) => {
+    if (!list.includes(d)) list.splice(Math.min(i, list.length), 0, d);
+  });
+  return list;
+}
+
 function columnName(
   dict: ReturnType<typeof useDictionary>,
   data: RowData,
@@ -240,18 +257,216 @@ function RowsChunk({
   );
 }
 
+/** Attributes to choose from, searched by name or key, or any key typed. */
+function ColumnPicker({
+  at,
+  fields,
+  add,
+  close,
+}: {
+  at: { left: number; top: number };
+  fields: [string, string][];
+  add: (key: string) => void;
+  close: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const box = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    input.current?.focus();
+    const away = (e: Event) => {
+      if (!box.current?.contains(e.target as Node)) close();
+    };
+    document.addEventListener("mousedown", away);
+    window.addEventListener("scroll", away, true);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      window.removeEventListener("scroll", away, true);
+    };
+  }, [close]);
+  const q = search.trim().toLowerCase();
+  const shown = fields.filter(([k, label]) =>
+    `${k.slice(5)} ${label}`.toLowerCase().includes(q),
+  );
+  const typed =
+    q && !fields.some(([k]) => k.slice(5) === search.trim())
+      ? `attr:${search.trim()}`
+      : undefined;
+  return (
+    <div
+      ref={box}
+      className="column-picker"
+      role="dialog"
+      aria-label="列に出す属性"
+      style={{ left: at.left, top: at.top }}
+    >
+      <input
+        ref={input}
+        type="search"
+        aria-label="属性を検索"
+        placeholder="属性を検索"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") close();
+          const first = shown[0]?.[0] ?? typed;
+          if (e.key === "Enter" && first) add(first);
+        }}
+      />
+      <ul>
+        {shown.map(([k, label]) => (
+          <li key={k}>
+            <button type="button" onClick={() => add(k)}>
+              {label}
+              {label !== k.slice(5) && <small>{k.slice(5)}</small>}
+            </button>
+          </li>
+        ))}
+        {typed && (
+          <li>
+            <button type="button" onClick={() => add(typed)}>
+              「{typed.slice(5)}」を列に出す
+            </button>
+          </li>
+        )}
+        {!shown.length && !typed && (
+          <li className="empty">ほかに出せる属性はありません</li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Column headings. A + appears on the border between two columns under the
+ * pointer and adds a column there; headings can be dragged to reorder.
+ */
+function RowsHead({
+  data,
+  columns,
+  fields,
+  save,
+}: {
+  data: RowData;
+  columns: Column[];
+  fields: [string, string][];
+  save: (columns: Column[]) => void;
+}) {
+  const dict = useDictionary();
+  const [picking, pick] = useState<{
+    index: number;
+    left: number;
+    top: number;
+  }>();
+  const [dragged, drag] = useState<Column>();
+  const [over, hover] = useState<Column>();
+  const open = (index: number, button: HTMLElement) => {
+    const r = button.getBoundingClientRect();
+    pick({
+      index,
+      left: Math.max(8, Math.min(r.left - 8, window.innerWidth - 328)),
+      top: r.bottom + 6,
+    });
+  };
+  const inserter = (index: number, label: string, end?: boolean) => (
+    <button
+      type="button"
+      className={end ? "column-insert end" : "column-insert"}
+      aria-label={label}
+      title={label}
+      aria-expanded={picking?.index === index}
+      onClick={(e) => open(index, e.currentTarget)}
+    >
+      +
+    </button>
+  );
+  return (
+    <thead>
+      <tr>
+        {columns.map((c, i) => {
+          const name = columnName(dict, data, c);
+          return (
+            <th
+              key={c}
+              draggable
+              data-over={(over === c && dragged !== c) || undefined}
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = "move";
+                drag(c);
+              }}
+              onDragEnd={() => {
+                drag(undefined);
+                hover(undefined);
+              }}
+              onDragOver={(e) => {
+                if (!dragged) return;
+                e.preventDefault();
+                hover(c);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragged && dragged !== c) {
+                  const rest = columns.filter((x) => x !== dragged);
+                  rest.splice(rest.indexOf(c), 0, dragged);
+                  save(rest);
+                }
+                drag(undefined);
+                hover(undefined);
+              }}
+            >
+              {inserter(i, i ? `${name} の前に列を追加` : "先頭に列を追加")}
+              {name}
+              {isAttribute(c) && (
+                <button
+                  type="button"
+                  className="column-remove"
+                  aria-label={`${name} の列を外す`}
+                  onClick={() => save(columns.filter((x) => x !== c))}
+                >
+                  ×
+                </button>
+              )}
+              {i === columns.length - 1 &&
+                inserter(columns.length, "末尾に列を追加", true)}
+            </th>
+          );
+        })}
+      </tr>
+      {picking &&
+        createPortal(
+          <ColumnPicker
+            at={picking}
+            fields={fields.filter(([k]) => !columns.includes(k))}
+            close={() => pick(undefined)}
+            add={(k) => {
+              const next = [...columns];
+              next.splice(picking.index, 0, k);
+              save(next);
+              pick(undefined);
+            }}
+          />,
+          document.body,
+        )}
+    </thead>
+  );
+}
+
 function RowDetail({
   row,
   narrow,
   close,
   showTrace,
   around,
+  shown,
+  toggleColumn,
 }: {
   row: EventRow;
   narrow: (field: FilterField, value: string) => void;
   close: () => void;
   showTrace: (id: string) => void;
   around: (row: EventRow) => void;
+  shown: Column[];
+  toggleColumn: (field: string) => void;
 }) {
   const dict = useDictionary();
   const editField = useFieldEditor();
@@ -308,6 +523,13 @@ function RowDetail({
                 >
                   {shelfName(field as Exclude<FilterField, "text">, dict)}
                 </button>
+                {isAttribute(field) && (
+                  <ColumnToggle
+                    label={shelfName(field, dict)}
+                    shown={shown.includes(field)}
+                    toggle={() => toggleColumn(field)}
+                  />
+                )}
               </th>
               <td>
                 <button
@@ -324,6 +546,42 @@ function RowDetail({
         </tbody>
       </table>
     </aside>
+  );
+}
+
+/** Shows an attribute as a column of the row table, or takes it away. */
+function ColumnToggle({
+  label,
+  shown,
+  toggle,
+}: {
+  label: string;
+  shown: boolean;
+  toggle: () => void;
+}) {
+  const text = shown ? `${label} を列から外す` : `${label} を列に出す`;
+  return (
+    <button
+      type="button"
+      className="column-toggle"
+      aria-pressed={shown}
+      aria-label={text}
+      title={text}
+      onClick={toggle}
+    >
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        aria-hidden="true"
+      >
+        <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
+        <path d="M6 2.5v11M10.5 2.5v11" />
+      </svg>
+    </button>
   );
 }
 
@@ -375,10 +633,20 @@ export function Explore({
   const fields = useQueryFields(data, conditions, end, minutes).filter(
     ([k]) => k !== "text" && !k.startsWith("time:"),
   );
-  const columns: Column[] = [
-    ...defaultColumns[data],
-    ...extraColumns.filter((c) => isAttribute(c)),
-  ];
+  const columns = orderColumns(data, extraColumns);
+  const saveColumns = (list: Column[]) => {
+    const defaults = defaultColumns[data];
+    setColumns(
+      list.length === defaults.length && list.every((c, i) => c === defaults[i])
+        ? []
+        : list,
+    );
+  };
+  const toggleColumn = (k: string) =>
+    saveColumns(
+      columns.includes(k) ? columns.filter((c) => c !== k) : [...columns, k],
+    );
+  const attributes = fields.filter(([k]) => isAttribute(k));
   const histogram: Panel = {
     ...blankPanel,
     title: "件数の推移",
@@ -417,6 +685,13 @@ export function Explore({
                 >
                   {label}
                 </button>
+                {isAttribute(k) && (
+                  <ColumnToggle
+                    label={label}
+                    shown={columns.includes(k)}
+                    toggle={() => toggleColumn(k)}
+                  />
+                )}
                 <button
                   type="button"
                   className="field-edit"
@@ -477,27 +752,12 @@ export function Explore({
         <div className="explore-rows">
           <div className="card scroll">
             <table className="rows">
-              <thead>
-                <tr>
-                  {columns.map((c) => (
-                    <th key={c}>
-                      {columnName(dict, data, c)}
-                      {isAttribute(c) && (
-                        <button
-                          type="button"
-                          className="column-remove"
-                          aria-label={`${columnName(dict, data, c)} の列を外す`}
-                          onClick={() =>
-                            setColumns(extraColumns.filter((x) => x !== c))
-                          }
-                        >
-                          ×
-                        </button>
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+              <RowsHead
+                data={data}
+                columns={columns}
+                fields={attributes}
+                save={saveColumns}
+              />
               <tbody>
                 {cursors.map((after, i) => (
                   <RowsChunk
@@ -516,25 +776,6 @@ export function Explore({
                 ))}
               </tbody>
             </table>
-            <label className="add-column">
-              列を追加
-              <select
-                value=""
-                onChange={(e) =>
-                  e.target.value &&
-                  setColumns([...extraColumns, e.target.value])
-                }
-              >
-                <option value="">属性を選ぶ</option>
-                {fields
-                  .filter(([k]) => isAttribute(k) && !columns.includes(k))
-                  .map(([k, label]) => (
-                    <option key={k} value={k}>
-                      {label}
-                    </option>
-                  ))}
-              </select>
-            </label>
           </div>
           {row && (
             <RowDetail
@@ -550,6 +791,8 @@ export function Explore({
                 setConditions([{ field: "instance", values: [r.instance] }]);
                 setRange(2, new Date(at + 60000).toISOString());
               }}
+              shown={columns}
+              toggleColumn={toggleColumn}
             />
           )}
         </div>

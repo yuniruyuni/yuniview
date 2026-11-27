@@ -1930,7 +1930,7 @@ button.service-row:hover {
 }
 table.rows th,
 table.rows td {
-  padding: 6px 10px;
+  padding: 6px 12px;
   border-bottom-color: var(--line);
 }
 table.rows thead th {
@@ -1969,13 +1969,6 @@ table.rows tr.failed-row td:first-child {
   background: transparent;
   padding: 0 4px;
   color: var(--subtle);
-}
-.add-column {
-  display: inline-flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
 }
 .row-detail {
   width: 380px;
@@ -2156,4 +2149,126 @@ table.dictionary .description {
 }
 .cards > .card.wide {
   grid-column: 1 / -1;
+}
+
+/* Row table columns: a + on the border between headings adds a column there. */
+.explore-rows > .card.scroll {
+  max-height: calc(100vh - 56px - 40px);
+}
+table.rows thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  cursor: grab;
+}
+table.rows thead th[data-over] {
+  box-shadow: inset 2px 0 var(--accent);
+}
+.column-insert {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: transparent;
+  font-size: 12px;
+  line-height: 14px;
+  text-align: center;
+  cursor: pointer;
+}
+.column-insert.end {
+  left: 100%;
+  transform: translate(-100%, -50%);
+}
+table.rows thead th:first-child .column-insert:not(.end) {
+  transform: translate(0, -50%);
+}
+.column-insert::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 0;
+  height: 0;
+  border-left: 2px solid var(--accent);
+  transform: translateX(-50%);
+}
+.column-insert:hover,
+.column-insert:focus-visible,
+.column-insert[aria-expanded="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+.column-insert:hover::after,
+.column-insert[aria-expanded="true"]::after {
+  height: 12px;
+}
+.column-picker {
+  position: fixed;
+  z-index: 40;
+  width: 320px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(15 23 42 / 0.12);
+  padding: 8px;
+}
+.column-picker input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.column-picker ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  max-height: 320px;
+  overflow: auto;
+}
+.column-picker li button {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 6px 8px;
+  color: var(--text);
+}
+.column-picker li button:hover,
+.column-picker li button:focus-visible {
+  background: var(--accent-faint);
+  color: var(--strong);
+}
+.column-picker small {
+  color: var(--subtle);
+}
+.column-picker .empty {
+  padding: 6px 8px;
+  color: var(--muted);
+}
+.column-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--subtle);
+  padding: 2px 4px;
+  line-height: 0;
+  visibility: hidden;
+}
+.column-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  visibility: visible;
+}
+.explore-field:hover .column-toggle,
+.row-fields th:hover .column-toggle,
+.column-toggle:focus-visible {
+  visibility: visible;
 }
