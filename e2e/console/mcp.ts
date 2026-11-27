@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { blankPanel } from "../../shared/console";
+import { blankPanel, defaults } from "../../shared/console";
 
 test("MCP edits share console storage and reject stale versions", async ({
   request,
@@ -96,4 +96,71 @@ test("MCP edits share console storage and reject stale versions", async ({
       (await call(name, name === "preview_panel" ? { panel } : {})).isError,
     ).toBeFalsy();
   }
+  const read = async (name: string, args: object = {}) => {
+    const r = await call(name, args);
+    expect(r.isError, `${name}: ${r.content?.[0]?.text}`).toBeFalsy();
+    return JSON.parse(r.content[0].text);
+  };
+  // Exploring what is stored, as the explore page does.
+  const query = { ...defaults, data: "log" };
+  expect(await read("search_telemetry", { query })).toHaveProperty("items");
+  await read("top_values", { query, field: "source" });
+  await read("list_attributes", { query });
+  await read("list_routes", { filter: defaults });
+  await read("backtest_monitor", { monitor: config.monitor });
+  expect((await call("get_trace", { trace: "z".repeat(32) })).isError).toBe(
+    true,
+  );
+
+  // Saved configuration can be removed.
+  const removable = {
+    ...config.dashboard,
+    id: crypto.randomUUID(),
+    title: "MCP removable",
+  };
+  await read("save_dashboard", {
+    definition: removable,
+    expectedVersion: null,
+  });
+  expect(
+    await read("remove_configuration", { kind: "dashboard", id: removable.id }),
+  ).toEqual({ removed: true });
+
+  // The field dictionary.
+  const field = await read("save_field", {
+    key: "attr:mcp.note",
+    label: "MCP で付けた名前",
+  });
+  expect(JSON.stringify(field)).toContain("MCP で付けた名前");
+
+  // Retention rules: preview, save, list, reorder and remove.
+  const rule = (title: string) => ({
+    id: crypto.randomUUID(),
+    title,
+    data: "metric",
+    names: ["mcp.never.sent"],
+    keep: 60,
+  });
+  const first = rule("MCP rule one");
+  const second = rule("MCP rule two");
+  expect(await read("preview_retention_rule", { rule: first })).toEqual({
+    perDay: 0,
+  });
+  for (const r of [first, second])
+    expect(await read("save_retention_rule", { rule: r })).toEqual({
+      saved: true,
+      perDay: 0,
+    });
+  const titles = async () =>
+    (await read("list_retention_rules")).map(
+      (r: { rule: { title: string } }) => r.rule.title,
+    );
+  expect(await titles()).toEqual(["MCP rule one", "MCP rule two"]);
+  await read("reorder_retention_rules", { ids: [second.id, first.id] });
+  expect(await titles()).toEqual(["MCP rule two", "MCP rule one"]);
+  for (const r of [first, second])
+    expect(await read("remove_retention_rule", { id: r.id })).toEqual({
+      removed: true,
+    });
+  expect(await titles()).toEqual([]);
 });

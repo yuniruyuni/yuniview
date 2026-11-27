@@ -1,7 +1,16 @@
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { defaults } from "../../../shared/console";
-import { dashboard, monitor, panel } from "../models/panel";
+import {
+  dashboard,
+  fieldMeta,
+  filter,
+  filterField,
+  monitor,
+  panel,
+  query,
+} from "../models/panel";
+import { retentionRule } from "../models/retention";
 import { listConfiguration } from "../usecases/configuration/list-configuration";
 import { saveDashboard } from "../usecases/configuration/save-dashboard";
 import { saveMonitor } from "../usecases/configuration/save-monitor";
@@ -16,12 +25,24 @@ const version = z
     "Use null to create a new UUID, or the version from list_configuration to replace the complete definition.",
   );
 const readOnly = { readOnlyHint: true };
+// Deletes stored rows or configuration that cannot be brought back.
+const destructive = { destructiveHint: true };
+const conditionHelp =
+  "Conditions are the same as preview_panel's panel.conditions.";
 const webhookConfigured = () => Boolean(process.env.MONITOR_WEBHOOK_URL);
 function result(value: object) {
   return { content: [{ type: "text" as const, text: JSON.stringify(value) }] };
 }
 function failure(text: string) {
   return { isError: true, content: [{ type: "text" as const, text }] };
+}
+/** The tool's result, or its error as the tool's failure. */
+async function attempt(fn: () => Promise<object>) {
+  try {
+    return result(await fn());
+  } catch (error) {
+    return failure(error instanceof Error ? error.message : String(error));
+  }
 }
 
 export function managementMcp(ctx: Context) {
@@ -124,6 +145,178 @@ export function managementMcp(ctx: Context) {
         }),
       },
       ({ definition, expectedVersion }) => save(definition, expectedVersion),
+    );
+    const now = () => new Date().toISOString();
+
+    // Exploring stored rows, as the console's explore page does.
+    server.registerTool(
+      "search_telemetry",
+      {
+        description: `Read stored rows, newest first, 100 per page: requests (server spans), spans, logs, application events or metric readings within the last minutes. ${conditionHelp} Pass the returned cursor as after for the next page. Each row has its trace ID, which get_trace opens.`,
+        inputSchema: z.object({
+          query: query.extend({
+            data: z.enum(["request", "span", "log", "event", "metric"]),
+          }),
+          after: z
+            .object({
+              at: z.string(),
+              source: z.string(),
+              batchId: z.string(),
+              ordinal: z.string(),
+            })
+            .optional(),
+        }),
+        annotations: readOnly,
+      },
+      ({ query, after }) =>
+        attempt(() => api.events({ ...query, end: now(), after })),
+    );
+    server.registerTool(
+      "get_trace",
+      {
+        description:
+          "Read every span and log of one trace across services, in time order. Span attrs include the sending process under attrs.resource.",
+        inputSchema: z.object({ trace: z.string().regex(/^[a-f0-9]{32}$/) }),
+        annotations: readOnly,
+      },
+      ({ trace }) => attempt(() => api.trace(trace)),
+    );
+    server.registerTool(
+      "top_values",
+      {
+        description: `The most frequent values of one field among the rows a query reads, with their counts. Fields are as in preview_panel (source, slot, revision, instance, workload, attr:<key>, ...). ${conditionHelp}`,
+        inputSchema: z.object({ query, field: filterField }),
+        annotations: readOnly,
+      },
+      ({ query, field }) =>
+        attempt(() => api.topValues({ query, field, end: now() })),
+    );
+    server.registerTool(
+      "list_attributes",
+      {
+        description:
+          "The attribute keys (attr:<key>) seen on recent rows a query reads, optionally of one metric.",
+        inputSchema: z.object({
+          query,
+          metric: z.string().max(512).optional(),
+        }),
+        annotations: readOnly,
+      },
+      ({ query, metric }) =>
+        attempt(() =>
+          api.worksheetAttributes({ ...query, metric, end: now() }),
+        ),
+    );
+    server.registerTool(
+      "list_routes",
+      {
+        description:
+          "Requests per service and route within the last minutes: counts, failures, p95 duration in ms and the slowest trace of each.",
+        inputSchema: z.object({ filter }),
+        annotations: readOnly,
+      },
+      ({ filter }) => attempt(() => api.routes({ ...filter, end: now() })),
+    );
+    server.registerTool(
+      "backtest_monitor",
+      {
+        description:
+          "Replay a monitor definition (as save_monitor takes it) over the past days to see when it would have alerted, before saving it.",
+        inputSchema: z.object({ monitor }),
+        annotations: readOnly,
+      },
+      ({ monitor }) => attempt(() => api.backtest({ monitor, end: now() })),
+    );
+    server.registerTool(
+      "remove_configuration",
+      {
+        description:
+          "Delete a saved dashboard or monitor by ID (from list_configuration). A monitor's state history goes with it.",
+        inputSchema: z.object({
+          kind: z.enum(["dashboard", "monitor"]),
+          id: z.uuid(),
+        }),
+        annotations: destructive,
+      },
+      (input) => attempt(async () => ({ removed: await api.remove(input) })),
+    );
+
+    // The field dictionary.
+    server.registerTool(
+      "save_field",
+      {
+        description:
+          "Set what people say about one field of the dictionary (key from list_fields): display name, description, unit, preferred display unit, kind (gauge or counter) and default aggregation. Omitted properties stay as they are; null clears one and falls back to what the sender said.",
+        inputSchema: fieldMeta,
+      },
+      (input) =>
+        attempt(async () => ({ field: (await api.saveField(input)) ?? null })),
+    );
+
+    // Retention rules.
+    const ruleHelp =
+      "Rules are checked in order and the first one a row matches decides how long it is kept; rows matching none are kept forever. A rule matches rows of one kind of data (data, optional), with one of the exact names (names, optional; e.g. metric names), meeting the conditions (optional; as in preview_panel). keep is in minutes, or null to keep forever, which also shields rows from later rules.";
+    server.registerTool(
+      "list_retention_rules",
+      {
+        description: `Read the retention rules in order, each with the rows per day it decides (over the last 24 hours, after earlier rules). ${ruleHelp}`,
+        inputSchema: z.object({}),
+        annotations: readOnly,
+      },
+      () => attempt(() => api.retentionRules()),
+    );
+    server.registerTool(
+      "preview_retention_rule",
+      {
+        description: `How many rows per day a rule would decide, counted over the last 24 hours after the rules before it, without saving. A new rule is previewed at the end of the list. ${ruleHelp}`,
+        inputSchema: z.object({ rule: retentionRule }),
+        annotations: readOnly,
+      },
+      ({ rule }) =>
+        attempt(async () => ({
+          perDay: await api.previewRetentionRule(rule),
+        })),
+    );
+    server.registerTool(
+      "save_retention_rule",
+      {
+        description: `Create a rule at the end of the list, or replace the one with the same ID. Takes effect on rows already stored: rows older than keep that the rule decides are deleted within minutes and cannot be restored, so run preview_retention_rule first. ${ruleHelp}`,
+        inputSchema: z.object({ rule: retentionRule }),
+        annotations: destructive,
+      },
+      ({ rule }) =>
+        attempt(async () => {
+          const perDay = await api.previewRetentionRule(rule);
+          await api.saveRetentionRule(rule);
+          return { saved: true, perDay };
+        }),
+    );
+    server.registerTool(
+      "remove_retention_rule",
+      {
+        description:
+          "Delete a retention rule by ID. Rows it decided fall to the later rules, or are kept forever; rows it already deleted stay deleted.",
+        inputSchema: z.object({ id: z.uuid() }),
+        annotations: destructive,
+      },
+      (input) =>
+        attempt(async () => ({
+          removed: await api.removeRetentionRule(input),
+        })),
+    );
+    server.registerTool(
+      "reorder_retention_rules",
+      {
+        description:
+          "Put the retention rules in this order (every rule's ID, from list_retention_rules). Order decides which rule a row falls to, so this can delete rows an earlier position kept.",
+        inputSchema: z.object({ ids: z.array(z.uuid()).max(1000) }),
+        annotations: destructive,
+      },
+      (input) =>
+        attempt(async () => {
+          await api.reorderRetentionRules(input);
+          return { reordered: true };
+        }),
     );
     return server;
   });
