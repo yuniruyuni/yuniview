@@ -251,7 +251,10 @@ export function FilterShelf({
   changeTimeField,
   ready,
   hover,
+  compact,
 }: {
+  /** A slim row of chips with an add button, for page headers. */
+  compact?: boolean;
   panel: Panel;
   end: string;
   items: FieldCondition[];
@@ -290,10 +293,14 @@ export function FilterShelf({
         title="ダブルクリックまたは Enter で属性を選択"
         onDoubleClick={() => pick(true)}
         onClick={(e) => {
-          if (e.detail === 0) pick(true);
+          if (compact || e.detail === 0) pick(true);
         }}
       >
-        フィルター {!items.length && <span>ここにドロップ</span>}
+        {compact ? (
+          "＋ 条件"
+        ) : (
+          <>フィルター {!items.length && <span>ここにドロップ</span>}</>
+        )}
       </button>
       {picking && (
         <ShelfPicker

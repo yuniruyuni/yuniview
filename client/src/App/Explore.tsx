@@ -18,7 +18,7 @@ import {
 import { clock, Feedback, number, useQuery } from "../api";
 import { useQueryFields } from "./ConditionBar";
 import { useDictionary, useFieldEditor } from "./dictionary";
-import { PanelView, Select } from "./Panels";
+import { PanelView } from "./Panels";
 import { palette } from "./SeriesStyle";
 
 type EventCursor = Record<"at" | "source" | "batchId" | "ordinal", string>;
@@ -392,12 +392,18 @@ export function Explore({
   return (
     <div className="explore">
       <aside className="explore-fields" aria-label="フィールド">
-        <Select
-          label="データ"
-          value={data}
-          choices={rowData.map((d): [string, string] => [d, dataKinds[d]])}
-          change={(v) => setData(v as RowData)}
-        />
+        <fieldset className="data-tabs" aria-label="データ">
+          {rowData.map((d) => (
+            <button
+              type="button"
+              key={d}
+              aria-pressed={data === d}
+              onClick={() => setData(d)}
+            >
+              {dataKinds[d]}
+            </button>
+          ))}
+        </fieldset>
         <h4>フィールド</h4>
         <ul>
           {fields.map(([k, label]) => (

@@ -92,6 +92,7 @@ export function ConditionBar({
         }}
         ready={false}
         hover={false}
+        compact
       />
     </div>
   );

@@ -54,14 +54,7 @@ export function Select({
     </label>
   );
 }
-const colors = [
-  "#007f84",
-  "#d47937",
-  "#7461a8",
-  "#357aa8",
-  "#a34e75",
-  "#6b852c",
-];
+const colors = palette;
 export function Chart({
   whole,
   threshold,
@@ -174,7 +167,7 @@ export function Chart({
                 x2={right}
                 y1={valueY(n)}
                 y2={valueY(n)}
-                stroke="#dae5e3"
+                stroke="#eef2f6"
               />
               <text x={left - 5} y={valueY(n) + 3} textAnchor="end">
                 {number(n)}
@@ -188,22 +181,47 @@ export function Chart({
               x2={right}
               y1={valueY(threshold)}
               y2={valueY(threshold)}
-              stroke="#c0392b"
-              strokeWidth={1.5}
-              strokeDasharray="6 4"
+              stroke="#d97706"
+              strokeWidth={1.25}
+              strokeDasharray="5 4"
             >
               <title>閾値 {number(threshold)}</title>
             </line>
           )}
           {groups.map((g, i) => {
             const ps = shown.filter((p) => p.series === g);
+            // Marks only where someone asked for them or points are sparse.
+            const marked =
+              fixedStyle?.shape !== undefined || !!choose || ps.length <= 16;
+            const filled = groups.length === 1 || (active === g && !!active);
+            const base = valueY(Math.max(low, Math.min(0, high)));
             return (
               <g key={g} stroke={color(i)} fill={color(i)}>
+                {filled && ps.length > 1 && (
+                  <path
+                    stroke="none"
+                    fillOpacity={0.1}
+                    d={ps
+                      .map((p, j) => {
+                        const move =
+                          !j ||
+                          Date.parse(p.bucket) - Date.parse(ps[j - 1].bucket) >
+                            gapMs;
+                        const head = move
+                          ? `${j ? `L${x(ps[j - 1])},${base} ` : ""}M${x(p)},${base} L`
+                          : "L";
+                        return `${head}${x(p)},${y(p)}`;
+                      })
+                      .concat(`L${x(ps[ps.length - 1])},${base} Z`)
+                      .join(" ")}
+                  />
+                )}
                 <path
                   fill="none"
                   strokeWidth={strokeWidth}
                   strokeDasharray={dash}
                   strokeLinecap="round"
+                  strokeLinejoin="round"
                   d={ps
                     .map((p, i) => {
                       const move =
@@ -215,6 +233,7 @@ export function Chart({
                     .join(" ")}
                 />
                 {ps.map((p) => {
+                  if (!marked) return null;
                   const mark = (
                     <PointSymbol
                       key={p.bucket}
@@ -256,7 +275,6 @@ export function Chart({
             <button
               type="button"
               key={g}
-              style={{ borderLeftColor: color(i) }}
               aria-pressed={active === g}
               onClick={() => setActive(active === g ? "" : g)}
             >
@@ -276,7 +294,9 @@ export function Chart({
                   strokeDasharray={dash}
                   strokeLinecap="round"
                 />
-                <PointSymbol shape={shape} x={16} y={6} r={3} />
+                {fixedStyle?.shape !== undefined && (
+                  <PointSymbol shape={shape} x={16} y={6} r={3} />
+                )}
               </svg>
               {g || "未指定"}
             </button>
@@ -357,6 +377,27 @@ export function PanelView({
     ?.filter((c) => c.field === "source" && c.values?.length)
     .flatMap((c) => c.values ?? [])
     .join("・");
+  const names = panel.values.map((v) => valueName(dict, panel.data, v));
+  const latest =
+    panel.display === "chart" &&
+    data &&
+    new Set(data.map((p) => p.series)).size === 1
+      ? data.reduce<Point | undefined>(
+          (last, p) => (!last || p.bucket > last.bucket ? p : last),
+          undefined,
+        )
+      : undefined;
+  const meta = [
+    names.join("・") === panel.title ? "" : names.join("・"),
+    scope || "全サービス",
+    `${panel.minutes}分`,
+    panel.display === "chart" && panel.values[0].agg === "count"
+      ? `件 / ${chartBucketSeconds(panel.minutes)}秒`
+      : panel.display !== "table" && panel.values.length === 1
+        ? unit
+        : "",
+    panel.data === "daily" ? "日別のユニーク数" : "",
+  ].filter(Boolean);
   return (
     <article className={wide ? "card wide" : "card"}>
       <div className="cardhead">
@@ -375,19 +416,19 @@ export function PanelView({
               panel.title
             ))}
         </h3>
+        <small title={`${dataKinds[panel.data]} · ${meta.join(" · ")}`}>
+          {meta.join(" · ")}
+        </small>
+        {latest && (
+          <span className="panel-now" title="最新の値">
+            {number(latest.value)}
+            {(latest.metricUnit ?? unit) && (
+              <small> {latest.metricUnit ?? unit}</small>
+            )}
+          </span>
+        )}
         {actions}
       </div>
-      <small>
-        {dataKinds[panel.data]} ·{" "}
-        {panel.values.map((v) => valueName(dict, panel.data, v)).join("・")} ·{" "}
-        {scope || "全サービス"} · {panel.minutes}分{" "}
-        {panel.display !== "table" && panel.values.length === 1 && unit}
-        {panel.display === "chart" &&
-          panel.values[0].agg === "count" &&
-          ` · ${chartBucketSeconds(panel.minutes)}秒ごとの件数`}
-        {panel.data === "daily" &&
-          " · サービス別・日別のユニーク数（複数をまとめた値は延べ件数）"}
-      </small>
       {!data ? (
         <p role="status">
           <Feedback error={error} />

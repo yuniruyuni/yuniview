@@ -171,7 +171,7 @@ test("agent records → trace and logs → saved panel → monitor and notificat
     page.on("pageerror", (e) => errors.push(e.message));
     await page.goto("/");
     await expect(
-      page.locator(".service-card").filter({ hasText: "checkout" }),
+      page.locator(".service-row").filter({ hasText: "checkout" }),
     ).toContainText("240 ms");
     const nav = page.getByRole("navigation");
     await nav.getByRole("button", { name: "探索", exact: true }).click();
@@ -185,8 +185,9 @@ test("agent records → trace and logs → saved panel → monitor and notificat
     ).toBeVisible();
     await page.getByRole("button", { name: "戻る", exact: true }).click();
     await page
-      .getByRole("combobox", { name: "データ", exact: true })
-      .selectOption("metric");
+      .getByRole("group", { name: "データ", exact: true })
+      .getByRole("button", { name: "メトリクス", exact: true })
+      .click();
     await expect(
       page.getByRole("cell", { name: "memory.current", exact: true }).first(),
     ).toBeVisible();
@@ -1796,7 +1797,7 @@ test("home cards lead to a service page with revisions compared and routes to ex
       },
     );
   await page.goto("/");
-  await page.locator(".service-card").filter({ hasText: "checkout" }).click();
+  await page.locator(".service-row").filter({ hasText: "checkout" }).click();
   await expect(page).toHaveURL(/page=service&service=checkout/);
   await expect(
     page.getByRole("heading", { name: "checkout", exact: true }).first(),
@@ -1898,9 +1899,10 @@ test("the field dictionary names a field wherever it shows, over what its sender
       .locator('[data-drop="row"] .value-chip')
       .filter({ hasText: "待ち行列" }),
   ).toHaveCount(1);
-  await expect(form.locator(".builder-main .card small").first()).toContainText(
-    "待ち行列",
-  );
+  // The panel's heading and summary use the person's name for the field.
+  await expect(
+    form.locator(".builder-main .card .cardhead").first(),
+  ).toContainText("待ち行列");
   await form.getByRole("button", { name: "キャンセル", exact: true }).click();
   await page.goto("/#page=settings");
   await row.getByRole("button", { name: "待ち行列 を編集" }).click();

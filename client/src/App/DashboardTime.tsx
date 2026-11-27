@@ -12,11 +12,14 @@ export function DashboardTime({
   end,
   fixed,
   change,
+  quick,
 }: {
   minutes: number;
   end: string;
   fixed: boolean;
   change: (minutes: number, end?: string) => void;
+  /** Shows the common ranges as buttons beside the picker. */
+  quick?: boolean;
 }) {
   const pop = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -54,10 +57,27 @@ export function DashboardTime({
       : n % 60 === 0
         ? n / 60 + "時間"
         : n + "分";
+  const common = [15, 60, 360, 1440, 10080];
+  const custom = fixed || !common.includes(minutes);
   return (
     <div className="dashboard-time">
+      {quick && (
+        <fieldset className="time-segments" aria-label="よく使う期間">
+          {common.map((n) => (
+            <button
+              type="button"
+              key={n}
+              aria-pressed={!fixed && minutes === n}
+              onClick={() => change(n)}
+            >
+              {describe(n)}
+            </button>
+          ))}
+        </fieldset>
+      )}
       <button
         type="button"
+        className={quick && !custom ? "time-more" : undefined}
         popoverTarget={id}
         aria-label="ダッシュボードの期間"
         onClick={() => {
@@ -67,7 +87,12 @@ export function DashboardTime({
           selectEnd(false);
         }}
       >
-        {fixed ? fromLabel + " ～ " + toLabel : "直近" + describe(minutes)} ▾
+        {quick && !custom
+          ? "期間を指定"
+          : fixed
+            ? fromLabel + " ～ " + toLabel
+            : "直近" + describe(minutes)}{" "}
+        ▾
       </button>
       <div
         popover="auto"

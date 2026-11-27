@@ -1,15 +1,15 @@
 import type { StyleChannel } from "../../../shared/console";
 export const palette = [
-  "#007f84",
-  "#ac541e",
-  "#7461a8",
-  "#357aa8",
-  "#a34e75",
-  "#687e29",
-  "#33475c",
+  "#0284c7",
+  "#ea580c",
+  "#7e22ce",
+  "#428455",
+  "#db2777",
+  "#b45309",
+  "#334155",
 ];
 export const dashPatterns = [undefined, "1 4", "7 4"];
-export const lineWidths = [1, 2, 3.5];
+export const lineWidths = [1, 1.75, 3.5];
 export function PointSymbol({
   shape,
   x,
@@ -50,7 +50,7 @@ export function PointSymbol({
   );
 }
 export const styleNames: Record<StyleChannel, string[]> = {
-  color: ["青緑", "橙", "紫", "青", "赤紫", "緑", "紺"],
+  color: ["水色", "橙", "紫", "緑", "桃", "黄土", "灰"],
   dash: ["実線", "点線", "破線"],
   width: ["細い", "通常", "太い"],
   shape: ["丸", "四角", "三角"],
