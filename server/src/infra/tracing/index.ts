@@ -16,9 +16,27 @@
  * このファイルは他のリポジトリへそのまま持っていける。アプリ固有の型にも
  * 名前にも依存させていない。
  */
-import { type Span, SpanStatusCode, trace } from "@opentelemetry/api";
+import {
+  context,
+  createContextKey,
+  type Span,
+  SpanStatusCode,
+  trace,
+} from "@opentelemetry/api";
 
 const tracer = trace.getTracer("app");
+const quiet = createContextKey("untraced");
+
+/**
+ * 中で呼ばれる計測をすべて省く。
+ *
+ * 受け取ったテレメトリの処理を計測すると、その計測がまたテレメトリとして
+ * 自分に届き、受け取るたびに記録が増える。そうした経路を外すのに使う。
+ */
+export function untraced<T>(fn: () => Promise<T> | T): Promise<T> | T {
+  if (!tracingEnabled()) return fn();
+  return context.with(context.active().setValue(quiet, true), fn);
+}
 
 /** 送り先が指定されているか。無ければ計装ごと省く。 */
 export function tracingEnabled(): boolean {
@@ -36,7 +54,7 @@ export async function traced<T>(
   fn: () => Promise<T> | T,
   attrs?: Record<string, string | number | boolean>,
 ): Promise<T> {
-  if (!tracingEnabled()) return fn();
+  if (!tracingEnabled() || context.active().getValue(quiet)) return fn();
   return tracer.startActiveSpan(name, async (span: Span) => {
     if (attrs) span.setAttributes(attrs);
     try {
