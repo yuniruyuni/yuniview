@@ -428,9 +428,7 @@ export function aggsFor(data: DataKind, of: readonly ValueField[]): Agg[] {
     return of.every((f) => fieldType(f) === "dimension") ? ["distinct"] : [];
   switch (fieldType(of[0])) {
     case "number":
-      return of[0].startsWith("metric:")
-        ? [...numberAggs, "rate"]
-        : numberAggs;
+      return of[0].startsWith("metric:") ? [...numberAggs, "rate"] : numberAggs;
     case "boolean":
       return ["ratio"];
     case "set":
@@ -570,4 +568,32 @@ export function convertUnit(value: number, from: string, to: string) {
   const family = compatibleUnits(from);
   if (!family || !Object.hasOwn(family, to)) return value;
   return (value * family[from]) / family[to];
+}
+
+/* ---------------------------------------------------------- retention */
+
+/** Kinds of stored rows a retention rule can name; daily sets are not rows. */
+export type RowKind = Exclude<DataKind, "daily">;
+/**
+ * How long rows a rule picks out are kept. Rules are read in order and the
+ * first one a row matches decides; rows no rule matches are kept forever.
+ */
+export interface RetentionRule {
+  id: string;
+  title: string;
+  /** The kind of rows; every kind when absent. */
+  data?: RowKind;
+  /** Exact span, metric or log names; any name when absent. */
+  names?: string[];
+  conditions?: FieldCondition[];
+  /** Minutes rows are kept after their time; null keeps them forever. */
+  keep: number | null;
+}
+/** A saved rule with how many rows it took over the last day. */
+export interface RetentionRuleView {
+  rule: RetentionRule;
+  /** Rows of the last 24 hours this rule decides, after earlier rules. */
+  perDay: number;
+  /** Rows before this time have been swept; null until the first sweep. */
+  sweptUntil: string | null;
 }

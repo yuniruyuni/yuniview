@@ -23,6 +23,8 @@ export function batchSpecToSQL(spec: BatchSpecData): SQLFragment {
       return sql`slot=${spec.slot}`;
     case "Revision":
       return sql`revision=${spec.revision}`;
+    case "Emptied":
+      return sql`indexed AND NOT EXISTS (SELECT 1 FROM telemetry_events e WHERE e.source=telemetry_batches.source_id AND e.batch_id=telemetry_batches.batch_id)`;
   }
 }
 

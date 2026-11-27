@@ -1,6 +1,8 @@
+import { untraced } from "../infra/tracing";
 import type { Context } from "../usecases/context";
 import { deliverNotifications } from "../usecases/monitor/deliver";
 import { evaluateMonitors } from "../usecases/monitor/evaluate";
+import { planSweep, sweep } from "../usecases/retention/sweep";
 import { expire } from "../usecases/telemetry/expire";
 import { indexPending, indexStep } from "../usecases/telemetry/index-pending";
 
@@ -39,6 +41,10 @@ export function startWorker(ctx: Context) {
         await run(expire(days));
         nextExpiry = Date.now() + expiryMs;
       }
+      // Planning runs every tick, so it is not traced; a sweep that has rows
+      // to delete is, about once a minute per rule.
+      const steps = await untraced(() => run(planSweep()));
+      if (steps?.length) await run(sweep(steps));
       if (notifications) await run(deliverNotifications());
     })()
       .catch((e) => ctx.logger.error("console worker", e))

@@ -7,6 +7,7 @@ import { EventRepository } from "./event";
 import { FieldNoteRepository } from "./field-note";
 import { MonitorRepository } from "./monitor";
 import { MonitorEventRepository } from "./monitor-event";
+import { RetentionRuleRepository } from "./retention-rule";
 import { SourceRepository } from "./source";
 import { UsageAgentRepository } from "./usage-agent";
 import { WebhookRepository } from "./webhook";
@@ -26,6 +27,7 @@ export function createRawRepos(config: RepositoryConfig = {}) {
     fieldNotes: new FieldNoteRepository(),
     monitors: new MonitorRepository(),
     monitorEvents: new MonitorEventRepository(),
+    retentionRules: new RetentionRuleRepository(),
     sources: new SourceRepository(),
     usageAgent: new UsageAgentRepository(),
     webhook: new WebhookRepository(config.webhookUrl),

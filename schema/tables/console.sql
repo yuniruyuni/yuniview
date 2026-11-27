@@ -37,9 +37,20 @@ CREATE TABLE monitor_history (
  delivery text NOT NULL, retry_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX history_delivery ON monitor_history(delivery,retry_at);
+-- Time ranges of the retention sweep; rows arrive roughly in time order, so a BRIN index stays small.
+CREATE INDEX events_at_brin ON telemetry_events USING brin(at);
 GRANT SELECT,INSERT ON telemetry_events TO yuniview_app;
+-- Rows were insert-only until retention rules: their sweep deletes rows a rule's period has passed.
+GRANT DELETE ON telemetry_events TO yuniview_app;
 GRANT SELECT,INSERT ON telemetry_resources TO yuniview_app;
 GRANT SELECT,INSERT,UPDATE,DELETE ON dashboards,monitors,monitor_history TO yuniview_app;
+-- How long rows a filter picks out are kept. Read in position order; the first rule a row matches decides.
+CREATE TABLE retention_rules (
+ id uuid PRIMARY KEY, position integer NOT NULL, definition jsonb NOT NULL,
+ -- Rows at or before this time have been swept; null sweeps again from the oldest row.
+ swept_until timestamptz
+);
+GRANT SELECT,INSERT,UPDATE,DELETE ON retention_rules TO yuniview_app;
 GRANT DELETE ON telemetry_batches TO yuniview_app;
 CREATE INDEX batches_received_at ON telemetry_batches(received_at);
 

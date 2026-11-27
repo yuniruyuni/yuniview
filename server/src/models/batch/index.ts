@@ -44,12 +44,15 @@ export namespace Batch {
     OldestBefore: (at: Date, count: number) => ({ at, count }),
     Slot: (slot: string) => ({ slot }),
     Revision: (revision: string) => ({ revision }),
+    /** Indexed, with every row since deleted (by retention rules). */
+    Emptied: () => ({}),
   });
   export const ByKeys = _specs.ByKeys;
   export const Pending = _specs.Pending;
   export const OldestBefore = _specs.OldestBefore;
   export const Slot = _specs.Slot;
   export const Revision = _specs.Revision;
+  export const Emptied = _specs.Emptied;
   export type Spec = Comp<SpecsOf<typeof _specs>>;
 
   export function received(envelope: Envelope, at: Date): Batch {

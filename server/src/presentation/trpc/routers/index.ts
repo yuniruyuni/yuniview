@@ -10,6 +10,7 @@ import {
   query,
   scope,
 } from "../../../models/panel";
+import { retentionRule } from "../../../models/retention";
 import { getLibrary } from "../../../usecases/configuration/get-library";
 import { remove } from "../../../usecases/configuration/remove";
 import { saveDashboard } from "../../../usecases/configuration/save-dashboard";
@@ -25,6 +26,13 @@ import { listTopValues } from "../../../usecases/console/list-top-values";
 import { listFields } from "../../../usecases/dictionary/list-fields";
 import { saveField } from "../../../usecases/dictionary/save-field";
 import { backtest } from "../../../usecases/monitor/backtest";
+import {
+  listRules,
+  previewRule,
+  removeRule,
+  reorderRules,
+  saveRule,
+} from "../../../usecases/retention/rules";
 import { handleResult } from "../handle-result";
 import { publicProcedure as p, router } from "../init";
 
@@ -150,6 +158,23 @@ export const appRouter = router({
     .input(z.object({ kind: z.enum(["dashboard", "monitor"]), id: z.uuid() }))
     .mutation(({ ctx, input }) =>
       remove(input.kind, input.id).run(ctx).then(handleResult),
+    ),
+  retentionRules: p.query(({ ctx }) => listRules().run(ctx).then(handleResult)),
+  previewRetentionRule: p
+    .input(retentionRule)
+    .query(({ ctx, input }) => previewRule(input).run(ctx).then(handleResult)),
+  saveRetentionRule: p
+    .input(retentionRule)
+    .mutation(({ ctx, input }) => saveRule(input).run(ctx).then(handleResult)),
+  removeRetentionRule: p
+    .input(z.object({ id: z.uuid() }))
+    .mutation(({ ctx, input }) =>
+      removeRule(input.id).run(ctx).then(handleResult),
+    ),
+  reorderRetentionRules: p
+    .input(z.object({ ids: z.array(z.uuid()).max(1000) }))
+    .mutation(({ ctx, input }) =>
+      reorderRules(input.ids).run(ctx).then(handleResult),
     ),
 });
 export type AppRouter = typeof appRouter;

@@ -2272,3 +2272,73 @@ table.rows thead th:first-child .column-insert:not(.end) {
 .column-toggle:focus-visible {
   visibility: visible;
 }
+
+/* ---- retention ---- */
+.retention-note {
+  margin: 0 0 12px;
+  color: var(--muted);
+  max-width: 80ch;
+}
+.retention-rules .retention-target {
+  color: var(--muted);
+}
+.retention-rules .retention-default th,
+.retention-rules .retention-default td {
+  color: var(--muted);
+  font-weight: normal;
+}
+.retention-row-actions {
+  white-space: nowrap;
+}
+.retention-row-actions button + button {
+  margin-left: 4px;
+}
+.retention-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.retention-keep {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.retention-keep legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+.retention-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.retention-presets button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.retention-keep input[type="number"] {
+  width: 6em;
+}
+.retention-conditions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0 0;
+  font-size: 12px;
+}
+.retention-conditions .condition-bar {
+  flex: 1;
+}
+.retention-preview {
+  color: var(--muted);
+  margin: 12px 0;
+}
+.retention-actions {
+  display: flex;
+  gap: 8px;
+}

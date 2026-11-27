@@ -1940,3 +1940,113 @@ test("the field dictionary names a field wherever it shows, over what its sender
     row.getByRole("button", { name: "queue.waiting を編集" }),
   ).toBeVisible();
 });
+
+test("a retention rule deletes the rows it picks out once its period passes, and keeps the rest", async ({
+  page,
+  request,
+}) => {
+  const source = {
+    service: "checkout",
+    workload: "app",
+    slot: "blue",
+    instance: "retention-test",
+    revision: "retention",
+  };
+  const old = new Date(Date.now() - 7 * 86400000 - 90 * 60000);
+  const recent = new Date(Date.now() - 3600000);
+  const metrics = (at: Date, names: string[]) => ({
+    resourceMetrics: [
+      {
+        scopeMetrics: [
+          {
+            metrics: names.map((name) => ({
+              name,
+              gauge: {
+                dataPoints: [
+                  { timeUnixNano: String(BigInt(+at) * 1000000n), asDouble: 1 },
+                ],
+              },
+            })),
+          },
+        ],
+      },
+    ],
+  });
+  // Over a week ago: the container samples go; another metric and a log stay.
+  await deliver(
+    request,
+    source,
+    "metrics",
+    metrics(old, ["cpu.usage", "memory.current"]),
+  );
+  await deliver(request, source, "metrics", metrics(old, ["other.metric"]));
+  await deliver(request, source, "logs", {
+    resourceLogs: [
+      {
+        scopeLogs: [
+          {
+            logRecords: [
+              {
+                body: { stringValue: "old retention line" },
+                timeUnixNano: String(BigInt(+old) * 1000000n),
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+  // Within the week: kept.
+  await deliver(request, source, "metrics", metrics(recent, ["cpu.usage"]));
+
+  await page.goto("/#page=retention");
+  const rules = page.getByRole("region", { name: "保持期間" });
+  await expect(rules).toContainText("どのルールにも当てはまらない行");
+  await page.getByRole("button", { name: "ルールを追加" }).click();
+  const editor = page.getByRole("region", { name: "保持ルールの編集" });
+  await editor
+    .getByLabel("名前", { exact: true })
+    .fill("コンテナの CPU とメモリ");
+  await editor.getByLabel("データの種類").selectOption("metric");
+  await editor
+    .getByLabel("名前が一致（カンマ区切り、空なら問わない）")
+    .fill("cpu.usage, memory.current");
+  await editor.getByRole("button", { name: "1週間" }).click();
+  await expect(editor.getByLabel("保持期間の長さ")).toHaveValue("7");
+  await expect(editor.locator(".retention-preview")).toHaveText(
+    /1日あたり約 [\d,]+ 行/,
+  );
+  await editor.getByRole("button", { name: "保存" }).click();
+  const row = rules
+    .locator("tbody tr")
+    .filter({ hasText: "コンテナの CPU とメモリ" });
+  await expect(row).toContainText(
+    "メトリクス · 名前: cpu.usage, memory.current",
+  );
+  await expect(row).toContainText("1週間");
+
+  const names = async (data: string) => {
+    const res = await request.get("/api/trpc/events", {
+      params: {
+        input: JSON.stringify({
+          data,
+          minutes: 43200,
+          conditions: [{ field: "instance", values: ["retention-test"] }],
+          end: new Date().toISOString(),
+        }),
+      },
+    });
+    const items: { name: string; body: string }[] = (await res.json()).result
+      .data.items;
+    return items.map((i) => i.name || i.body).sort();
+  };
+  // The worker sweeps within a few ticks.
+  await expect
+    .poll(() => names("metric"), { timeout: 60000 })
+    .toEqual(["cpu.usage", "other.metric"]);
+  expect(await names("log")).toEqual(["old retention line"]);
+
+  page.once("dialog", (d) => d.accept());
+  await row.getByRole("button", { name: "削除" }).click();
+  await expect(row).toHaveCount(0);
+});

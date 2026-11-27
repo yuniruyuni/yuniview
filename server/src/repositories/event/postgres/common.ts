@@ -1,5 +1,7 @@
 import { type SQLFragment, sql } from "../../../infra/db/sql";
+import { compToSQL } from "../../../infra/db/sql-helpers";
 import type { Event } from "../../../models/event";
+import type { Claim } from "../../../models/retention";
 import { fieldCondition } from "../../common/field-sql";
 
 type EventSpecData = Event.Spec extends infer S
@@ -75,3 +77,20 @@ export const eventColumns = sql.raw(
 export const eventsWithResource = sql.raw(
   `telemetry_events LEFT JOIN LATERAL (SELECT attrs AS resource_attrs FROM telemetry_resources WHERE digest=telemetry_events.resource) resources ON true`,
 );
+
+/**
+ * Rows a retention rule decides. An earlier rule whose condition is unknown
+ * for a row (an attribute the row lacks) does not match it: without the
+ * coalesce, NOT of that unknown would keep the row from every later rule.
+ */
+export function claimToSQL(claim: Claim): SQLFragment {
+  const mine = compToSQL(claim.matches, eventSpecToSQL);
+  if (!claim.earlier.length) return mine;
+  const theirs = sql.join(
+    claim.earlier.map(
+      (e) => sql`coalesce(${compToSQL(e, eventSpecToSQL)},false)`,
+    ),
+    " OR ",
+  );
+  return sql`(${mine} AND NOT (${theirs}))`;
+}

@@ -15,6 +15,7 @@ import { DictionaryProvider } from "./dictionary";
 import { Explore, type RowData, rowData, Trace } from "./Explore";
 import { Home } from "./Home";
 import { Monitors, makeMonitor } from "./Monitors";
+import { Retention } from "./Retention";
 import { Service } from "./Service";
 import { Settings } from "./Settings";
 
@@ -23,6 +24,7 @@ const pages = {
   explore: "探索",
   dashboards: "ダッシュボード",
   monitors: "モニター",
+  retention: "保持期間",
   settings: "設定",
 };
 type Page = keyof typeof pages | "service";
@@ -46,6 +48,11 @@ const icons: Record<keyof typeof pages, React.ReactNode> = {
     <>
       <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
       <path d="M10 21h4" />
+    </>
+  ),
+  retention: (
+    <>
+      <path d="M5 3h14M5 21h14M7 3v4l5 5-5 5v4M17 3v4l-5 5 5 5v4" />
     </>
   ),
   settings: (
@@ -349,6 +356,8 @@ function Console() {
               incoming={incomingMonitor}
               consumed={() => setIncomingMonitor(null)}
             />
+          ) : page === "retention" ? (
+            <Retention end={end} />
           ) : (
             <Settings />
           )}

@@ -32,3 +32,6 @@ for _ in {1..40};do curl -fsS "$CONSOLE_URL/health" >/dev/null 2>&1 && break;sle
 [[ $(psql -Atc "SELECT count(*) FROM telemetry_resources") == 1 ]]
 [[ $(psql -Atc "SELECT count(*) FROM telemetry_events WHERE resource IS NOT NULL") -ge 1 ]]
 [[ $(psql -Atc "SELECT count(*) FROM telemetry_events WHERE attrs::jsonb ? 'resource'") == 0 ]]
+# The retention rule took the old container samples together with their batch, and left the rest.
+[[ $(psql -Atc "SELECT count(*) FROM telemetry_batches WHERE instance='retention-test'") == 3 ]]
+[[ $(psql -Atc "SELECT count(*) FROM retention_rules") == 0 ]]
