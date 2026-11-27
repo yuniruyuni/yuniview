@@ -3,6 +3,7 @@ import { type Comp, defineSpecs, type SpecsOf } from "../common";
 import type { DailySet } from "../daily-set";
 import type { Event } from "../event";
 import { decode, fieldsOf } from "../event/decode";
+import type { Resource } from "../resource";
 import {
   batchSchema,
   bufferedEvents,
@@ -20,7 +21,10 @@ export type { Envelope } from "./schema";
 export interface Batch extends Envelope {
   receivedAt: Date;
   indexed: boolean;
-  events: Event[];
+  /** Rows, each referring to its resource by digest instead of carrying it. */
+  events: (Event & { resource: string | null })[];
+  /** The distinct resources the rows refer to. */
+  resources: Resource[];
   /** What the sender says about the fields of its rows, once indexed. */
   fields: { key: string; sender: FieldMeta }[];
 }
@@ -54,6 +58,7 @@ export namespace Batch {
       receivedAt: at,
       indexed: false,
       events: [],
+      resources: [],
       fields: [],
     };
   }
@@ -61,22 +66,36 @@ export namespace Batch {
   /** The batch with every row it contributes, ready to be stored together. */
   export function index(batch: Batch): Batch {
     const s = batch.source;
-    const events = Array.from(decode(batch), (row, ordinal) => ({
-      ...row,
-      id: `${s.service}/${batch.id}/${ordinal}`,
-      batchId: batch.id,
-      ordinal,
-      source: s.service,
-      instance: s.instance,
-      workload: s.workload,
-      slot: s.slot ?? "",
-      revision: s.revision ?? "",
-    }));
+    const resources = new Map<string, Resource>();
+    const events = Array.from(
+      decode(batch),
+      ({ resource, ...row }, ordinal) => {
+        if (resource) resources.set(resource.digest, resource);
+        return {
+          ...row,
+          resource: resource?.digest ?? null,
+          id: `${s.service}/${batch.id}/${ordinal}`,
+          batchId: batch.id,
+          ordinal,
+          source: s.service,
+          instance: s.instance,
+          workload: s.workload,
+          slot: s.slot ?? "",
+          revision: s.revision ?? "",
+        };
+      },
+    );
     const fields = [...new Map(fieldsOf(batch))].map(([key, sender]) => ({
       key,
       sender: JSON.parse(JSON.stringify(sender)) as FieldMeta,
     }));
-    return { ...batch, indexed: true, events, fields };
+    return {
+      ...batch,
+      indexed: true,
+      events,
+      resources: [...resources.values()],
+      fields,
+    };
   }
 
   export function key(batch: Batch): Key {

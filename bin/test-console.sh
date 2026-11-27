@@ -28,3 +28,7 @@ for _ in {1..40};do curl -fsS "$CONSOLE_URL/health" >/dev/null 2>&1 && break;sle
 [[ $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$INGEST_PORT/api/trpc/library") == 404 ]]
 (cd e2e && bun x playwright test --config console.config.ts)
 [[ $(psql -Atc "SELECT count(*) FROM telemetry_events WHERE body='previous deployment'") == 1 ]]
+# Each distinct resource is stored once, and rows refer to it instead of carrying it.
+[[ $(psql -Atc "SELECT count(*) FROM telemetry_resources") == 1 ]]
+[[ $(psql -Atc "SELECT count(*) FROM telemetry_events WHERE resource IS NOT NULL") -ge 1 ]]
+[[ $(psql -Atc "SELECT count(*) FROM telemetry_events WHERE attrs::jsonb ? 'resource'") == 0 ]]

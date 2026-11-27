@@ -1,14 +1,15 @@
 import type { Database } from "../../../infra/db/database";
 import { sql } from "../../../infra/db/sql";
-import {
-  afterCursor,
-  compToSQL,
-  lockClause,
-  orderBy,
-} from "../../../infra/db/sql-helpers";
+import { afterCursor, compToSQL, orderBy } from "../../../infra/db/sql-helpers";
 import type { Cursor, Page } from "../../../models/common";
 import { Event } from "../../../models/event";
-import { columnName, columnType, eventColumns, eventSpecToSQL } from "./common";
+import {
+  columnName,
+  columnType,
+  eventColumns,
+  eventSpecToSQL,
+  eventsWithResource,
+} from "./common";
 
 export async function list(
   db: Database,
@@ -24,8 +25,10 @@ export async function list(
     columnName,
     columnType,
   );
+  // No row locks: rows are only ever inserted, and the app may not update them.
+  if (cursor.lock) throw Error("events are not locked");
   const rows = await db.queryAll<Event>(
-    sql`SELECT ${eventColumns} FROM telemetry_events WHERE ${where} AND ${after} ORDER BY ${orderBy(sort.keys, sort.order, columnName)} LIMIT ${cursor.limit + 1}${lockClause(cursor.lock)}`,
+    sql`SELECT ${eventColumns} FROM ${eventsWithResource} WHERE ${where} AND ${after} ORDER BY ${orderBy(sort.keys, sort.order, columnName)} LIMIT ${cursor.limit + 1}`,
   );
   const hasMore = rows.length > cursor.limit;
   const items = rows.slice(0, cursor.limit);

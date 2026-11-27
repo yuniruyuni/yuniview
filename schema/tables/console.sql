@@ -1,5 +1,10 @@
 CREATE INDEX telemetry_pending ON telemetry_batches(received_at) WHERE NOT indexed;
 GRANT UPDATE (indexed) ON telemetry_batches TO yuniview_app;
+-- OTLP resource attributes, stored once per distinct content; rows refer to them by digest.
+CREATE TABLE telemetry_resources (
+ digest bytea PRIMARY KEY, attrs json NOT NULL,
+ first_seen timestamptz NOT NULL DEFAULT now()
+);
 CREATE TABLE telemetry_events (
  source text NOT NULL, batch_id text NOT NULL, ordinal integer NOT NULL,
  workload text NOT NULL, instance text NOT NULL,
@@ -7,6 +12,8 @@ CREATE TABLE telemetry_events (
  kind text NOT NULL, name text NOT NULL, body text NOT NULL, trace text NOT NULL,
  span text NOT NULL, parent text NOT NULL, value double precision, unit text NOT NULL,
  failed boolean NOT NULL, entry boolean NOT NULL, attrs json NOT NULL,
+ -- The row's telemetry_resources digest; null without a resource or when attrs carries it.
+ resource bytea,
  PRIMARY KEY (source,batch_id,ordinal),
  FOREIGN KEY (source,batch_id) REFERENCES telemetry_batches(source_id,batch_id) ON DELETE CASCADE
 );
@@ -31,6 +38,7 @@ CREATE TABLE monitor_history (
 );
 CREATE INDEX history_delivery ON monitor_history(delivery,retry_at);
 GRANT SELECT,INSERT ON telemetry_events TO yuniview_app;
+GRANT SELECT,INSERT ON telemetry_resources TO yuniview_app;
 GRANT SELECT,INSERT,UPDATE,DELETE ON dashboards,monitors,monitor_history TO yuniview_app;
 GRANT DELETE ON telemetry_batches TO yuniview_app;
 CREATE INDEX batches_received_at ON telemetry_batches(received_at);

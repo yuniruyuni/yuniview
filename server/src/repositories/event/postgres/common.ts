@@ -56,7 +56,22 @@ export function columnType(key: Event.SortKey): SQLFragment {
   );
 }
 
-/** Columns of an {@link Event}. `at` keeps microseconds for cursors. */
+/**
+ * Columns of an {@link Event}, read from {@link eventsWithResource}. `at`
+ * keeps microseconds for cursors. A row's resource goes back into
+ * `attrs.resource`, where rows stored before resources had their own table
+ * still carry it.
+ */
 export const eventColumns = sql.raw(
-  `concat(source,'/',batch_id,'/',ordinal) AS id,batch_id AS "batchId",ordinal,to_char(at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS at,source,instance,workload,slot,revision,kind,name,body,trace,span,parent,value,unit,failed,entry,attrs`,
+  `concat(source,'/',batch_id,'/',ordinal) AS id,batch_id AS "batchId",ordinal,to_char(at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS at,source,instance,workload,slot,revision,kind,name,body,trace,span,parent,value,unit,failed,entry,
+  CASE WHEN resource_attrs IS NULL THEN attrs
+    ELSE (attrs::jsonb || jsonb_build_object('resource',resource_attrs::jsonb))::json END AS attrs`,
+);
+/**
+ * Rows with their resource attributes as `resource_attrs`. The lateral
+ * subquery keeps the resource table's own `attrs` out of scope, so conditions
+ * on `attrs` still mean the row's.
+ */
+export const eventsWithResource = sql.raw(
+  `telemetry_events LEFT JOIN LATERAL (SELECT attrs AS resource_attrs FROM telemetry_resources WHERE digest=telemetry_events.resource) resources ON true`,
 );

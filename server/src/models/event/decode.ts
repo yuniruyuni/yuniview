@@ -1,5 +1,6 @@
 import type { FieldMeta } from "../../../../shared/console";
 import type { Envelope } from "../batch/schema";
+import { Resource } from "../resource";
 
 // Turns one delivered batch into the rows it contributes. Pure: the same
 // batch always yields the same rows in the same order.
@@ -63,6 +64,8 @@ function base(b: Envelope) {
     failed: false,
     entry: false,
     attrs: {} as Obj,
+    /** Where the row came from; kept apart from `attrs` and stored once. */
+    resource: null as Resource | null,
   };
 }
 export function* decode(b: Envelope) {
@@ -124,7 +127,7 @@ export function* decode(b: Envelope) {
         ? p.resourceLogs
         : p.resourceMetrics;
   for (const r of rows(groups)) {
-    const resource = attrs(obj(r.resource).attributes);
+    const resource = Resource.of(attrs(obj(r.resource).attributes));
     for (const s of rows(r.scopeSpans ?? r.scopeLogs ?? r.scopeMetrics)) {
       for (const a of rows(s.spans)) {
         const tags = attrs(a.attributes),
@@ -152,7 +155,8 @@ export function* decode(b: Envelope) {
               ? (end - start) / 1e6
               : null,
           unit: "ms",
-          attrs: { resource, ...tags },
+          attrs: tags,
+          resource,
         };
       }
       for (const l of rows(s.logRecords))
@@ -163,7 +167,8 @@ export function* decode(b: Envelope) {
           body: body(anyValue(l.body)),
           trace: identifier(l.traceId, 16),
           span: identifier(l.spanId, 8),
-          attrs: { resource, ...attrs(l.attributes) },
+          attrs: attrs(l.attributes),
+          resource,
         };
       for (const m of rows(s.metrics)) {
         for (const type of [
@@ -183,12 +188,12 @@ export function* decode(b: Envelope) {
               unit: str(m.unit),
               attrs: {
                 ...attrs(pt.attributes),
-                resource,
                 type,
                 temporality: metric.aggregationTemporality,
                 monotonic: metric.isMonotonic,
                 startTimeUnixNano: pt.startTimeUnixNano,
               },
+              resource,
             };
             if (pt.asDouble !== undefined || pt.asInt !== undefined) {
               yield { ...point, value: finite(pt.asDouble ?? pt.asInt) };

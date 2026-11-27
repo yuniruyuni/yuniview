@@ -1665,6 +1665,11 @@ test("explore narrows by observed values and leads from a row to its trace and n
   await deliver(request, source, "traces", {
     resourceSpans: [
       {
+        resource: {
+          attributes: [
+            { key: "host.name", value: { stringValue: "explore-host" } },
+          ],
+        },
         scopeSpans: [
           {
             spans: [
@@ -1751,6 +1756,10 @@ test("explore narrows by observed values and leads from a row to its trace and n
   await expect(
     page.getByRole("complementary", { name: "スパンの詳細" }),
   ).toContainText('"http.route": "/explore"');
+  // The resource is stored apart from the row and comes back with it.
+  await expect(
+    page.getByRole("complementary", { name: "スパンの詳細" }),
+  ).toContainText('"host.name": "explore-host"');
   await expect(
     page.getByRole("heading", { name: "同じトレースのログ (1)" }),
   ).toBeVisible();

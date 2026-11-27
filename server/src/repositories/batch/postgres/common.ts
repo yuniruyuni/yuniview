@@ -50,5 +50,5 @@ export const batchColumns =
  received_at AS "receivedAt",indexed`);
 
 export function rowToBatch(row: BatchRow): Batch {
-  return { ...row, events: [], fields: [] };
+  return { ...row, events: [], resources: [], fields: [] };
 }
