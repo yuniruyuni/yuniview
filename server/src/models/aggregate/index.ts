@@ -9,23 +9,17 @@ import type { Field } from "../field";
  */
 export type Relation =
   | { readonly type: "events"; readonly where: Event.Spec }
-  /** Application events plus routed server spans counted as `http.request`. */
-  | { readonly type: "analysis_events"; readonly where: Event.Spec }
   /**
-   * Events plus `derived:cpu.percent` readings computed from consecutive
-   * `cpu.usage` counters of each container within `window`.
+   * Per-second increases between consecutive readings of each counter in
+   * `where`, one series per container and name; resets are skipped. The unit
+   * becomes the counter's unit per second.
    */
-  | {
-      readonly type: "cpu_readings";
-      readonly window: Event.Spec;
-      readonly where: Event.Spec;
-    }
+  | { readonly type: "rates"; readonly where: Event.Spec }
   | { readonly type: "daily_sets"; readonly where: DailySet.Spec }
   | { readonly type: "batches"; readonly where: Batch.Spec }
   /** Scalar attribute keys (column `key`) of the latest `sample` rows. */
   | {
       readonly type: "attribute_keys";
-      readonly from: "events" | "analysis_events";
       readonly where: Event.Spec;
       readonly sample: number;
     }

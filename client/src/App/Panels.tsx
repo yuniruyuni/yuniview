@@ -1,32 +1,21 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import type { Overview, Panel, Point } from "../../../shared/console";
+import type { Panel, Point } from "../../../shared/console";
 import {
-  aggNames,
-  aggsFor,
-  changeGroup,
   chartBucketSeconds,
   countsWhole,
-  type DataKind,
   dataKinds,
-  defaultAgg,
-  defaultTotalSlots,
-  initialValue,
   isAttribute,
   isTimeField,
-  measurableFields,
-  metricOf,
   pivotFields,
   type ShelfAxis,
   shelfFields,
   shelfName,
-  slotTotalChoice,
-  type ValueField,
   valueAt,
-  valueFieldName,
   valueName,
 } from "../../../shared/console";
 import { clock, Feedback, number, useQuery } from "../api";
 import { countAxis } from "./countAxis";
+import { useDictionary } from "./dictionary";
 import { displayField, displayPoints, nativeUnit } from "./fieldDisplay";
 import { InspectablePlot } from "./InspectablePlot";
 import { dashPatterns, lineWidths, PointSymbol, palette } from "./SeriesStyle";
@@ -65,172 +54,6 @@ export function Select({
     </label>
   );
 }
-export function PanelFields({
-  p,
-  set,
-  meta,
-}: {
-  p: Panel;
-  set: (p: Panel) => void;
-  meta: Overview;
-}) {
-  const update = <K extends keyof Panel>(key: K, value: Panel[K]) =>
-    set({ ...p, [key]: value });
-  const value = p.values[0];
-  const choices = (opts: string[]): [string, string][] => [
-    ["", "すべて"],
-    ...opts.map((s): [string, string] => [s, s]),
-  ];
-  return (
-    <div className="fields">
-      <label>
-        パネル名
-        <input
-          required
-          maxLength={512}
-          value={p.title}
-          onChange={(e) => update("title", e.target.value)}
-        />
-      </label>
-      <Select
-        label="データ"
-        value={p.data}
-        choices={(Object.entries(dataKinds) as [DataKind, string][]).filter(
-          ([k]) => k !== "daily",
-        )}
-        change={(v) => {
-          const data = v as DataKind;
-          set({
-            ...p,
-            data,
-            values: [initialValue(data, meta)],
-            group: p.group === "slot_total" ? "source" : p.group,
-            unit: undefined,
-          });
-        }}
-      />
-      <Select
-        label="値"
-        value={value.of.join(",")}
-        choices={[
-          ...(aggsFor(p.data, []).length
-            ? [
-                ["", valueName(p.data, { agg: "count", of: [] })] as [
-                  string,
-                  string,
-                ],
-              ]
-            : []),
-          ...measurableFields(p.data, meta).map((f): [string, string] => [
-            f,
-            valueFieldName(p.data, f),
-          ]),
-        ]}
-        change={(v) => {
-          const of = v ? [v as ValueField] : [];
-          set({
-            ...p,
-            values: [{ agg: defaultAgg(p.data, of), of }],
-            unit: undefined,
-          });
-        }}
-      />
-      {aggsFor(p.data, value.of).length > 1 && (
-        <Select
-          label="集計"
-          value={value.agg}
-          choices={aggsFor(p.data, value.of)
-            .filter(
-              (a) =>
-                p.group !== "slot_total" || ["avg", "min", "max"].includes(a),
-            )
-            .map((a): [string, string] => [a, aggNames[a]])}
-          change={(v) =>
-            set({ ...p, values: [{ ...value, agg: v as typeof value.agg }] })
-          }
-        />
-      )}
-      <Select
-        label="サービス"
-        value={p.source}
-        choices={choices(meta.services.map((s) => s.source))}
-        change={(v) => update("source", v)}
-      />
-      {p.group !== "slot_total" && (
-        <Select
-          label="系"
-          value={p.slot}
-          choices={choices(meta.slots)}
-          change={(v) => update("slot", v)}
-        />
-      )}
-      <label>
-        ワークロード
-        <input
-          value={p.workload}
-          onChange={(e) => update("workload", e.target.value)}
-        />
-      </label>
-      <label>
-        インスタンス
-        <input
-          disabled={p.group === "slot_total"}
-          value={p.instance}
-          onChange={(e) => update("instance", e.target.value)}
-        />
-      </label>
-      <label>
-        リビジョン
-        <input
-          value={p.revision}
-          onChange={(e) => update("revision", e.target.value)}
-        />
-      </label>
-      <label>
-        検索語
-        <input
-          value={p.text}
-          onChange={(e) => update("text", e.target.value)}
-        />
-      </label>
-      <label>
-        時間幅（分）
-        <input
-          type="number"
-          required
-          min={1}
-          max={43200}
-          value={p.minutes}
-          onChange={(e) => update("minutes", Number(e.target.value))}
-        />
-      </label>
-      <Select
-        label="グループ"
-        value={p.group}
-        choices={[
-          ["all", "全体"],
-          ...(p.data === "metric" ? [slotTotalChoice] : []),
-          ["source", "サービス"],
-          ["slot", "系"],
-          ["revision", "リビジョン"],
-          ["workload", "ワークロード"],
-          ["instance", "インスタンス"],
-        ]}
-        change={(v) => set(changeGroup(p, v as Panel["group"]))}
-      />
-      <Select
-        label="表示"
-        value={p.display}
-        choices={[
-          ["chart", "折れ線"],
-          ["value", "数値"],
-          ["table", "表"],
-        ]}
-        change={(v) => update("display", v as Panel["display"])}
-      />
-    </div>
-  );
-}
 const colors = [
   "#007f84",
   "#d47937",
@@ -241,6 +64,7 @@ const colors = [
 ];
 export function Chart({
   whole,
+  threshold,
   unit,
   fixedStyle,
   legendAction,
@@ -253,6 +77,8 @@ export function Chart({
 }: {
   /** Whether the values count things, so the axis uses whole numbers. */
   whole: boolean;
+  /** A monitor's threshold, drawn across the chart. */
+  threshold?: number;
   unit?: string;
   fixedStyle?: Panel["fixedStyle"];
   legendAction?: React.ReactNode;
@@ -287,8 +113,14 @@ export function Chart({
     active && groups.includes(active)
       ? points.filter((p) => p.series === active)
       : points;
-  const low = shown.reduce((v, p) => Math.min(v, p.value), 0);
-  const maximum = shown.reduce((v, p) => Math.max(v, p.value), low + 1);
+  const low = shown.reduce(
+    (v, p) => Math.min(v, p.value),
+    Math.min(0, threshold ?? 0),
+  );
+  const maximum = shown.reduce(
+    (v, p) => Math.max(v, p.value),
+    Math.max(low + 1, (threshold ?? low) * 1.1),
+  );
   const counts = countAxis(whole, maximum);
   const high = counts?.maximum ?? maximum;
   const labels = counts?.ticks ?? [low, (low + high) / 2, high];
@@ -349,6 +181,20 @@ export function Chart({
               </text>
             </g>
           ))}
+          {threshold !== undefined && (
+            <line
+              className="threshold"
+              x1={left}
+              x2={right}
+              y1={valueY(threshold)}
+              y2={valueY(threshold)}
+              stroke="#c0392b"
+              strokeWidth={1.5}
+              strokeDasharray="6 4"
+            >
+              <title>閾値 {number(threshold)}</title>
+            </line>
+          )}
           {groups.map((g, i) => {
             const ps = shown.filter((p) => p.series === g);
             return (
@@ -455,10 +301,15 @@ export function PanelView({
   heading,
   onEdit,
   choose,
+  threshold,
+  wide,
   renderStyleDialog,
 }: {
   panel: Panel;
   end: string;
+  threshold?: number;
+  /** Spans the whole row of a card grid. */
+  wide?: boolean;
   actions?: React.ReactNode;
   renderStyleDialog?: (points: Point[], close: () => void) => React.ReactNode;
   heading?: React.ReactNode;
@@ -497,12 +348,17 @@ export function PanelView({
     end,
     buckets: panel.display === "chart",
   });
-  const data = rawPoints && displayPoints(panel, rawPoints);
+  const dict = useDictionary();
+  const data = rawPoints && displayPoints(dict, panel, rawPoints);
   const tableUnit =
     panel.display === "table" && data ? commonTableUnit(data) : "";
-  const unit = data?.[0]?.metricUnit ?? panel.unit;
+  const unit = data?.[0]?.metricUnit;
+  const scope = panel.conditions
+    ?.filter((c) => c.field === "source" && c.values?.length)
+    .flatMap((c) => c.values ?? [])
+    .join("・");
   return (
-    <article className="card">
+    <article className={wide ? "card wide" : "card"}>
       <div className="cardhead">
         <h3>
           {heading ??
@@ -523,16 +379,14 @@ export function PanelView({
       </div>
       <small>
         {dataKinds[panel.data]} ·{" "}
-        {panel.values.map((v) => valueName(panel.data, v)).join("・")} ·{" "}
-        {panel.source || "全サービス"} · {panel.minutes}分{" "}
+        {panel.values.map((v) => valueName(dict, panel.data, v)).join("・")} ·{" "}
+        {scope || "全サービス"} · {panel.minutes}分{" "}
         {panel.display !== "table" && panel.values.length === 1 && unit}
         {panel.display === "chart" &&
           panel.values[0].agg === "count" &&
           ` · ${chartBucketSeconds(panel.minutes)}秒ごとの件数`}
         {panel.data === "daily" &&
           " · サービス別・日別のユニーク数（複数をまとめた値は延べ件数）"}
-        {panel.group === "slot_total" &&
-          ` · ${(panel.totalSlots ?? defaultTotalSlots).join(" + ")}（全スロットを観測した分のみ）`}
       </small>
       {!data ? (
         <p role="status">
@@ -553,14 +407,15 @@ export function PanelView({
         />
       ) : panel.display === "chart" ? (
         <Chart
-          whole={countsWhole(panel.data, panel.values[0])}
-          unit={unit ?? nativeUnit(panel)}
+          whole={countsWhole(dict, panel.data, panel.values[0])}
+          threshold={threshold}
+          unit={unit ?? nativeUnit(dict, panel)}
           legendAction={legendAction}
           fixedStyle={{ ...panel.fixedStyle, ...panel.styleDefaults }}
           points={data}
           gapMs={
-            panel.group === "slot_total"
-              ? Math.ceil(panel.minutes / 40) * 60000
+            panel.values[0].per?.length
+              ? Math.max(60, chartBucketSeconds(panel.minutes)) * 1000
               : undefined
           }
           start={Date.parse(end) - panel.minutes * 60000}
@@ -603,34 +458,17 @@ export function PanelView({
   );
 }
 
+/** The explore page showing the rows behind a panel. */
 export function investigatePanel(p: Panel, end: string) {
-  const logContains = p.conditions?.find((c) => c.field === "log")?.contains;
-  return (
-    "#" +
-    new URLSearchParams({
-      page:
-        p.data === "event"
-          ? "events"
-          : p.data === "log"
-            ? "logs"
-            : p.data === "metric"
-              ? "metrics"
-              : "apm",
-      source: p.source,
-      slot: p.slot,
-      instance: p.instance,
-      workload: p.workload,
-      revision: p.revision,
-      text: p.text,
-      ...(p.conditions?.length && p.data === "event"
-        ? { conditions: JSON.stringify(p.conditions) }
-        : {}),
-      ...(logContains ? { logContains } : {}),
-      minutes: String(p.minutes),
-      metric: metricOf(p.values[0].of[0]) ?? "",
-      end,
-    }).toString()
-  );
+  const params = new URLSearchParams({
+    page: "explore",
+    data: p.data === "daily" ? "request" : p.data,
+    minutes: String(p.minutes),
+    end,
+  });
+  if (p.conditions?.length)
+    params.set("conditions", JSON.stringify(p.conditions));
+  return "#" + params.toString();
 }
 function PivotView({
   panel,
@@ -687,6 +525,7 @@ function FacetTable({
   points: Point[];
   end: string;
 }) {
+  const dict = useDictionary();
   const pivot = panel.pivot!;
   const axis = shelfFields(pivot.series);
   if (!axis.length)
@@ -703,10 +542,10 @@ function FacetTable({
       {Array.from(facets, ([key, rows]) => (
         <section key={key}>
           <h4>
-            {axis.map(shelfName).join(" › ")} ·{" "}
+            {axis.map((f) => shelfName(f, dict)).join(" › ")} ·{" "}
             {axis
               .map((f, i) =>
-                displayField(panel, f, rows[0].facetPath?.[i] ?? key),
+                displayField(dict, panel, f, rows[0].facetPath?.[i] ?? key),
               )
               .join(" › ") || "未指定"}
           </h4>
@@ -725,6 +564,7 @@ function PivotTable({
   points: Point[];
   end: string;
 }) {
+  const dict = useDictionary();
   const pivot = panel.pivot;
   if (!pivot) return null;
   const tableUnit = commonTableUnit(points);
@@ -788,57 +628,25 @@ function PivotTable({
     });
     for (const [axis, val] of entries) {
       if (!axis) continue;
-      if (isAttribute(axis)) {
-        p.conditions = [
-          ...(p.conditions ?? []).filter((c) => c.field !== axis),
-          { field: axis, values: [val] },
-        ];
-        continue;
-      }
-      if ((isTimeField(axis) || axis === "day") && p.data === "event") {
-        const start = Date.parse(
-          axis === "day" ? val + "T00:00:00+09:00" : val,
-        );
-        const width = axis === "day" ? 86400000 : Number(axis.slice(5)) * 1000;
-        const field = "time:1";
-        const prior = p.conditions?.find((c) => c.field === field);
-        p.conditions = [
-          ...(p.conditions ?? []).filter((c) => c.field !== field),
-          {
-            field,
-            min: Math.max(start, prior?.min ?? start),
-            max: Math.min(start + width - 1, prior?.max ?? start + width - 1),
-          },
-        ];
-        continue;
-      }
-      if (isTimeField(axis)) {
-        const seconds = Number(axis.slice(5));
-        until = new Date(
-          Math.min(Date.parse(end), Date.parse(val) + seconds * 1000 - 1),
-        ).toISOString();
-        p.minutes = Math.max(1, Math.ceil(seconds / 60));
-        continue;
-      }
       if (axis === "measure") {
         p.values = [valueAt(p, val)];
         continue;
       }
-      if (axis === "day") {
-        const next = Date.parse(`${val}T00:00:00+09:00`) + 86400000 - 1;
-        until = new Date(Math.min(next, Date.parse(end))).toISOString();
-        p.minutes = Math.max(
-          1,
-          Math.ceil(
-            (Date.parse(until) -
-              Math.max(
-                next - 86400000,
-                Date.parse(end) - panel.minutes * 60000,
-              )) /
-              60000,
-          ),
+      if (isTimeField(axis) || axis === "day") {
+        const start = Date.parse(
+          axis === "day" ? val + "T00:00:00+09:00" : val,
         );
-      } else p[axis] = val;
+        const width = axis === "day" ? 86400000 : Number(axis.slice(5)) * 1000;
+        until = new Date(
+          Math.min(Date.parse(end), start + width - 1),
+        ).toISOString();
+        p.minutes = Math.max(1, Math.ceil(width / 60000));
+        continue;
+      }
+      p.conditions = [
+        ...(p.conditions ?? []).filter((c) => c.field !== axis),
+        { field: axis, values: [val] },
+      ];
     }
     return investigatePanel(p, until);
   };
@@ -853,8 +661,11 @@ function PivotTable({
                   rowSpan={columnDepth}
                   colSpan={Math.max(1, rowFields.length)}
                 >
-                  {rowFields.map(shelfName).join(" › ") || "合計"} ／{" "}
-                  {colFields.map(shelfName).join(" › ") || "合計"}
+                  {rowFields.map((f) => shelfName(f, dict)).join(" › ") ||
+                    "合計"}{" "}
+                  ／{" "}
+                  {colFields.map((f) => shelfName(f, dict)).join(" › ") ||
+                    "合計"}
                   {tableUnit && <small>値（{tableUnit}）</small>}
                 </th>
               )}
@@ -866,8 +677,12 @@ function PivotTable({
                     scope={level === columnDepth - 1 ? "col" : "colgroup"}
                     colSpan={c.spans[level]}
                   >
-                    {displayField(panel, colFields[level], c.values[level]) ||
-                      "未指定"}
+                    {displayField(
+                      dict,
+                      panel,
+                      colFields[level],
+                      c.values[level],
+                    ) || "未指定"}
                   </th>
                 ))}
             </tr>
@@ -884,7 +699,7 @@ function PivotTable({
                       scope="row"
                       rowSpan={r.spans[i]}
                     >
-                      {displayField(panel, rowFields[i], v) || "未指定"}
+                      {displayField(dict, panel, rowFields[i], v) || "未指定"}
                     </th>
                   ),
               )}
@@ -904,10 +719,10 @@ function PivotTable({
                         aria-label={
                           [
                             ...r.values.map((v, i) =>
-                              displayField(panel, rowFields[i], v),
+                              displayField(dict, panel, rowFields[i], v),
                             ),
                             ...c.values.map((v, i) =>
-                              displayField(panel, colFields[i], v),
+                              displayField(dict, panel, colFields[i], v),
                             ),
                           ].join(" ") + " の詳細"
                         }

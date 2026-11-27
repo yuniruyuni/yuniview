@@ -1,15 +1,12 @@
 import { z } from "zod";
 import {
   aggsFor,
-  cpuPercent,
   type DataKind,
   fieldType,
-  metricOf,
+  perAggs,
   pivotFields,
   type TimeField,
   timeBuckets,
-  upgradePanel,
-  usesLogRecords,
   type ValueField,
   valueKey,
 } from "../../../../shared/console";
@@ -18,15 +15,6 @@ const label = z
   .string()
   .max(512)
   .refine((s) => !s.includes("\0"));
-export const filter = z.object({
-  source: label,
-  instance: label.default(""),
-  workload: label.default(""),
-  slot: label,
-  revision: label,
-  text: label,
-  minutes: z.number().int().min(1).max(43200),
-});
 const attribute = z
   .templateLiteral(["attr:", z.string().min(1)])
   .refine((k) => k.length > 5 && k.length <= 261 && !k.includes("\0"));
@@ -39,14 +27,14 @@ export const filterField = axis.or(
 const shelfField = filterField.or(z.literal("measure"));
 const condition = z
   .object({
-    field: filterField.or(z.literal("log")),
+    field: filterField.or(z.literal("text")),
     contains: label.optional(),
     values: z.array(label).max(256).optional(),
     min: z.number().optional(),
     max: z.number().optional(),
   })
   .refine((c) =>
-    c.field === "log"
+    c.field === "text"
       ? !c.values && c.min === undefined && c.max === undefined
       : c.contains === undefined,
   )
@@ -67,9 +55,28 @@ export const conditions = z
   .array(condition)
   .max(32)
   .refine((cs) => new Set(cs.map((c) => c.field)).size === cs.length);
+const minutes = z.number().int().min(1).max(43200);
+export const filter = z.object({
+  minutes,
+  conditions: conditions.optional(),
+});
+const data = z.enum(["request", "span", "log", "event", "metric", "daily"]);
+/** A kind of data, its window and its conditions. */
+export const query = filter.extend({ data });
+/** A query with the values whose metrics or sets it is narrowed to. */
+export const scope = query.extend({
+  values: z
+    .array(
+      z.object({
+        agg: z.string().max(16),
+        of: z.array(z.string().max(520)).max(8),
+      }),
+    )
+    .max(12)
+    .optional(),
+});
 const shelf = shelfField.or(z.array(shelfField).max(32));
 const mark = z.enum(["auto", "table", "line", "bar", "area", "stacked_area"]);
-const data = z.enum(["request", "span", "log", "event", "metric", "daily"]);
 const valueField = z.union([
   z.enum(["value", "failed"]),
   z
@@ -80,27 +87,38 @@ const valueField = z.union([
     .refine((k) => k.length <= 516 && !k.includes("\0")),
   axis,
 ]);
+const agg = z.enum([
+  "count",
+  "sum",
+  "avg",
+  "min",
+  "max",
+  "p50",
+  "p95",
+  "p99",
+  "rate",
+  "distinct",
+  "ratio",
+  "daily",
+]);
 const value = z.object({
-  agg: z.enum([
-    "count",
-    "sum",
-    "avg",
-    "min",
-    "max",
-    "p50",
-    "p95",
-    "p99",
-    "distinct",
-    "ratio",
-    "daily",
-  ]),
+  agg,
   of: z.array(valueField).max(8),
+  per: z.array(axis).min(1).max(4).optional(),
   mark: mark.optional(),
 });
-/** Whether every value is something the panel's data can measure. */
+/** Whether a value is something the panel's data can measure. */
 function measurable(kind: DataKind, v: z.infer<typeof value>) {
   if (!aggsFor(kind, v.of).includes(v.agg)) return false;
   if (new Set(v.of).size !== v.of.length) return false;
+  if (
+    v.per &&
+    (v.of.length !== 1 ||
+      fieldType(v.of[0]) !== "number" ||
+      !perAggs.includes(v.agg) ||
+      kind === "daily")
+  )
+    return false;
   return v.of.every((f: ValueField) => {
     switch (fieldType(f)) {
       case "number":
@@ -126,33 +144,17 @@ const styles = z
     shape: z.number().int().min(0).max(2).optional(),
   })
   .optional();
-const current = filter
+export const panel = query
   .extend({
     id: z.uuid().optional(),
     wide: z.boolean().optional(),
     fieldUnits: z.record(label, z.string().trim().min(1).max(32)).optional(),
     fixedStyle: styles,
     styleDefaults: styles,
-    conditions: conditions.optional(),
     title: label.pipe(z.string().trim().min(1)),
-    data,
     values: z.array(value).min(1).max(12),
-    totalSlots: z
-      .array(label.pipe(z.string().min(1)))
-      .min(1)
-      .max(32)
-      .refine((slots) => new Set(slots).size === slots.length)
-      .optional(),
     group: z
-      .enum([
-        "slot_total",
-        "all",
-        "source",
-        "slot",
-        "revision",
-        "instance",
-        "workload",
-      ])
+      .enum(["all", "source", "slot", "revision", "instance", "workload"])
       .or(attribute),
     display: z.enum(["chart", "value", "table", "pivot"]),
     pivot: z
@@ -189,12 +191,7 @@ const current = filter
         mark: mark.optional(),
       })
       .optional(),
-    unit: z.literal("MiB").optional(),
   })
-  .refine(
-    (p) => !p.conditions?.some((c) => c.field === "log") || usesLogRecords(p),
-    "ログ本文はログを集計する指標で使用できます",
-  )
   .refine(
     (p) => p.values.every((v) => measurable(p.data, v)),
     "値には選んだデータで集計できるフィールドと集計方法を指定してください",
@@ -208,21 +205,8 @@ const current = filter
       p.values.length === 1 ||
       (p.display === "pivot" &&
         !!p.pivot &&
-        pivotFields(p.pivot).includes("measure") &&
-        !p.unit),
+        pivotFields(p.pivot).includes("measure")),
     "複数の値には指標の軸を指定してください",
-  )
-  .refine(
-    (p) =>
-      p.group !== "slot_total" ||
-      (p.data === "metric" &&
-        p.values.length === 1 &&
-        metricOf(p.values[0].of[0]) !== cpuPercent &&
-        ["avg", "min", "max"].includes(p.values[0].agg) &&
-        p.display !== "pivot" &&
-        !p.slot &&
-        !p.instance),
-    "スロット合計は両方のスロットを対象とするメトリクスで使用できます",
   )
   .refine(
     (p) =>
@@ -239,18 +223,9 @@ const current = filter
         pivotFields(p.pivot).includes("measure")),
     "値ごとの表示形式は指標の軸を指定したときに使用できます",
   )
-  .refine(
-    (p) =>
-      !p.unit ||
-      (p.values.length === 1 &&
-        metricOf(p.values[0].of[0]) === "memory.current"),
-    "MiB はメモリに使用できます",
-  )
   .refine((p) => {
     if (p.data !== "daily") return true;
     if (p.conditions?.some((c) => c.field !== "day" && c.field !== "source"))
-      return false;
-    if (p.slot || p.instance || p.revision || p.workload || p.text)
       return false;
     return (
       (p.group === "source" || p.group === "all") &&
@@ -263,12 +238,11 @@ const current = filter
         ))
     );
   }, "日次集合で使用できるフィールドは時刻（1日・JST）、サービス、指標です");
-/** Accepts panels saved with a measure, rewriting them into data and values. */
-export const panel = z.preprocess(upgradePanel, current);
 export const dashboard = z.object({
   id: z.uuid(),
   title: label.pipe(z.string().trim().min(1)),
-  panels: z.array(panel).min(1).max(24),
+  panels: z.array(panel).max(24),
+  conditions: conditions.optional(),
 });
 export const monitor = z.object({
   id: z.uuid(),
@@ -282,4 +256,14 @@ export const monitor = z.object({
   minimum: z.number().int().min(1),
   missing: z.enum(["alert", "no_data"]),
   notify: z.boolean(),
+});
+/** What a person says about a field; null clears that part. */
+export const fieldMeta = z.object({
+  key: label.pipe(z.string().min(1)),
+  label: label.nullable().optional(),
+  description: z.string().max(2000).nullable().optional(),
+  unit: z.string().max(32).nullable().optional(),
+  display: z.string().max(32).nullable().optional(),
+  kind: z.enum(["gauge", "counter"]).nullable().optional(),
+  agg: agg.nullable().optional(),
 });

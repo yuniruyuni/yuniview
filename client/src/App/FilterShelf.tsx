@@ -9,6 +9,7 @@ import {
   shelfName,
 } from "../../../shared/console";
 import { Feedback, useQuery } from "../api";
+import { useDictionary } from "./dictionary";
 import { ShelfPicker } from "./ShelfPicker";
 
 function inputValue(n: number | undefined, type: string) {
@@ -86,23 +87,21 @@ function Range({
     </div>
   );
 }
-function LogFilter({
+function TextFilter({
   condition,
   change,
-  legacy,
 }: {
   condition: FieldCondition;
   change: (c: FieldCondition) => void;
-  legacy: boolean;
 }) {
   const [term, edit] = useState(condition.contains ?? "");
   function apply() {
-    change({ field: "log", contains: term || undefined });
+    change({ field: "text", contains: term || undefined });
   }
   return (
     <>
       <label>
-        本文に含む文字列
+        本文・名前に含む文字列
         <input
           type="search"
           maxLength={512}
@@ -117,11 +116,6 @@ function LogFilter({
           }}
         />
       </label>
-      {legacy && (
-        <small>
-          保存済みの条件は本文と名前が対象です。適用すると本文の部分一致に切り替わります。
-        </small>
-      )}
       <button type="button" onClick={apply}>
         適用
       </button>
@@ -129,7 +123,7 @@ function LogFilter({
         type="button"
         onClick={() => {
           edit("");
-          change({ field: "log" });
+          change({ field: "text" });
         }}
       >
         条件をクリア
@@ -272,8 +266,9 @@ export function FilterShelf({
   hover: boolean;
 }) {
   const [picking, pick] = useState(false);
+  const dict = useDictionary();
   const fieldLabel = (f: FilterField) =>
-    isTimeField(f) ? "時刻" : shelfName(f);
+    isTimeField(f) ? "時刻" : shelfName(f, dict);
   const current = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (open)
@@ -397,15 +392,11 @@ export function FilterShelf({
                 {active.field === "day" ? "日時で指定" : "日単位（JST）で指定"}
               </button>
             )}
-          {active.field === "log" ? (
-            <LogFilter
+          {active.field === "text" ? (
+            <TextFilter
               key={JSON.stringify(active)}
               condition={active}
               change={change}
-              legacy={
-                !!panel.text &&
-                !panel.conditions?.some((c) => c.field === "log")
-              }
             />
           ) : (
             <ConditionEditor

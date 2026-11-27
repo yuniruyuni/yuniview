@@ -1,7 +1,6 @@
 import type { Filter, Overview, RouteRow } from "../../../../shared/console";
 import { Aggregate, type Cell } from "../aggregate";
-import { Batch } from "../batch";
-import { and, not } from "../common";
+import { and } from "../common";
 import { Event } from "../event";
 import { Field } from "../field";
 import type { Source } from "../source";
@@ -31,26 +30,16 @@ export function serviceStats(f: Filter, end: Date): Aggregate {
   };
 }
 
-/** Choices shown in filters: metrics with their unit, sets, slots, revisions. */
+/** Metric names and daily sets that have been received. */
 export const choices = {
   metrics: {
     from: { type: "events", where: Event.Kind("metric") },
     by: [group("item", Field.column("name"))],
-    measures: [output("unit", { type: "uniform", of: "unit" })],
+    measures: [],
   },
   dailyFields: {
     from: { type: "daily_sets", where: and() },
     by: [group("item", Field.column("field"))],
-    measures: [],
-  },
-  slots: {
-    from: { type: "batches", where: not(Batch.Slot("")) },
-    by: [group("item", Field.column("slot"))],
-    measures: [],
-  },
-  revisions: {
-    from: { type: "batches", where: not(Batch.Revision("")) },
-    by: [group("item", Field.column("revision"))],
     measures: [],
   },
 } satisfies Record<string, Aggregate>;
@@ -74,12 +63,7 @@ export function overview(
       };
     }),
     metrics: items(found.metrics),
-    metricUnits: Object.fromEntries(
-      found.metrics.flatMap((c) => (c.unit ? [[c.item, c.unit]] : [])),
-    ),
     dailyFields: items(found.dailyFields),
-    slots: items(found.slots),
-    revisions: items(found.revisions),
   };
 }
 

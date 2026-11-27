@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { blankPanel } from "../../../../shared/console";
 import { DailySet, japaneseDate } from ".";
 
 test("japaneseDate follows Japanese midnight", () => {
@@ -10,7 +9,7 @@ test("japaneseDate follows Japanese midnight", () => {
 
 test("a daily panel covers whole Japanese days ending at its end", () => {
   const spec = DailySet.scope(
-    { ...blankPanel, data: "daily", minutes: 2 * 1440 },
+    { minutes: 2 * 1440 },
     "visit.account",
     new Date("2026-11-24T00:00:00Z"),
   );

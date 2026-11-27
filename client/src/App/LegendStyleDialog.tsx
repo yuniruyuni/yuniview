@@ -9,6 +9,7 @@ import {
   valueAt,
   valueName,
 } from "../../../shared/console";
+import { useDictionary } from "./dictionary";
 import {
   dashPatterns,
   lineWidths,
@@ -37,6 +38,7 @@ export function LegendStyleDialog({
   close: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const dict = useDictionary();
   const [selected, select] = useState(channels[0][0]);
   const channel = channels.some(([ch]) => ch === selected)
     ? selected
@@ -82,7 +84,7 @@ export function LegendStyleDialog({
       value === undefined
         ? "全項目"
         : field === "measure"
-          ? valueName(panel.data, valueAt(panel, value))
+          ? valueName(dict, panel.data, valueAt(panel, value))
           : value || "（空の値）";
     const sample = index ?? defaultIndex;
     return (

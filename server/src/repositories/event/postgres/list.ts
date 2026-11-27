@@ -12,7 +12,6 @@ import { columnName, columnType, eventColumns, eventSpecToSQL } from "./common";
 
 export async function list(
   db: Database,
-  table: "telemetry_events" | "analysis_events",
   spec: Event.Spec,
   cursor: Cursor<Event.SortKey>,
 ): Promise<Page<Event>> {
@@ -26,7 +25,7 @@ export async function list(
     columnType,
   );
   const rows = await db.queryAll<Event>(
-    sql`SELECT ${eventColumns} FROM ${sql.raw(table)} WHERE ${where} AND ${after} ORDER BY ${orderBy(sort.keys, sort.order, columnName)} LIMIT ${cursor.limit + 1}${lockClause(cursor.lock)}`,
+    sql`SELECT ${eventColumns} FROM telemetry_events WHERE ${where} AND ${after} ORDER BY ${orderBy(sort.keys, sort.order, columnName)} LIMIT ${cursor.limit + 1}${lockClause(cursor.lock)}`,
   );
   const hasMore = rows.length > cursor.limit;
   const items = rows.slice(0, cursor.limit);

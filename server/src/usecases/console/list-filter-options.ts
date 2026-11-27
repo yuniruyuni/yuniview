@@ -1,21 +1,22 @@
-import type { FilterField, Panel } from "../../../../shared/console";
+import type { FilterField } from "../../../../shared/console";
 import {
   filterChoices,
   filterValueLimit,
   noFilterOptions,
+  type Scope,
   toFilterOptions,
 } from "../../models/panel";
 import { usecase } from "../runner";
 
 export const listFilterOptions = (
-  panel: Panel,
-  field: Exclude<FilterField, "log">,
+  scope: Scope,
+  field: Exclude<FilterField, "text">,
   end: Date,
   search: string,
 ) =>
   usecase({
     read: async (ctx) => {
-      const choices = filterChoices(panel, field, end, search);
+      const choices = filterChoices(scope, field, end, search);
       if (!choices) return noFilterOptions;
       if (choices.range) {
         const [range] = (

@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
-import type { Dashboard, Overview, Panel } from "../../../shared/console";
+import {
+  blankPanel,
+  type Dashboard,
+  homeDashboardId,
+  type Overview,
+  type Panel,
+  withConditions,
+} from "../../../shared/console";
 import { Feedback, rpc, useQuery } from "../api";
+import { ConditionBar } from "./ConditionBar";
 import { PanelBuilder } from "./PanelBuilder";
 import { PanelLayout } from "./PanelLayout";
 import { investigatePanel, Select } from "./Panels";
+import { homeTemplate } from "./templates";
 
-type Saved = { definition: Dashboard; version: string };
+type Saved = { definition: Dashboard; version: string | null };
 type Draft = {
   board: Dashboard;
   version: string | null;
@@ -61,11 +70,15 @@ export function DashboardWorkspace({
     window.scrollTo(0, 0);
   }
   const [revision, refresh] = useState(0);
-  const { data, error } = useQuery<Saved[]>(
-    "dashboardLibrary",
-    undefined,
-    revision,
-  );
+  const library = useQuery<Saved[]>("dashboardLibrary", undefined, revision);
+  const error = library.error;
+  // The home page's dashboard is listed from its template until saved.
+  const data = library.data && [
+    ...(library.data.some((d) => d.definition.id === homeDashboardId)
+      ? []
+      : [{ definition: homeTemplate(), version: null }]),
+    ...library.data,
+  ];
   const [busy, working] = useState(false),
     [message, fail] = useState("");
   const [target, destination] = useState("");
@@ -122,13 +135,7 @@ export function DashboardWorkspace({
       select(current.board.id);
     } else history.replaceState({ worksheetDraft: draft }, "");
   }, [data, draft, route, sheet]);
-  const initial = {
-    ...seed,
-    title: "メモリ使用量",
-    data: "metric",
-    values: [{ agg: "avg", of: ["metric:memory.current"] }],
-    unit: "MiB",
-  } as Panel;
+  const initial: Panel = { ...blankPanel, minutes: seed.minutes };
   function begin(
     saved: Saved | undefined,
     index: number,
@@ -356,6 +363,21 @@ export function DashboardWorkspace({
   );
   const toolbar = draft ? (
     <>
+      <ConditionBar
+        data="request"
+        conditions={draft.board.conditions ?? []}
+        minutes={seed.minutes}
+        end={end}
+        change={(conditions) =>
+          edit({
+            ...draft,
+            board: {
+              ...draft.board,
+              conditions: conditions.length ? conditions : undefined,
+            },
+          })
+        }
+      />
       <label className="board-name">
         名前
         <input
@@ -412,7 +434,7 @@ export function DashboardWorkspace({
       <button type="button" onClick={() => begin(undefined, 0, initial)}>
         ダッシュボードを作成
       </button>
-      {active && (
+      {active?.version && active.definition.id !== homeDashboardId && (
         <button type="button" onClick={remove}>
           削除
         </button>
@@ -434,7 +456,13 @@ export function DashboardWorkspace({
       ) : (
         <PanelLayout
           minutes={seed.minutes}
-          panels={draft?.board.panels ?? board?.panels ?? []}
+          panels={
+            draft
+              ? draft.board.panels
+              : (board?.panels.map((panel) =>
+                  withConditions(panel, board.conditions),
+                ) ?? [])
+          }
           end={end}
           editing={
             draft

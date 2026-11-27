@@ -1,9 +1,8 @@
-import {
-  type Monitor as Definition,
-  type Panel,
-  type Point,
-  type Transition,
-  upgradePanel,
+import type {
+  Backtest,
+  Monitor as Definition,
+  Point,
+  Transition,
 } from "../../../../shared/console";
 import { type Comp, defineSpecs, type SpecsOf } from "../common";
 import { generateId } from "../common/id";
@@ -34,14 +33,44 @@ export namespace Monitor {
   export const Due = _specs.Due;
   export type Spec = Comp<SpecsOf<typeof _specs>>;
 
-  /** A stored definition, its panel rewritten to the current form. */
-  export function stored(m: Monitor): Monitor {
-    return { ...m, panel: upgradePanel(m.panel) as Panel };
-  }
-
   /** The minute boundary the latest complete window ends at. */
   export function windowEnd(now: Date) {
     return new Date(Math.floor(now.getTime() / 60000) * 60000);
+  }
+
+  /** Days a backtest replays. */
+  export const backtestDays = 7;
+
+  /**
+   * How a monitor would have judged each of its windows over the past days.
+   * Points arrive bucketed by the monitor's window.
+   */
+  export function backtest(m: Monitor, end: Date, points: Point[]): Backtest {
+    const step = m.panel.minutes * 60000;
+    const windows = Math.floor((backtestDays * 1440) / m.panel.minutes);
+    const byBucket = new Map<number, Point[]>();
+    for (const p of points) {
+      const at = Date.parse(p.bucket);
+      byBucket.set(at, [...(byBucket.get(at) ?? []), p]);
+    }
+    const starts = [...byBucket.keys()].sort((a, b) => a - b);
+    const result: Backtest = {
+      days: backtestDays,
+      windows,
+      alert: 0,
+      ok: 0,
+      noData: 0,
+    };
+    const first = starts[0] ?? end.getTime() - windows * step;
+    for (let i = 0; i < windows; i++) {
+      const at = first + i * step;
+      if (at >= end.getTime()) break;
+      const state = verdict(m, byBucket.get(at) ?? []).state;
+      if (state === "alert") result.alert++;
+      else if (state === "ok") result.ok++;
+      else result.noData++;
+    }
+    return result;
   }
 
   export function verdict(m: Monitor, points: Point[]) {

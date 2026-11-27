@@ -106,15 +106,16 @@ test("agent records → trace and logs → saved panel → monitor and notificat
         },
       ],
     });
-    for (const [dataset, field, count] of [
-      ["log", "order.id", 2],
-      ["span", "http.route", 1],
+    const checkout = [{ field: "source", values: ["checkout"] }];
+    for (const [data, field, count] of [
+      ["log", "attr:order.id", 2],
+      ["span", "attr:http.route", 1],
     ] as const) {
       const panel = {
         ...blankPanel,
-        measure: "distinct",
-        distinct: { dataset, field },
-        source: "checkout",
+        data,
+        values: [{ agg: "distinct", of: [field] }],
+        conditions: checkout,
         group: "all",
         display: "value",
       };
@@ -135,19 +136,17 @@ test("agent records → trace and logs → saved panel → monitor and notificat
         input: JSON.stringify({
           end,
           minutes: 60,
-          source: "checkout",
-          kind: "log",
-          metric: "",
+          data: "log",
+          conditions: checkout,
         }),
       },
     });
     expect((await attributes.json()).result.data).toContain("order.id");
     const pivot = {
       ...blankPanel,
-      source: "checkout",
-      measure: "logs",
+      data: "log",
+      conditions: [...checkout, { field: "text", contains: "order" }],
       display: "pivot",
-      text: "order",
       pivot: { row: "attr:order.id", column: "slot", series: "source" },
     };
     const cells = await request.get("/api/trpc/series", {
@@ -171,40 +170,36 @@ test("agent records → trace and logs → saved panel → monitor and notificat
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.goto("/");
-    await expect(page.getByRole("row", { name: /checkout/ })).toContainText(
-      "240",
-    );
-    await page
-      .getByRole("navigation")
-      .getByRole("button", { name: "ログ", exact: true })
-      .click();
     await expect(
-      page.getByRole("cell", { name: "upstream timeout" }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "トレース", exact: true }).click();
+      page.locator(".service-card").filter({ hasText: "checkout" }),
+    ).toContainText("240 ms");
+    const nav = page.getByRole("navigation");
+    await nav.getByRole("button", { name: "探索", exact: true }).click();
+    const rows = page.locator("table.rows tbody tr");
+    await rows.filter({ hasText: "upstream timeout" }).click();
+    const detail = page.getByRole("complementary", { name: "行の詳細" });
+    await detail.getByRole("button", { name: "トレースを開く" }).click();
     await expect(page.getByText("checkout · POST /pay")).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "関連ログ (1)" }),
+      page.getByRole("heading", { name: "同じトレースのログ (1)" }),
     ).toBeVisible();
+    await page.getByRole("button", { name: "戻る", exact: true }).click();
     await page
-      .getByRole("navigation")
-      .getByRole("button", { name: "メトリクス" })
-      .click();
+      .getByRole("combobox", { name: "データ", exact: true })
+      .selectOption("metric");
     await expect(
-      page.getByRole("cell", { name: "memory.current", exact: true }),
+      page.getByRole("cell", { name: "memory.current", exact: true }).first(),
     ).toBeVisible();
-    await page
-      .getByRole("navigation")
-      .getByRole("button", { name: "ダッシュボード" })
-      .click();
+    await nav.getByRole("button", { name: "ダッシュボード" }).click();
     await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
     const form = page.locator("form.editor");
     await form
       .getByRole("combobox", { name: "表示形式", exact: true })
       .selectOption("table");
     const details = form.getByRole("link", { name: "checkout blue の詳細" });
-    await expect(details).toHaveAttribute("href", /source=checkout/);
-    await expect(details).toHaveAttribute("href", /slot=blue/);
+    await expect(details).toHaveAttribute("href", /page=explore/);
+    await expect(details).toHaveAttribute("href", /checkout/);
+    await expect(details).toHaveAttribute("href", /blue/);
     await form.getByRole("button", { name: "行にフィールドを追加" }).click();
     const picker = page.getByRole("dialog", { name: "行に追加" });
     await picker.getByRole("searchbox").fill("スロット");
@@ -239,21 +234,20 @@ test("agent records → trace and logs → saved panel → monitor and notificat
     await expect(page.locator(".values strong")).toHaveText("100");
     await page.reload();
     await page.getByRole("button", { name: "モニター化" }).click();
-    await form.getByLabel("名前", { exact: true }).fill("Checkout failures");
-    await form.getByLabel("閾値").fill("50");
+    await form.getByLabel("パネル名").fill("Checkout failures");
+    await expect(form.locator("line.threshold")).toBeAttached();
+    await expect(form.locator(".backtest")).toContainText("発報");
+    await form.getByRole("spinbutton", { name: /^閾値/ }).fill("50");
     await form.getByLabel("Webhook 通知").check();
-    await form.getByRole("button", { name: "保存" }).click();
+    await form.getByRole("button", { name: "セーブ" }).click();
     await expect
       .poll(() => notices.includes("alert"), { timeout: 18000 })
       .toBe(true);
-    await page
-      .getByRole("navigation")
-      .getByRole("button", { name: "モニター", exact: true })
-      .click();
+    await page.getByRole("button", { name: "更新", exact: true }).click();
     await expect(page.locator(".state")).toHaveText("発報");
     await page.getByRole("button", { name: "編集", exact: true }).click();
-    await form.getByLabel("閾値").fill("101");
-    await form.getByRole("button", { name: "保存" }).click();
+    await form.getByRole("spinbutton", { name: /^閾値/ }).fill("101");
+    await form.getByRole("button", { name: "セーブ" }).click();
     await expect
       .poll(() => notices.includes("ok"), { timeout: 18000 })
       .toBe(true);
@@ -261,7 +255,7 @@ test("agent records → trace and logs → saved panel → monitor and notificat
     await expect(page.locator(".state")).toHaveText("正常");
     await page.getByRole("button", { name: "編集", exact: true }).click();
     await form.getByLabel("最低サンプル数").fill("100");
-    await form.getByRole("button", { name: "保存" }).click();
+    await form.getByRole("button", { name: "セーブ" }).click();
     await expect
       .poll(() => notices.includes("no_data"), { timeout: 18000 })
       .toBe(true);
@@ -272,7 +266,7 @@ test("agent records → trace and logs → saved panel → monitor and notificat
   }
 });
 
-test("slot totals align gauge samples and exclude incomplete minutes", async ({
+test("per-slot totals add each slot's minute average and stack by slot", async ({
   request,
   page,
 }) => {
@@ -310,45 +304,70 @@ test("slot totals align gauge samples and exclude incomplete minutes", async ({
     );
     expect(r.status()).toBe(204);
   }
+  const conditions = [{ field: "revision", values: ["total-test"] }];
   const panel = {
     ...blankPanel,
     minutes: 5,
-    revision: "total-test",
-    measure: "metric",
-    metric: "memory.current",
-    unit: "MiB",
-    group: "slot_total",
+    data: "metric",
+    conditions,
+    group: "source",
   };
-  for (const [aggregation, buckets, expected] of [
-    ["avg", true, [32, 60]],
-    ["avg", false, [46]],
-    ["max", false, [60]],
+  // Each minute adds the slots' averages; minutes missing a slot add what came.
+  for (const [agg, buckets, expected] of [
+    ["avg", true, [32, 60, 500]],
+    ["avg", false, [(32 + 60 + 500) / 3]],
+    ["max", false, [500]],
     ["min", false, [32]],
   ] as const) {
     const r = await request.get("/api/trpc/series", {
       params: {
         input: JSON.stringify({
-          panel: { ...panel, aggregation },
+          panel: {
+            ...panel,
+            values: [{ agg, of: ["metric:memory.current"], per: ["slot"] }],
+          },
           end: new Date(end).toISOString(),
           buckets,
         }),
       },
     });
-    expect(
-      (await r.json()).result.data.map((p: { value: number }) => p.value),
-    ).toEqual(expected);
+    const values = (await r.json()).result.data.map(
+      (p: { value: number }) => p.value / 1048576,
+    );
+    expect(values).toHaveLength(expected.length);
+    for (const [i, v] of (values as number[]).entries())
+      expect(v).toBeCloseTo(expected[i], 6);
   }
-  await page.goto("/#page=dashboards&revision=total-test");
-  await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
+  const id = randomUUID();
+  const saved = await request.post("/api/trpc/applyDashboard", {
+    data: {
+      definition: {
+        id,
+        title: "Stacked memory",
+        panels: [
+          {
+            ...panel,
+            id: randomUUID(),
+            title: "Memory by slot",
+            values: [{ agg: "avg", of: ["metric:memory.current"] }],
+            display: "pivot",
+            pivot: {
+              row: "measure",
+              column: "time:60",
+              series: ["slot"],
+              mark: "stacked_area",
+              encoding: { color: "slot" },
+            },
+          },
+        ],
+      },
+      expectedVersion: null,
+    },
+  });
+  expect(saved.ok(), await saved.text()).toBeTruthy();
+  await page.goto(`/#page=dashboards&dashboard=${id}&minutes=5`);
+  await page.getByRole("button", { name: "Memory by slot を編集" }).click();
   const form = page.locator("form.editor");
-  await form
-    .getByRole("combobox", { name: "表示形式", exact: true })
-    .selectOption("stacked_area");
-  await form.getByRole("button", { name: "色に属性を割り当て" }).press("Enter");
-  await page
-    .getByRole("dialog", { name: "色に追加" })
-    .getByRole("button", { name: "スロット", exact: true })
-    .click();
   const svg = form.getByRole("img", { name: "全系列の積み上げ面グラフ" });
   await expect(
     svg.locator("polygon title").filter({ hasText: "観測合計 32 MiB" }),
@@ -453,10 +472,8 @@ test("slot totals align gauge samples and exclude incomplete minutes", async ({
   ).toHaveCount(2);
   await format.selectOption("stacked_area");
   await form.getByRole("button", { name: "セーブ" }).click();
-  await form.getByLabel("名前", { exact: true }).fill("Stacked memory");
-  await form.getByRole("button", { name: "保存", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Stacked memory" }),
+    page.getByRole("heading", { name: "Stacked memory", exact: true }),
   ).toBeVisible();
   await page.reload();
   await expect(
@@ -468,7 +485,33 @@ test("slot totals align gauge samples and exclude incomplete minutes", async ({
 
 test("drag previews, cancellation, field shelves and saved panel order", async ({
   page,
+  request,
 }) => {
+  // Two readings of one container, so its CPU counter has a rate.
+  for (const [ago, cpu] of [
+    [120000, 1000000],
+    [60000, 31000000],
+  ]) {
+    const r = await request.post(
+      `http://127.0.0.1:${process.env.INGEST_PORT}/api/agent/v1/batches`,
+      {
+        headers: { Authorization: `Bearer ${process.env.CONSOLE_TOKEN}` },
+        data: {
+          id: randomUUID().replaceAll("-", ""),
+          time: new Date(Date.now() - ago).toISOString(),
+          source: {
+            service: "checkout",
+            workload: "app",
+            instance: "drag-test",
+            slot: "blue",
+          },
+          signal: "resources",
+          payload: { cpuUsageUsec: cpu, memoryBytes: 4 * 1048576 },
+        },
+      },
+    );
+    expect(r.status()).toBe(204);
+  }
   await page.goto("/#page=dashboards");
   await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
   const form = page.locator("form.editor");
@@ -534,17 +577,20 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await expect(form.locator(".canvas-grid")).toHaveCount(0);
   const catalog = form.locator(".field-catalog");
   const row = form.locator('.worksheet-shelves [data-drop="row"]');
+  await form
+    .getByRole("combobox", { name: "データ", exact: true })
+    .selectOption("metric");
+  // A counter starts as its rate, as its sender asked.
+  await expect(row.locator(".value-chip")).toHaveText(["CPU 時間増加率×"]);
   await catalog
     .getByRole("button", { name: "メモリ使用量", exact: true })
     .dragTo(row);
-  await expect(row.locator(".shelf-chip .drag-source")).toHaveText(
+  await expect(row.locator(".value-chip .drag-source")).toHaveText([
+    "CPU 時間",
     "メモリ使用量",
-  );
-  await catalog
-    .getByRole("button", { name: "CPU 使用時間（累積）", exact: true })
-    .dragTo(row);
+  ]);
   await expect(
-    row.getByRole("button", { name: "CPU 使用時間（累積） を外す" }),
+    row.getByRole("button", { name: "メモリ使用量 を外す" }),
   ).toBeVisible();
   await form
     .getByRole("combobox", { name: "表示形式", exact: true })
@@ -553,13 +599,14 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
     form.getByRole("rowheader", { name: "メモリ使用量" }),
   ).toBeVisible();
   await expect(
-    form.getByRole("rowheader", { name: "CPU 使用時間（累積）" }),
+    form.getByRole("rowheader", { name: "CPU 時間の増加率" }),
+  ).toBeVisible();
+  // Each value is shown in the unit its sender prefers.
+  await expect(
+    form.getByRole("cell").filter({ hasText: / MiB$/ }).first(),
   ).toBeVisible();
   await expect(
-    form.getByRole("cell").filter({ hasText: / B$/ }).first(),
-  ).toBeVisible();
-  await expect(
-    form.getByRole("cell").filter({ hasText: / µs$/ }).first(),
+    form.getByRole("cell").filter({ hasText: / %$/ }).first(),
   ).toBeVisible();
   await page.reload();
   await expect(
@@ -569,18 +616,18 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await form
     .getByRole("button", { name: "＋ パネル追加" })
     .dragTo(tiles.first());
-  await expect(titles).toHaveText(["メモリ使用量", "Second", "First"]);
+  await expect(titles).toHaveText(["リクエスト数", "Second", "First"]);
   await tiles.first().focus();
   await page.keyboard.press("Alt+ArrowRight");
-  await expect(titles).toHaveText(["Second", "メモリ使用量", "First"]);
+  await expect(titles).toHaveText(["Second", "リクエスト数", "First"]);
   await form.getByLabel("名前", { exact: true }).fill("Drag studio");
   await form.getByRole("button", { name: "保存", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Drag studio" }),
+    page.getByRole("heading", { name: "Drag studio", exact: true }),
   ).toBeVisible();
   await expect(page.locator(".cards article h3")).toHaveText([
     "Second",
-    "メモリ使用量",
+    "リクエスト数",
     "First",
   ]);
   await page.getByRole("button", { name: "編集モード" }).click();
@@ -601,18 +648,47 @@ test("compound row and column shelves preserve their hierarchy on save", async (
   page,
   request,
 }) => {
+  for (const slot of ["blue", "green"])
+    for (const [ago, cpu] of [
+      [120000, 1000000],
+      [60000, 2000000],
+    ]) {
+      const r = await request.post(
+        `http://127.0.0.1:${process.env.INGEST_PORT}/api/agent/v1/batches`,
+        {
+          headers: {
+            Authorization: `Bearer ${slot === "blue" ? process.env.CONSOLE_TOKEN : process.env.GREEN_TEST_TOKEN}`,
+          },
+          data: {
+            id: randomUUID().replaceAll("-", ""),
+            time: new Date(Date.now() - ago).toISOString(),
+            source: {
+              service: "checkout",
+              workload: "app",
+              instance: `nested-${slot}`,
+              slot,
+            },
+            signal: "resources",
+            payload: { cpuUsageUsec: cpu, memoryBytes: 8 * 1048576 },
+          },
+        },
+      );
+      expect(r.status()).toBe(204);
+    }
   const id = randomUUID();
   const panel = {
     ...blankPanel,
     id: randomUUID(),
     title: "Nested memory",
-    measure: "metric",
-    metric: "memory.current",
+    data: "metric",
+    values: [
+      { agg: "avg", of: ["metric:memory.current"] },
+      { agg: "rate", of: ["metric:cpu.usage"] },
+    ],
     display: "pivot",
     pivot: {
       row: ["source", "slot"],
       column: ["workload", "measure"],
-      metrics: ["cpu.usage"],
     },
   };
   const saved = await request.post("/api/trpc/applyDashboard", {
@@ -632,13 +708,13 @@ test("compound row and column shelves preserve their hierarchy on save", async (
   ).toHaveAttribute("colspan", "2");
   await expect(table.getByRole("rowheader", { name: "green" })).toBeVisible();
   await expect(
-    table.getByRole("columnheader", { name: "CPU 使用時間（累積）" }),
+    table.getByRole("columnheader", { name: "CPU 時間の増加率" }),
   ).toBeVisible();
   const cell = table.getByRole("link", {
     name: "checkout green app メモリ使用量 の詳細",
   });
-  await expect(cell).toHaveAttribute("href", /slot=green/);
-  await expect(cell).toHaveAttribute("href", /workload=app/);
+  await expect(cell).toHaveAttribute("href", /page=explore/);
+  await expect(cell).toHaveAttribute("href", /green/);
   await page.getByRole("button", { name: "Nested memory を編集" }).click();
   const row = page.locator('.worksheet-shelves [data-drop="row"]');
   const chips = row.locator(".shelf-chip .drag-source");
@@ -650,7 +726,9 @@ test("compound row and column shelves preserve their hierarchy on save", async (
     .getByRole("button", { name: "リビジョン", exact: true })
     .dragTo(page.locator('.worksheet-shelves [data-drop="column"]'));
   await page.getByRole("button", { name: "セーブ" }).click();
-  await expect(page.getByRole("heading", { name: "Hierarchy" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Hierarchy", exact: true }),
+  ).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "Nested memory を編集" }).click();
   await expect(chips).toHaveText(["スロット", "サービス"]);
@@ -658,7 +736,7 @@ test("compound row and column shelves preserve their hierarchy on save", async (
     page.locator(
       '.worksheet-shelves [data-drop="column"] .shelf-chip .drag-source',
     ),
-  ).toHaveText(["メモリ使用量", "CPU 使用時間（累積）", "リビジョン"]);
+  ).toHaveText(["メモリ使用量", "CPU 時間", "リビジョン"]);
   await page.getByLabel("パネル名").fill("cancelled name");
   await page.getByRole("button", { name: "キャンセル", exact: true }).click();
   await expect(
@@ -742,7 +820,13 @@ test("worksheet encodes time or categories on either axis and splits observed se
   await expect(grain).toHaveValue("time:10");
   await expect(zone).toHaveValue("UTC");
   await page.keyboard.press("Escape");
-  await place("CPU 使用率 (%)", "row");
+  // A counter metric starts as its rate, in the unit its sender prefers.
+  await form
+    .getByRole("combobox", { name: "データ", exact: true })
+    .selectOption("metric");
+  await expect(
+    form.locator('[data-drop="row"] .value-chip .drag-source'),
+  ).toHaveText(["CPU 時間"]);
   await place("メモリ使用量", "row");
   await place("スロット", "style-color");
   await place("リビジョン", "style-dash");
@@ -802,7 +886,13 @@ test("worksheet encodes time or categories on either axis and splits observed se
   const control = await metricButton.boundingBox();
   const menu = await form.locator(".metric-menu:popover-open").boundingBox();
   if (!control || !menu) throw Error("Missing aggregation popup");
-  expect(menu.y).toBeGreaterThanOrEqual(control.y + control.height - 1);
+  // The value menu (units, aggregations, per-group totals, naming) is taller
+  // than the room above or below the chip in a 720px viewport, so it may
+  // cover the chip; it must still fit the viewport.
+  expect(menu.y).toBeGreaterThanOrEqual(0);
+  expect(menu.y + menu.height).toBeLessThanOrEqual(
+    page.viewportSize()?.height ?? 720,
+  );
   expect(await colorZone.boundingBox()).toEqual(before);
   await form
     .locator(".metric-menu:popover-open")
@@ -810,16 +900,17 @@ test("worksheet encodes time or categories on either axis and splits observed se
     .click();
   await form
     .locator(".shelf-chip button")
-    .filter({ hasText: "CPU 使用率" })
+    .filter({ hasText: "CPU 時間" })
     .first()
     .click();
+  const cpuMenu = form.locator(".metric-menu:popover-open");
+  await expect(cpuMenu.getByLabel("表示単位").locator("option")).toContainText([
+    "%",
+  ]);
   await expect(
-    form.locator(".metric-menu:popover-open").getByLabel("表示単位"),
-  ).toHaveCount(0);
-  await form
-    .locator(".metric-menu:popover-open")
-    .getByRole("button", { name: "最小", exact: true })
-    .click();
+    cpuMenu.getByRole("button", { name: "増加率", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
   await format.selectOption("stacked_area");
   await expect(
     form.getByText("積み上げ面には同じ単位の指標を配置してください。"),
@@ -833,7 +924,7 @@ test("worksheet encodes time or categories on either axis and splits observed se
     plot.locator("circle title").filter({ hasText: "50 %" }),
   ).toHaveCount(3);
   await expect(
-    plot.locator("circle title").filter({ hasText: "CPU 使用率" }),
+    plot.locator("circle title").filter({ hasText: "CPU 時間の増加率" }),
   ).toHaveCount(3);
   const dialog = page.getByRole("dialog", { name: "凡例のスタイルを編集" });
   const editStyles = async (label: string) => {
@@ -981,7 +1072,7 @@ test("worksheet encodes time or categories on either axis and splits observed se
   ).toHaveCount(2);
   await page.locator("button.panel-title").first().click();
   await expect(form.locator(".worksheet-shelves")).toContainText("最大");
-  await expect(form.locator(".worksheet-shelves")).toContainText("最小");
+  await expect(form.locator(".worksheet-shelves")).toContainText("増加率");
   await expect(
     form.getByRole("button", { name: "ダッシュボードの期間" }),
   ).toBeVisible();
@@ -1002,9 +1093,10 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
   await expect(
     form.getByRole("button", { name: "保存", exact: true }),
   ).toHaveCount(0);
+  // An administration console used from a PC: no narrow layout.
   for (const [width, height] of [
     [1280, 720],
-    [375, 667],
+    [1600, 900],
   ]) {
     await page.setViewportSize({ width, height });
     const header = form.locator(".worksheet-heading");
@@ -1050,9 +1142,7 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
     expect(filter.x).toBeCloseTo(zones[0].left);
     expect(filter.y + filter.height).toBeLessThanOrEqual(zones[0].top);
     expect(zones[0].left + zones[0].width).toBeLessThanOrEqual(catalog.x);
-    if (width > 800)
-      expect(preview.x + preview.width).toBeLessThanOrEqual(filter.x);
-    else expect(preview.y).toBeGreaterThanOrEqual(catalog.y + catalog.height);
+    expect(preview.x + preview.width).toBeLessThanOrEqual(filter.x);
     zones.slice(1).forEach((zone, i) => {
       expect(zone.left).toBeCloseTo(zones[0].left);
       expect(zone.width).toBeCloseTo(zones[0].width);
@@ -1079,13 +1169,17 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
   });
   for (const format of ["summary", "value"]) {
     await formatSelect.selectOption(format);
+    await form
+      .locator(".field-catalog")
+      .getByRole("button", { name: "所要時間", exact: true })
+      .click();
     const value = form.locator('[data-drop="measure"]');
     const group = form.locator('[data-drop="group"]');
     await expect(value.locator(".shelf-target strong")).toHaveText("値");
     await expect(group.locator(".shelf-target strong")).toHaveText("分類");
     await value
       .locator(".shelf-chip")
-      .getByRole("button", { name: "メモリ使用量" })
+      .getByRole("button", { name: "所要時間" })
       .click();
     await expect(
       form.locator(".metric-menu:popover-open").getByLabel("表示単位"),
@@ -1107,13 +1201,15 @@ test("worksheet shows only panel controls and fits inside the viewport", async (
     "15分",
   );
   await range.click();
-  const days = page.locator(".range-calendar button");
+  // The page header keeps its own (hidden) picker; use the one that opened.
+  const picker = page.locator(".dashboard-time").filter({ visible: true });
+  const days = picker.locator(".range-calendar button");
   await days.nth(1).click();
   await days.nth(3).click();
   await expect(days.nth(2)).toHaveAttribute("aria-pressed", "true");
-  await page.getByLabel("開始日", { exact: true }).fill("2026-03-01");
-  await page.getByLabel("終了日", { exact: true }).fill("2026-03-02");
-  await page.getByRole("button", { name: "範囲を適用" }).click();
+  await picker.getByLabel("開始日", { exact: true }).fill("2026-03-01");
+  await picker.getByLabel("終了日", { exact: true }).fill("2026-03-02");
+  await picker.getByRole("button", { name: "範囲を適用" }).click();
   await expect(page).toHaveURL(/minutes=2880/);
   await form.getByRole("button", { name: "セーブ" }).click();
   await form.getByRole("button", { name: "＋ パネル追加" }).click();
@@ -1170,7 +1266,7 @@ test("filter shelf combines observed choices with numeric and time ranges before
   );
   await time.getByRole("button", { name: "日単位（JST）で指定" }).click();
   const dateFilter = form.getByRole("region", {
-    name: "時刻（1日・JST） の条件",
+    name: "日付（JST） の条件",
   });
   await expect(dateFilter.getByLabel("上限")).toHaveAttribute("type", "date");
   await dateFilter.getByRole("button", { name: "日時で指定" }).click();
@@ -1183,7 +1279,7 @@ test("filter shelf combines observed choices with numeric and time ranges before
   await form.getByLabel("名前", { exact: true }).fill("Filtered requests");
   await form.getByRole("button", { name: "保存", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Filtered requests" }),
+    page.getByRole("heading", { name: "Filtered requests", exact: true }),
   ).toBeVisible();
   await page.reload();
   await expect(page.locator(".values strong")).toHaveText("1");
@@ -1200,7 +1296,7 @@ test("filter shelf combines observed choices with numeric and time ranges before
   await expect(page.getByLabel("上限")).toHaveValue("503");
 });
 
-test("log body is a literal free-text filter, independent of grouping", async ({
+test("the text condition is a literal substring of a body or name, independent of grouping", async ({
   page,
   request,
 }) => {
@@ -1241,15 +1337,20 @@ test("log body is a literal free-text filter, independent of grouping", async ({
     },
   );
   expect(r.status()).toBe(204);
-  await page.goto("/#page=dashboards&revision=body-search");
+  await page.goto("/#page=dashboards");
   await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
   const form = page.locator("form.editor"),
     catalog = form.locator(".field-catalog");
-  const log = catalog.getByRole("button", { name: "ログ", exact: true });
-  await expect(log).toBeDisabled();
+  const text = catalog.getByRole("button", { name: "本文・名前", exact: true });
   await form
     .getByRole("combobox", { name: "データ", exact: true })
     .selectOption("log");
+  await catalog
+    .getByRole("button", { name: "リビジョン", exact: true })
+    .dragTo(form.locator('[data-drop="filter"]'));
+  const revision = form.getByRole("region", { name: "リビジョン の条件" });
+  await revision.getByLabel("body-search", { exact: true }).check();
+  await revision.getByRole("button", { name: "閉じる" }).click();
   const verifyCountAxis = async (name: string) => {
     const chart = form.getByRole("img", { name, exact: true });
     const labels = chart.locator(":scope > g > text");
@@ -1281,45 +1382,50 @@ test("log body is a literal free-text filter, independent of grouping", async ({
   await expect(form.locator('[data-drop="group"]')).toContainText("サービス");
   await expect(form.locator(".values strong")).toHaveText("3");
   await expect(form.locator('[data-drop="column"]')).toHaveCount(0);
-  await log.dragTo(form.locator('[data-drop="group"]'));
+  await text.dragTo(form.locator('[data-drop="group"]'));
   await expect(
     form.getByRole("combobox", { name: "表示形式", exact: true }),
   ).toHaveValue("value");
-  await log.dragTo(form.locator('[data-drop="filter"]'));
-  const editor = form.getByRole("region", { name: "ログ の条件" });
-  await editor.getByLabel("本文に含む文字列").fill(term);
-  await editor.getByLabel("本文に含む文字列").press("Enter");
-  await expect(form.locator(".values strong")).toHaveText("1");
+  await text.dragTo(form.locator('[data-drop="filter"]'));
+  const editor = form.getByRole("region", { name: "本文・名前 の条件" });
+  await editor.getByLabel("本文・名前に含む文字列").fill(term);
+  await editor.getByLabel("本文・名前に含む文字列").press("Enter");
+  // "%" and "_" are literal, case is ignored, and a log's level is its name.
+  await expect(form.locator(".values strong")).toHaveText("2");
   await editor.getByRole("button", { name: "閉じる" }).click();
   await form.locator('[data-drop="group"] button').first().click();
   const picker = page.getByRole("dialog");
   await expect(
-    picker.getByRole("button", { name: "ログ", exact: true }),
+    picker.getByRole("button", { name: "本文・名前", exact: true }),
   ).toHaveCount(0);
   await picker.getByRole("button", { name: "閉じる" }).click();
   await form.getByRole("button", { name: "セーブ" }).click();
   await form.getByLabel("名前", { exact: true }).fill("Literal log filter");
   await form.getByRole("button", { name: "保存", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Literal log filter" }),
+    page.getByRole("heading", { name: "Literal log filter", exact: true }),
   ).toBeVisible();
   await page.reload();
-  await expect(page.locator(".values strong")).toHaveText("1");
+  await expect(page.locator(".values strong")).toHaveText("2");
   const boardUrl = page.url();
   await page.getByRole("link", { name: "調査", exact: true }).click();
   await expect(
     page.getByRole("cell", { name: "will retry 50%_ now", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("cell", { name: "unrelated", exact: true }),
+    page.getByRole("cell", { name: "will retry 500 now", exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "本文条件を外す" }).click();
+  await page
+    .getByRole("button", { name: "本文・名前 のフィルターを外す" })
+    .click();
   await expect(
-    page.getByRole("cell", { name: "unrelated", exact: true }),
+    page.getByRole("cell", { name: "will retry 500 now", exact: true }),
   ).toBeVisible();
   await page.goto(boardUrl);
   await page.locator("button.panel-title").first().click();
-  await form.getByRole("button", { name: "ログ のフィルターを外す" }).click();
+  await form
+    .getByRole("button", { name: "本文・名前 のフィルターを外す" })
+    .click();
   await expect(form.locator(".values strong")).toHaveText("3");
 });
 
@@ -1357,13 +1463,14 @@ test("method-filtered counts use the filtered axis and follow the pointer over t
   );
   expect(batch.status()).toBe(204);
   const id = randomUUID();
+  const scope = [{ field: "revision", values: [revision] }];
   const panel = {
     ...blankPanel,
-    measure: "logs",
-    metric: "",
+    data: "log",
+    values: [{ agg: "count", of: [] }],
     display: "chart",
     group: "source",
-    revision,
+    conditions: scope,
     minutes: 60,
   };
   const saved = await request.post("/api/trpc/applyDashboard", {
@@ -1374,12 +1481,16 @@ test("method-filtered counts use the filtered axis and follow the pointer over t
         title: "Filter scale",
         panels: [
           { ...panel, title: "All" },
-          { ...panel, title: "HTTP", text: "method=" },
+          {
+            ...panel,
+            title: "HTTP",
+            conditions: [...scope, { field: "text", contains: "method=" }],
+          },
         ],
       },
     },
   });
-  expect(saved.ok()).toBeTruthy();
+  expect(saved.ok(), await saved.text()).toBeTruthy();
   await page.goto(
     "/#page=dashboards&dashboard=" + id + "&end=" + new Date(end).toISOString(),
   );
@@ -1463,8 +1574,19 @@ test("values are built by dropping fields and choosing how each is aggregated", 
     "p50",
     "p95",
     "p99",
+    "名前と単位を設定",
   ]);
   await menu.getByRole("button", { name: "平均", exact: true }).click();
+  await expect(chips).toHaveText(["リクエスト数×", "所要時間平均×"]);
+  // Two-stage: average per slot each minute, add the slots, then average.
+  const duration = chips.filter({ hasText: "所要時間" });
+  await duration.getByRole("button").first().click();
+  // The menu stays open while groups are toggled.
+  await menu.getByLabel("スロットごと").click();
+  await expect(duration).toContainText("スロットごとの合計の平均");
+  await expect(menu.getByLabel("スロットごと")).toBeChecked();
+  await menu.getByLabel("スロットごと").click();
+  await page.keyboard.press("Escape");
   await expect(chips).toHaveText(["リクエスト数×", "所要時間平均×"]);
 
   await catalog
@@ -1500,4 +1622,298 @@ test("values are built by dropping fields and choosing how each is aggregated", 
     "リクエスト数×",
     "サービス × スロット組の種類数×",
   ]);
+});
+
+async function deliver(
+  request: import("@playwright/test").APIRequestContext,
+  source: Record<string, string>,
+  signal: string,
+  payload: unknown,
+  time = new Date(),
+) {
+  const res = await request.post(
+    `http://127.0.0.1:${process.env.INGEST_PORT}/api/agent/v1/batches`,
+    {
+      headers: { Authorization: `Bearer ${process.env.CONSOLE_TOKEN}` },
+      data: {
+        id: randomUUID().replaceAll("-", ""),
+        time: time.toISOString(),
+        source,
+        signal,
+        payload,
+      },
+    },
+  );
+  expect(res.status(), await res.text()).toBe(204);
+}
+
+test("explore narrows by observed values and leads from a row to its trace and nearby logs", async ({
+  page,
+  request,
+}) => {
+  const source = {
+    service: "checkout",
+    workload: "app",
+    slot: "blue",
+    instance: "explore-test",
+    revision: "explore",
+  };
+  const time = new Date(Date.now() - 60000);
+  const start = BigInt(+time) * 1000000n;
+  const trace = Buffer.from("explore-trace-01").toString("base64");
+  await deliver(request, source, "traces", {
+    resourceSpans: [
+      {
+        scopeSpans: [
+          {
+            spans: [
+              {
+                name: "GET /explore",
+                kind: 2,
+                traceId: trace,
+                spanId: Buffer.from("span0001").toString("base64"),
+                startTimeUnixNano: String(start),
+                endTimeUnixNano: String(start + 30000000n),
+                attributes: [
+                  { key: "http.route", value: { stringValue: "/explore" } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+  await deliver(request, source, "logs", {
+    resourceLogs: [
+      {
+        scopeLogs: [
+          {
+            logRecords: [
+              ["traced line", "a", trace],
+              ["plain line one", "a", undefined],
+              ["plain line two", "b", undefined],
+            ].map(([body, kind, traceId]) => ({
+              body: { stringValue: body },
+              timeUnixNano: String(start),
+              traceId,
+              attributes: [{ key: "kind", value: { stringValue: kind } }],
+            })),
+          },
+        ],
+      },
+    ],
+  });
+  await page.goto(
+    "/#" +
+      new URLSearchParams({
+        page: "explore",
+        data: "log",
+        conditions: JSON.stringify([
+          { field: "instance", values: ["explore-test"] },
+        ]),
+      }),
+  );
+  const rows = page.locator("table.rows tbody tr");
+  await expect(rows).toHaveCount(3);
+  const fields = page.getByRole("complementary", { name: "フィールド" });
+  await fields.getByRole("button", { name: "kind", exact: true }).click();
+  const values = fields.locator(".top-values button");
+  await expect(values).toHaveText(["a2", "b1"]);
+  await values.filter({ hasText: "b" }).click();
+  await expect(page.getByRole("button", { name: "kind · b" })).toBeVisible();
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText("plain line two");
+  await page.getByRole("button", { name: "kind のフィルターを外す" }).click();
+  await expect(rows).toHaveCount(3);
+  await page.getByLabel("列を追加").selectOption("attr:kind");
+  await expect(page.getByRole("columnheader", { name: /kind/ })).toBeVisible();
+  await rows.filter({ hasText: "traced line" }).click();
+  const detail = page.getByRole("complementary", { name: "行の詳細" });
+  await expect(detail).toContainText("explore-test");
+  await detail.getByRole("button", { name: "トレースを開く" }).click();
+  await expect(
+    page.getByRole("heading", { name: "トレース", exact: true }),
+  ).toBeVisible();
+  await page.locator(".span-row").filter({ hasText: "GET /explore" }).click();
+  await expect(
+    page.getByRole("complementary", { name: "スパンの詳細" }),
+  ).toContainText('"http.route": "/explore"');
+  await expect(
+    page.getByRole("heading", { name: "同じトレースのログ (1)" }),
+  ).toBeVisible();
+  await expect(page.locator(".trace")).toContainText("plain line one");
+});
+
+test("home cards lead to a service page with revisions compared and routes to explore", async ({
+  page,
+  request,
+}) => {
+  const time = new Date(Date.now() - 60000);
+  const start = BigInt(+time) * 1000000n;
+  for (const [revision, ms, status] of [
+    ["svc-r1", 10n, 200],
+    ["svc-r2", 30n, 503],
+  ] as const)
+    await deliver(
+      request,
+      {
+        service: "checkout",
+        workload: "app",
+        slot: "blue",
+        instance: "service-test",
+        revision,
+      },
+      "traces",
+      {
+        resourceSpans: [
+          {
+            scopeSpans: [
+              {
+                spans: [
+                  {
+                    name: "GET /svc",
+                    kind: 2,
+                    traceId: Buffer.from(`service-${revision}--`).toString(
+                      "base64",
+                    ),
+                    spanId: Buffer.from("svcspan1").toString("base64"),
+                    startTimeUnixNano: String(start),
+                    endTimeUnixNano: String(start + ms * 1000000n),
+                    attributes: [
+                      { key: "http.route", value: { stringValue: "/svc" } },
+                      {
+                        key: "http.response.status_code",
+                        value: { intValue: String(status) },
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    );
+  await page.goto("/");
+  await page.locator(".service-card").filter({ hasText: "checkout" }).click();
+  await expect(page).toHaveURL(/page=service&service=checkout/);
+  await expect(
+    page.getByRole("heading", { name: "checkout", exact: true }).first(),
+  ).toBeVisible();
+  const comparison = page
+    .locator("article")
+    .filter({ hasText: "リビジョンごとの比較" });
+  await expect(
+    comparison.getByRole("rowheader", { name: "svc-r1", exact: true }),
+  ).toBeVisible();
+  await expect(
+    comparison.getByRole("rowheader", { name: "svc-r2", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "/svc", exact: true }).click();
+  await expect(page).toHaveURL(/page=explore/);
+  await expect(
+    page.getByRole("button", { name: "本文・名前 · /svc" }),
+  ).toBeVisible();
+  await expect(
+    page.locator("table.rows tbody tr").filter({ hasText: "/svc" }).first(),
+  ).toBeVisible();
+});
+
+test("the field dictionary names a field wherever it shows, over what its sender said", async ({
+  page,
+  request,
+}) => {
+  await deliver(
+    request,
+    {
+      service: "checkout",
+      workload: "app",
+      slot: "blue",
+      instance: "dictionary-test",
+    },
+    "metrics",
+    {
+      resourceMetrics: [
+        {
+          scopeMetrics: [
+            {
+              metrics: [
+                {
+                  name: "queue.waiting",
+                  description: "待っている仕事の数",
+                  unit: "件",
+                  gauge: {
+                    dataPoints: [
+                      {
+                        timeUnixNano: String(BigInt(Date.now()) * 1000000n),
+                        asDouble: 3,
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  );
+  await page.goto("/#page=settings");
+  const row = page.getByRole("row").filter({ hasText: "metric:queue.waiting" });
+  await expect(row).toContainText("待っている仕事の数");
+  await expect(row).toContainText("瞬間値");
+  await row.getByRole("button", { name: "queue.waiting を編集" }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "queue.waiting の名前と単位",
+  });
+  await expect(dialog).toContainText("送信元: 待っている仕事の数");
+  await dialog.getByLabel("表示名").fill("待ち行列");
+  await dialog.getByRole("button", { name: "保存" }).click();
+  await expect(row).toContainText("待ち行列");
+  await expect(row).toContainText("利用者");
+  const fields = await request.get("/api/trpc/fields");
+  expect(
+    (await fields.json()).result.data.find(
+      (f: { key: string }) => f.key === "metric:queue.waiting",
+    ),
+  ).toMatchObject({
+    label: "待ち行列",
+    description: "待っている仕事の数",
+    sender: { description: "待っている仕事の数", kind: "gauge" },
+    user: { label: "待ち行列" },
+  });
+  await page.goto("/#page=dashboards");
+  await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
+  const form = page.locator("form.editor");
+  await form
+    .getByRole("combobox", { name: "データ", exact: true })
+    .selectOption("metric");
+  const catalog = form.locator(".field-catalog");
+  await catalog
+    .getByRole("button", { name: "待ち行列", exact: true })
+    .dragTo(form.locator('.worksheet-shelves [data-drop="row"]'));
+  await expect(
+    form
+      .locator('[data-drop="row"] .value-chip')
+      .filter({ hasText: "待ち行列" }),
+  ).toHaveCount(1);
+  await expect(form.locator(".builder-main .card small").first()).toContainText(
+    "待ち行列",
+  );
+  await form.getByRole("button", { name: "キャンセル", exact: true }).click();
+  await page.goto("/#page=settings");
+  await row.getByRole("button", { name: "待ち行列 を編集" }).click();
+  await page
+    .getByRole("dialog", { name: "待ち行列 の名前と単位" })
+    .getByLabel("表示名")
+    .fill("");
+  await page
+    .getByRole("dialog", { name: "待ち行列 の名前と単位" })
+    .getByRole("button", { name: "保存" })
+    .click();
+  // Without a person's name the key shows again, as the sender gave none.
+  await expect(
+    row.getByRole("button", { name: "queue.waiting を編集" }),
+  ).toBeVisible();
 });

@@ -32,16 +32,10 @@ done
 
 # pgschema natively supports \i directives for modular schema files
 pgschema apply --file /app/schema/main.sql --auto-approve
-# Upgrade only saved panels that used the two former built-in measures.
+# Panels saved before queries carried only conditions cannot be read; drop them.
 psql -X -v ON_ERROR_STOP=1 <<'SQL'
-UPDATE dashboards d
-SET definition = jsonb_set(definition, '{panels}', (
-  SELECT jsonb_agg(CASE WHEN p->>'measure' IN ('accounts','browsers') THEN
-    p || jsonb_build_object('measure','distinct','distinct',jsonb_build_object(
-      'dataset','daily','field',CASE p->>'measure' WHEN 'accounts' THEN 'visit.account' ELSE 'visit.browser' END))
-    ELSE p END ORDER BY n)
-  FROM jsonb_array_elements(d.definition->'panels') WITH ORDINALITY AS items(p,n)
-))
-WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(d.definition->'panels') p WHERE p->>'measure' IN ('accounts','browsers'));
+DELETE FROM dashboards d WHERE EXISTS (
+  SELECT 1 FROM jsonb_array_elements(d.definition->'panels') p WHERE p ? 'source' OR NOT p ? 'data');
+DELETE FROM monitors WHERE definition->'panel' ? 'source' OR NOT definition->'panel' ? 'data';
 SQL
 echo "Migration complete."

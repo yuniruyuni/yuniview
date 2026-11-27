@@ -32,8 +32,6 @@ export function eventSpecToSQL(spec: EventSpecData): SQLFragment {
       return sql`value IS NOT NULL`;
     case "Text":
       return sql`(strpos(lower(body),lower(${spec.text}))>0 OR strpos(lower(name),lower(${spec.text}))>0)`;
-    case "BodyContains":
-      return sql`strpos(lower(body),lower(${spec.text}::text))>0`;
     case "Trace":
       return sql`trace=${spec.trace}`;
   }

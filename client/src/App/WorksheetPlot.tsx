@@ -14,6 +14,7 @@ import {
 } from "../../../shared/console";
 import { number } from "../api";
 import { countAxis } from "./countAxis";
+import { useDictionary } from "./dictionary";
 import { displayField, nativeUnit } from "./fieldDisplay";
 import { InspectablePlot } from "./InspectablePlot";
 import { dashPatterns, lineWidths, PointSymbol, palette } from "./SeriesStyle";
@@ -30,6 +31,7 @@ export function WorksheetPlot({
   points: Point[];
   legendAction?: React.ReactNode;
 }) {
+  const dict = useDictionary();
   const [focused, focus] = useState("");
   const pivot = panel.pivot!;
   const rows = shelfFields(pivot.row),
@@ -61,19 +63,19 @@ export function WorksheetPlot({
     const key = JSON.stringify([values, facet]);
     const categoryKey = JSON.stringify(category);
     const value = valueAt(panel, values[valueFields.indexOf("measure")]);
-    const unit = p.metricUnit ?? panel.unit ?? nativeUnit(panel, value);
+    const unit = p.metricUnit ?? nativeUnit(dict, panel, value);
     if (!groups.has(key)) {
       const labelParts = [
         ...values.map((v, i) =>
           valueFields[i] === "measure"
-            ? valueName(panel.data, valueAt(panel, v))
-            : displayField(panel, valueFields[i], v) || "未指定",
+            ? valueName(dict, panel.data, valueAt(panel, v))
+            : displayField(dict, panel, valueFields[i], v) || "未指定",
         ),
         ...facets.map(
           (field, i) =>
-            shelfName(field) +
+            shelfName(field, dict) +
             "=" +
-            (displayField(panel, field, facet[i]) || "未指定"),
+            (displayField(dict, panel, field, facet[i]) || "未指定"),
         ),
       ];
       const mark = value.mark ?? pivot.mark;
@@ -217,7 +219,7 @@ export function WorksheetPlot({
   const [low, maximum] = domains.values().next().value ?? [0, 1];
   const counts = !mixed
     ? countAxis(
-        panel.values.every((v) => countsWhole(panel.data, v)),
+        panel.values.every((v) => countsWhole(dict, panel.data, v)),
         maximum,
       )
     : undefined;
@@ -234,12 +236,12 @@ export function WorksheetPlot({
   );
   const formatCategory = (key: string) =>
     (JSON.parse(key) as string[])
-      .map((v, i) => displayField(panel, categoryFields[i], v))
+      .map((v, i) => displayField(dict, panel, categoryFields[i], v))
       .join(" › ") || "未指定";
   const axisName = (field: ShelfAxis) =>
     isTemporalField(field) && field !== "day" && field !== "time:86400"
-      ? shelfName(field) + " " + fieldZone(pivot, field)
-      : shelfName(field);
+      ? shelfName(field, dict) + " " + fieldZone(pivot, field)
+      : shelfName(field, dict);
   return (
     <div className="worksheet-plot">
       <small>

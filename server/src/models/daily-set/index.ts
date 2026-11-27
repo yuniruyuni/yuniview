@@ -1,4 +1,4 @@
-import type { Panel } from "../../../../shared/console";
+import type { Filter } from "../../../../shared/console";
 import { and, type Comp, defineSpecs, or, type SpecsOf } from "../common";
 import { Field } from "../field";
 
@@ -51,7 +51,7 @@ export namespace DailySet {
 
   /** Members a daily-set panel covers: its sets, its days ending at `end`. */
   export function scope(
-    p: Panel,
+    p: Filter,
     sets: string | readonly string[],
     end: Date,
   ): Spec {
@@ -63,7 +63,6 @@ export namespace DailySet {
         japaneseDate(end),
       ),
     ];
-    if (p.source) specs.push(Source(p.source));
     for (const c of p.conditions ?? []) {
       if (c.field !== "day" && c.field !== "source") continue;
       const field = Field.ofDailySet(c.field);

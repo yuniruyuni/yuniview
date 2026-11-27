@@ -4,6 +4,7 @@ import { CredentialRepository } from "./credential";
 import { DailySetRepository } from "./daily-set";
 import { DashboardRepository } from "./dashboard";
 import { EventRepository } from "./event";
+import { FieldNoteRepository } from "./field-note";
 import { MonitorRepository } from "./monitor";
 import { MonitorEventRepository } from "./monitor-event";
 import { SourceRepository } from "./source";
@@ -21,9 +22,8 @@ export function createRawRepos(config: RepositoryConfig = {}) {
     credentials: new CredentialRepository(),
     dailySets: new DailySetRepository(),
     dashboards: new DashboardRepository(),
-    events: new EventRepository("telemetry_events"),
-    /** Application events and routed requests, as counted by `events` panels. */
-    occurrences: new EventRepository("analysis_events"),
+    events: new EventRepository(),
+    fieldNotes: new FieldNoteRepository(),
     monitors: new MonitorRepository(),
     monitorEvents: new MonitorEventRepository(),
     sources: new SourceRepository(),

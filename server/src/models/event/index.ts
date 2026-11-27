@@ -40,8 +40,6 @@ export namespace Event {
     HasValue: () => ({}),
     /** Body or name contains the text, ignoring case. */
     Text: (text: string) => ({ text }),
-    /** Body contains the text, ignoring case. */
-    BodyContains: (text: string) => ({ text }),
     Trace: (trace: string) => ({ trace }),
   });
   export const Window = _specs.Window;
@@ -54,7 +52,6 @@ export namespace Event {
   export const Named = _specs.Named;
   export const HasValue = _specs.HasValue;
   export const Text = _specs.Text;
-  export const BodyContains = _specs.BodyContains;
   export const Trace = _specs.Trace;
 
   export type Spec = Comp<SpecsOf<typeof _specs>>;
@@ -63,8 +60,8 @@ export namespace Event {
   export function conditions(list: readonly FieldCondition[] = []): Spec {
     const specs: Spec[] = [];
     for (const c of list) {
-      if (c.field === "log") {
-        if (c.contains) specs.push(BodyContains(c.contains));
+      if (c.field === "text") {
+        if (c.contains) specs.push(Text(c.contains));
         continue;
       }
       const field = Field.ofTelemetry(c.field);
@@ -75,25 +72,12 @@ export namespace Event {
     return and(...specs);
   }
 
-  /** Rows within the filter's window ending at `end`. */
-  export function matching(
-    f: Filter & { conditions?: readonly FieldCondition[] },
-    end: Date,
-  ): Spec {
-    const specs: Spec[] = [
+  /** Rows within the filter's window ending at `end` that meet its conditions. */
+  export function matching(f: Filter, end: Date): Spec {
+    return and(
       conditions(f.conditions),
       Window(new Date(end.getTime() - 60000 * f.minutes), end),
-    ];
-    for (const key of [
-      "source",
-      "instance",
-      "workload",
-      "slot",
-      "revision",
-    ] as const)
-      if (f[key]) specs.push(FieldIn(Field.column(key), [f[key]]));
-    if (f.text) specs.push(Text(f.text));
-    return and(...specs);
+    );
   }
 
   export function cursor(

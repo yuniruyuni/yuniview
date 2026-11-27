@@ -62,7 +62,7 @@ export namespace Field {
   }
 
   /** The stored dimension a filter or shelf name refers to in telemetry. */
-  export function ofTelemetry(name: Exclude<FilterField, "log">): Field {
+  export function ofTelemetry(name: Exclude<FilterField, "text">): Field {
     if (isTimeField(name))
       return { type: "time", seconds: Number(name.slice(5)) };
     if (name === "day") return { type: "day" };

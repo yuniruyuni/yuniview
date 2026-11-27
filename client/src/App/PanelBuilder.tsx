@@ -3,18 +3,17 @@ import {
   type Axis,
   aggNames,
   aggsFor,
-  axes,
   blankPanel,
   changeGroup,
-  cpuPercent,
   type DataKind,
   type Dimension,
   dataKinds,
   defaultAgg,
   type FieldCondition,
   type FilterField,
+  fieldKey,
   fieldZone,
-  type Identifier,
+  identifiers,
   initialValue,
   isAttribute,
   isTemporalField,
@@ -23,18 +22,16 @@ import {
   type Overview,
   type Panel,
   type Pivot,
+  perAggs,
   pivotFields,
   type ShelfAxis,
   type StyleChannel,
   shelfFields,
   shelfName,
-  slotTotalChoice,
   styleChannels,
   type TimeField,
   type TimeZone,
   timeBuckets,
-  unitKey,
-  usesLogRecords,
   type Value,
   type ValueField,
   valueFieldName,
@@ -42,6 +39,7 @@ import {
   valueName,
 } from "../../../shared/console";
 import { useQuery } from "../api";
+import { useDictionary, useFieldEditor } from "./dictionary";
 import { FilterShelf } from "./FilterShelf";
 import { compatibleUnits, nativeUnit } from "./fieldDisplay";
 import { LegendStyleDialog } from "./LegendStyleDialog";
@@ -120,8 +118,12 @@ type Props = {
   end: string;
   minutes: number;
   timeControl: React.ReactNode;
+  /** Extra settings shown beside the shelves, such as a monitor's rule. */
+  rule?: React.ReactNode;
+  /** A monitor's threshold, drawn on the preview. */
+  threshold?: number;
 };
-const dimensions = Object.entries(axes) as [Axis, string][];
+const dimensions: Axis[] = [...identifiers, "day"];
 function styleTargets(format: string, pivot?: Pivot) {
   const row = shelfFields(pivot?.row),
     col = shelfFields(pivot?.column);
@@ -154,7 +156,11 @@ export function PanelBuilder({
   savePanel,
   cancelPanel,
   directSave,
+  rule,
+  threshold,
 }: Props) {
+  const dict = useDictionary();
+  const editField = useFieldEditor();
   const [settingsOpen, showSettings] = useState(false);
   const [picker, openPicker] = useState<
     Shelf | StyleChannel | "measure" | "group"
@@ -162,14 +168,6 @@ export function PanelBuilder({
   const [search, find] = useState("");
   const [undo, remember] = useState<Panel[]>([]);
   function change(next: Panel) {
-    if (
-      !usesLogRecords(next) &&
-      next.conditions?.some((c) => c.field === "log")
-    )
-      next = {
-        ...next,
-        conditions: next.conditions.filter((c) => c.field !== "log"),
-      };
     if (next.pivot?.encoding) {
       const pivot = next.pivot;
       const row = shelfFields(pivot.row),
@@ -223,12 +221,9 @@ export function PanelBuilder({
     return m === undefined ? [] : [m];
   });
   const observed = useQuery<string[]>("worksheetAttributes", {
-    source: p.source,
-    kind:
-      p.data === "metric" || p.data === "log" || p.data === "event"
-        ? p.data
-        : "span",
-    metric: metricsInUse[0] ?? "",
+    data: daily ? "request" : p.data,
+    conditions: p.conditions?.filter((c) => c.field === "source"),
+    metric: metricsInUse[0],
     end,
     minutes,
   });
@@ -243,14 +238,14 @@ export function PanelBuilder({
   ]);
   const fields: [Dimension | TimeField, string][] = [
     [daily ? "day" : "time:60", "時刻"],
-    ...dimensions.filter(
-      ([key]) => key !== "day" && (!daily || key === "source"),
-    ),
+    ...dimensions
+      .filter((key) => key !== "day" && (!daily || key === "source"))
+      .map((key): [Dimension, string] => [key, shelfName(key, dict)]),
   ];
   if (!daily)
     for (const key of keys)
-      if (key && isAttribute(key)) fields.push([key, shelfName(key)]);
-  const countName = valueName(p.data, { agg: "count", of: [] });
+      if (key && isAttribute(key)) fields.push([key, shelfName(key, dict)]);
+  const countName = valueName(dict, p.data, { agg: "count", of: [] });
   /** Fields a value can measure: "" for the row count. */
   const measurable: [ValueField | "", string][] = [
     ...(aggsFor(p.data, []).length
@@ -266,14 +261,14 @@ export function PanelBuilder({
             : [],
         ),
       ]),
-    ).map((f): [ValueField, string] => [f, valueFieldName(p.data, f)]),
+    ).map((f): [ValueField, string] => [f, valueFieldName(dict, p.data, f)]),
   ];
   const valueFor = (key: ValueField | ""): Value => {
     const of: ValueField[] = key ? [key] : [];
-    return { agg: defaultAgg(p.data, of), of };
+    return { agg: defaultAgg(dict, p.data, of), of };
   };
   const autoTitle = (q: Panel) =>
-    q.values.map((v) => valueName(q.data, v)).join("・");
+    q.values.map((v) => valueName(dict, q.data, v)).join("・");
   /** Keeps values, marks, units, groups and the title consistent. */
   function normalized(next: Panel): Panel {
     const onShelf =
@@ -287,24 +282,10 @@ export function PanelBuilder({
       pivot = { ...pivot, mark: values[0].mark };
     if ((!onShelf || values.length === 1) && values.some((v) => v.mark))
       values = values.map(({ mark: _, ...v }) => v);
-    const memory = (q: Value[]) =>
-      q.length === 1 && metricOf(q[0].of[0]) === "memory.current";
-    const unit = memory(values)
-      ? memory(p.values)
-        ? next.unit
-        : "MiB"
-      : undefined;
-    const slotTotal =
-      next.data === "metric" &&
-      values.length === 1 &&
-      metricOf(values[0].of[0]) !== cpuPercent &&
-      ["avg", "min", "max"].includes(values[0].agg);
-    const group =
-      next.group === "slot_total" && !slotTotal ? "source" : next.group;
     const retitle =
       (next.values !== p.values || next.data !== p.data) &&
       (!p.title || p.title === autoTitle(p) || p.title === blankPanel.title);
-    const result = { ...next, values, pivot, unit, group };
+    const result = { ...next, values, pivot };
     return retitle ? { ...result, title: autoTitle(result) } : result;
   }
   function dailyLayout(mark: Pivot["mark"], group: Panel["group"]): Pivot {
@@ -318,7 +299,11 @@ export function PanelBuilder({
     };
   }
   function withData(panel: Panel, data: DataKind): Panel {
-    const next: Panel = { ...panel, data, values: [initialValue(data, meta)] };
+    const next: Panel = {
+      ...panel,
+      data,
+      values: [initialValue(dict, data, meta)],
+    };
     if (data !== "daily") return next;
     return {
       ...next,
@@ -334,11 +319,6 @@ export function PanelBuilder({
             )
           : undefined,
       group: panel.group === "all" ? "all" : "source",
-      slot: "",
-      workload: "",
-      revision: "",
-      instance: "",
-      text: "",
     };
   }
   type Shelf = "row" | "column";
@@ -355,10 +335,7 @@ export function PanelBuilder({
         column:
           shelf === "column" ? [] : [base.data === "daily" ? "day" : "time:60"],
         mark: "line" as const,
-        series:
-          base.group !== "all" && base.group !== "slot_total"
-            ? [base.group]
-            : [],
+        series: base.group !== "all" ? [base.group] : [],
       }),
     };
 
@@ -380,12 +357,7 @@ export function PanelBuilder({
       const opposite = shelf === "row" ? "column" : "row";
       if (!shelfFields(pair[opposite]).length) pair[opposite] = ["measure"];
     }
-    return {
-      ...base,
-      group: base.group === "slot_total" ? "source" : base.group,
-      display: "pivot",
-      pivot: pair,
-    };
+    return { ...base, display: "pivot", pivot: pair };
   }
   function configurePlotAxes(next: Pivot) {
     const row = shelfFields(next.row),
@@ -435,20 +407,13 @@ export function PanelBuilder({
       next = {
         row: "measure",
         column: "time:60",
-        series:
-          p.group === "slot_total"
-            ? ["source", "workload", "slot"]
-            : p.group === "all"
-              ? []
-              : [p.group],
+        series: p.group === "all" ? [] : [p.group],
       };
     }
     if (format !== "table") configurePlotAxes(next);
     change({
       ...p,
       display: "pivot",
-      group: p.group === "slot_total" ? "source" : p.group,
-      totalSlots: undefined,
       values: p.values.map(({ mark: _, ...v }) => v),
       pivot: { ...next, mark: format as Pivot["mark"] },
     });
@@ -585,24 +550,32 @@ export function PanelBuilder({
   const distinctOf = (field: Dimension | TimeField): field is Dimension =>
     !isTemporalField(field) &&
     aggsFor(p.data, [field as Dimension]).includes("distinct");
+  /** Whether a value may add up per-group averages (two-stage). */
+  const canPer = (v: Value) =>
+    p.data !== "daily" &&
+    v.of.length === 1 &&
+    (v.of[0] === "value" || metricOf(v.of[0]) !== undefined);
+  function togglePer(i: number, v: Value, d: Dimension) {
+    const per = v.per?.includes(d)
+      ? v.per.filter((x) => x !== d)
+      : [...(v.per ?? []), d];
+    const next: Value = { ...v, per: per.length ? per : undefined };
+    if (next.per && !perAggs.includes(next.agg)) next.agg = "avg";
+    setValue(i, next);
+  }
   function valueMenu(v: Value, i: number) {
     const id = valueTrigger(i).popoverTarget;
-    const metric = metricOf(v.of[0]);
     const aggs = aggsFor(p.data, v.of).filter(
-      (a) => p.group !== "slot_total" || ["avg", "min", "max"].includes(a),
+      (a) => !v.per?.length || perAggs.includes(a),
     );
     return (
       <fieldset
         id={id}
         popover="auto"
-        className="metric-menu"
-        aria-label={valueName(p.data, v) + "の集計"}
+        className="metric-menu value-menu"
+        aria-label={valueName(dict, p.data, v) + "の集計"}
       >
-        {unitInput(
-          unitKey(v),
-          nativeUnit(p, v) ||
-            (metric === undefined ? "" : (meta.metricUnits?.[metric] ?? "")),
-        )}
+        {unitInput(valueKey(v), nativeUnit(dict, p, v))}
         {aggs.length > 1 && <span>集計</span>}
         {aggs.length > 1 &&
           aggs.map((agg) => (
@@ -625,14 +598,43 @@ export function PanelBuilder({
               key={f}
               popoverTarget={id}
               popoverTargetAction="hide"
-              aria-label={valueFieldName(p.data, f) + " を組み合わせから外す"}
+              aria-label={
+                valueFieldName(dict, p.data, f) + " を組み合わせから外す"
+              }
               onClick={() =>
                 setValue(i, { ...v, of: v.of.filter((x) => x !== f) })
               }
             >
-              {valueFieldName(p.data, f)} ×
+              {valueFieldName(dict, p.data, f)} ×
             </button>
           ))}
+        {canPer(v) && (
+          <>
+            <span title="選んだ単位ごとに1分ずつ平均してから合計し、その合計を集計します">
+              合計する単位
+            </span>
+            {identifiers.map((d) => (
+              <label key={d} className="inline">
+                <input
+                  type="checkbox"
+                  checked={!!v.per?.includes(d)}
+                  onChange={() => togglePer(i, v, d)}
+                />
+                {shelfName(d, dict)}ごと
+              </label>
+            ))}
+          </>
+        )}
+        {v.of.length === 1 && (
+          <button
+            type="button"
+            popoverTarget={id}
+            popoverTargetAction="hide"
+            onClick={() => editField(fieldKey(p.data, v.of[0]))}
+          >
+            名前と単位を設定
+          </button>
+        )}
       </fieldset>
     );
   }
@@ -649,15 +651,18 @@ export function PanelBuilder({
           const label =
             v.agg === "count"
               ? countName
-              : v.of.map((f) => valueFieldName(p.data, f)).join(" × ");
+              : v.of.map((f) => valueFieldName(dict, p.data, f)).join(" × ");
           const agg =
             v.agg === "count"
               ? ""
               : v.of.length > 1
                 ? "組の種類数"
-                : aggNames[v.agg];
+                : v.per?.length
+                  ? `${v.per.map((d) => shelfName(d, dict)).join("・")}ごとの合計の${aggNames[v.agg]}`
+                  : aggNames[v.agg];
           return (
-            <Fragment key={valueKey(v)}>
+            // biome-ignore lint/suspicious/noArrayIndexKey: a value is edited in place; keying it by its definition would remount its open menu
+            <Fragment key={`${i}:${v.of.join(",")}`}>
               <span
                 className="shelf-chip value-chip"
                 data-drop={
@@ -686,7 +691,7 @@ export function PanelBuilder({
                 {(p.values.length > 1 || (shelf && pivot)) && (
                   <button
                     type="button"
-                    aria-label={valueName(p.data, v) + " を外す"}
+                    aria-label={valueName(dict, p.data, v) + " を外す"}
                     onClick={() =>
                       p.values.length > 1
                         ? change({
@@ -744,30 +749,13 @@ export function PanelBuilder({
   const update = <K extends keyof Panel>(key: K, value: Panel[K]) =>
     change({ ...p, [key]: value });
   const [openFilter, openConditions] = useState<FilterField>();
-  const identifiers: Identifier[] = [
-    "source",
-    "slot",
-    "revision",
-    "instance",
-    "workload",
-  ];
-  const logs = usesLogRecords(p);
-  const legacyLog =
-    logs && !!p.text && !p.conditions?.some((c) => c.field === "log");
   const conditions: FieldCondition[] = [...(p.conditions ?? [])];
-  if (legacyLog) conditions.push({ field: "log", contains: p.text });
-  for (const k of identifiers)
-    if (p[k] && !conditions.some((c) => c.field === k))
-      conditions.push({ field: k, values: [p[k]] });
   function writeFilter(field: FilterField, next?: FieldCondition) {
     const values = [...(p.conditions ?? [])];
     const index = values.findIndex((c) => c.field === field);
     if (index >= 0) values.splice(index, 1, ...(next ? [next] : []));
     else if (next) values.push(next);
-    const panel = { ...p, conditions: values.length ? values : undefined };
-    for (const k of identifiers) if (k === field) panel[k] = "";
-    if (field === "log" && legacyLog) panel.text = "";
-    change(panel);
+    change({ ...p, conditions: values.length ? values : undefined });
   }
   function addFilter(field: FilterField) {
     if (isTemporalField(field))
@@ -776,13 +764,11 @@ export function PanelBuilder({
       writeFilter(field, { field });
     openConditions(field);
   }
-  const filterFields: [FilterField, string][] = fields.filter(
-    ([k]) => p.group !== "slot_total" || (k !== "slot" && k !== "instance"),
-  );
-  if (logs) filterFields.push(["log", "ログ"]);
+  const filterFields: [FilterField, string][] = [...fields];
+  if (!daily) filterFields.push(["text", shelfName("text", dict)]);
   const stylePivot: Pivot | undefined =
     (pivot && { ...pivot }) ||
-    (p.display === "chart" && p.group !== "slot_total"
+    (p.display === "chart"
       ? {
           row: "measure",
           column: daily ? "day" : "time:60",
@@ -854,7 +840,6 @@ export function PanelBuilder({
   const groupChoices: [string, string][] = [
     ["all", "全体"],
     ...fields.filter(([k]) => !isTemporalField(k)),
-    ...(p.group === "slot_total" ? [slotTotalChoice] : []),
   ];
   const channels = styleTargets(format, stylePivot);
   const encoding = { ...stylePivot?.encoding };
@@ -890,7 +875,7 @@ export function PanelBuilder({
     };
   }
   type Field =
-    | { kind: "log"; key: "log" }
+    | { kind: "text"; key: "text" }
     | { kind: "value"; key: ValueField | "" }
     | { kind: "dimension"; key: Dimension | TimeField }
     | { kind: "placed"; key: ShelfAxis };
@@ -901,10 +886,10 @@ export function PanelBuilder({
       panel?: Panel;
       filter?: FilterField;
     }[] = [];
-    if (field.kind === "log")
+    if (field.kind === "text")
       return [
         ...options,
-        { id: "filter", label: "フィルター", filter: "log" as const },
+        { id: "filter", label: "フィルター", filter: "text" as const },
       ];
     if (
       (field.kind === "dimension" || field.kind === "placed") &&
@@ -962,7 +947,7 @@ export function PanelBuilder({
         if (v.agg === "distinct" && !v.of.includes(key))
           options.push({
             id: "value/" + i,
-            label: valueName(p.data, v) + "に組み合わせる",
+            label: valueName(dict, p.data, v) + "に組み合わせる",
             panel: combine(i, key as Dimension),
           });
       });
@@ -1004,24 +989,16 @@ export function PanelBuilder({
     targets.find((o) => o.id === drag.preview?.target) ??
     targets.find((o) => o.id === targetRole);
   const candidate = hovered?.panel && normalized(hovered.panel);
-  const preview =
-    candidate &&
-    !usesLogRecords(candidate) &&
-    candidate.conditions?.some((c) => c.field === "log")
-      ? {
-          ...candidate,
-          conditions: candidate.conditions.filter((c) => c.field !== "log"),
-        }
-      : (candidate ?? p);
+  const preview = candidate ?? p;
   const fieldName = !item
     ? undefined
     : item.kind === "value"
       ? item.key
-        ? valueFieldName(p.data, item.key)
+        ? valueFieldName(dict, p.data, item.key)
         : countName
       : isTemporalField(item.key)
         ? "時刻"
-        : shelfName(item.key);
+        : shelfName(item.key, dict);
 
   return (
     <>
@@ -1111,6 +1088,7 @@ export function PanelBuilder({
             </button>
           </div>
           <PanelView
+            threshold={threshold}
             renderStyleDialog={
               channels.length && (p.display === "chart" || !!valueSide)
                 ? (points, close) => (
@@ -1321,7 +1299,7 @@ export function PanelBuilder({
                               >
                                 {isTemporalField(field)
                                   ? "時刻"
-                                  : shelfName(field)}
+                                  : shelfName(field, dict)}
                               </button>
                               {isTemporalField(field) && (
                                 <fieldset
@@ -1341,7 +1319,10 @@ export function PanelBuilder({
                               <button
                                 type="button"
                                 aria-label={
-                                  shelfName(field) + " を" + label + "から外す"
+                                  shelfName(field, dict) +
+                                  " を" +
+                                  label +
+                                  "から外す"
                                 }
                                 onClick={() => without(id, field)}
                               >
@@ -1467,7 +1448,7 @@ export function PanelBuilder({
                             onClick={() => openPicker(channel)}
                           >
                             {field
-                              ? shelfName(field)
+                              ? shelfName(field, dict)
                               : styleNames[channel][index!]}
                           </button>
                           {removable && (
@@ -1484,7 +1465,10 @@ export function PanelBuilder({
                       {picker === channel && (
                         <ShelfPicker
                           label={label}
-                          choices={styleFields.map((f) => [f, shelfName(f)])}
+                          choices={styleFields.map((f) => [
+                            f,
+                            shelfName(f, dict),
+                          ])}
                           close={() => openPicker(undefined)}
                           select={(v) =>
                             change(withStyle(channel, v as ShelfAxis))
@@ -1511,7 +1495,7 @@ export function PanelBuilder({
                   <button
                     type="button"
                     key={f}
-                    aria-label={shelfName(f) + "の分類を解除"}
+                    aria-label={shelfName(f, dict) + "の分類を解除"}
                     onClick={() =>
                       change({
                         ...p,
@@ -1524,20 +1508,12 @@ export function PanelBuilder({
                       })
                     }
                   >
-                    {shelfName(f)} ×
+                    {shelfName(f, dict)} ×
                   </button>
                 ))}
               </fieldset>
             )}
-            {p.text && !legacyLog && (
-              <label>
-                保存済みの本文・名前フィルター
-                <input
-                  value={p.text}
-                  onChange={(e) => update("text", e.target.value)}
-                />
-              </label>
-            )}
+            {rule}
           </div>
         </section>
         <div className="worksheet-format">
@@ -1617,22 +1593,17 @@ export function PanelBuilder({
               </p>
             )}
             <h4>分けるもの</h4>
-            {"ログ log".includes(search.toLowerCase()) && (
+            {!daily && shelfName("text", dict).includes(search) && (
               <button
                 type="button"
                 className="drag-source"
-                disabled={!logs}
-                title={
-                  logs
-                    ? "ログ本文をフィルター"
-                    : "データがログのときに使用できます"
-                }
+                title="本文や名前に含む文字列で絞り込む"
                 onPointerDown={(e) =>
-                  drag.start(e, { kind: "log", key: "log" })
+                  drag.start(e, { kind: "text", key: "text" })
                 }
-                onClick={() => addFilter("log")}
+                onClick={() => addFilter("text")}
               >
-                ログ
+                {shelfName("text", dict)}
               </button>
             )}
             {fields

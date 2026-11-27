@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  blankPanel,
-  cpuPercent,
-  type Panel,
-  upgradePanel,
-} from "../../../../shared/console";
+import { blankPanel, type Panel } from "../../../../shared/console";
 import { panel as panelSchema, seriesAggregates, toPoint } from ".";
 
 const end = new Date("2026-11-24T00:00:00Z");
@@ -52,120 +47,75 @@ describe("seriesAggregates", () => {
       { type: "text", value: "p95(value)" },
       { type: "text", value: "distinct(source,attr:http.route)" },
     ]);
-    expect(all[2].measures[0].measure).toMatchObject({
-      measure: {
-        type: "distinct",
-        of: {
-          type: "tuple",
-          fields: [
-            { type: "column", name: "source" },
-            { type: "attr", key: "http.route" },
-          ],
-        },
-      },
-    });
   });
-  test("application events read occurrences and weigh samples", () => {
+  test("conditions narrow the rows, the text condition by body or name", () => {
     const a = only({
       ...blankPanel,
-      data: "event",
-      values: [{ agg: "sum", of: ["value"] }],
+      conditions: [
+        { field: "source", values: ["checkout"] },
+        { field: "text", contains: "timeout" },
+      ],
     });
-    expect(a.from.type).toBe("analysis_events");
-    expect(a.measures[1].measure).toEqual({
+    expect(JSON.stringify(a.from)).toContain('"type":"Text"');
+    expect(JSON.stringify(a.from)).toContain('"checkout"');
+  });
+  test("a counter's rate reads per-second increases", () => {
+    const a = only({
+      ...blankPanel,
+      data: "metric",
+      values: [{ agg: "rate", of: ["metric:cpu.usage"] }],
+    });
+    expect(a.from.type).toBe("rates");
+    expect(a.measures.at(-2)?.measure).toEqual({
       type: "aggregate",
-      fn: "sum",
+      fn: "avg",
       of: "value",
     });
   });
-  test("CPU percent derives readings from counters", () => {
-    const p: Panel = {
+  test("per averages each group per minute before adding", () => {
+    const outer = only({
       ...blankPanel,
       data: "metric",
-      values: [{ agg: "avg", of: [`metric:${cpuPercent}`] }],
-    };
-    expect(only(p).from.type).toBe("cpu_readings");
-  });
-  test("slot totals average each slot per minute before adding", () => {
-    const p: Panel = {
-      ...blankPanel,
-      data: "metric",
-      values: [{ agg: "avg", of: ["metric:memory.current"] }],
-      group: "slot_total",
-    };
-    const outer = only(p);
+      values: [{ agg: "max", of: ["metric:memory.current"], per: ["slot"] }],
+    });
     if (outer.from.type !== "aggregate") throw Error("nested");
-    const totals = outer.from.of;
-    expect(totals.having).toEqual({ type: "rows", count: 2 });
-    if (totals.from.type !== "aggregate") throw Error("nested");
-    expect(totals.from.of.by.map((g) => g.as)).toEqual([
+    const sums = outer.from.of;
+    if (sums.from.type !== "aggregate") throw Error("nested");
+    expect(sums.from.of.by.map((g) => g.as)).toEqual([
       "minute",
-      "source",
-      "workload",
-      "slot",
+      "g_series",
+      "p_0",
     ]);
+    expect(sums.measures[0].measure).toEqual({
+      type: "aggregate",
+      fn: "sum",
+      of: "reading",
+    });
+    expect(outer.measures.at(-2)?.measure).toEqual({
+      type: "aggregate",
+      fn: "max",
+      of: "total",
+    });
   });
   test("daily sets count members per service and day, then sum", () => {
-    const p: Panel = {
+    const a = only({
       ...blankPanel,
       data: "daily",
       values: [{ agg: "daily", of: ["set:visit.browser"] }],
       minutes: 4320,
-    };
-    const a = only(p);
+    });
     expect(a.from.type).toBe("aggregate");
     expect(a.by[0].field).toEqual({ type: "midnight", column: "day" });
   });
 });
 
 describe("panel schema", () => {
-  const legacy = {
-    ...blankPanel,
-    data: undefined,
-    values: undefined,
-    measure: "metric",
-    metric: "memory.current",
-    aggregation: "max",
-    display: "pivot",
-    fieldUnits: { "metric/queue.depth": "s" },
-    pivot: {
-      row: "measure",
-      column: "time:60",
-      metrics: ["queue.depth"],
-      metricOptions: [
-        { metric: "queue.depth", aggregation: "sum", mark: "bar" },
-      ],
-      encoding: { color: "measure" },
-      styleRules: [{ channel: "color", value: "queue.depth", index: 3 }],
-    },
-  };
-  test("rewrites panels saved with a measure", () => {
-    const p = panelSchema.parse(legacy);
-    expect(p.data).toBe("metric");
-    expect(p.values).toEqual([
-      { agg: "max", of: ["metric:memory.current"] },
-      { agg: "sum", of: ["metric:queue.depth"], mark: "bar" },
-    ]);
-    expect(p.pivot?.styleRules).toEqual([
-      { channel: "color", value: "sum(metric:queue.depth)", index: 3 },
-    ]);
-    expect(p.fieldUnits).toEqual({ "metric/queue.depth": "s" });
-  });
-  test("moves the unit of a measure to its value", () => {
-    const p = upgradePanel({
-      ...blankPanel,
-      measure: "latency",
-      metric: "",
-      aggregation: "avg",
-      fieldUnits: { latency: "s" },
-    }) as Panel;
-    expect(p.values).toEqual([{ agg: "p95", of: ["value"] }]);
-    expect(p.fieldUnits).toEqual({ "p95(value)": "s" });
-  });
   test("rejects values the data cannot measure", () => {
     for (const values of [
       [{ agg: "p95", of: ["failed"] }],
       [{ agg: "avg", of: ["metric:memory.current"] }],
+      [{ agg: "rate", of: ["value"] }],
+      [{ agg: "sum", of: ["value"], per: ["slot"] }],
       [
         { agg: "count", of: [] },
         { agg: "count", of: [] },
@@ -174,6 +124,17 @@ describe("panel schema", () => {
       expect(panelSchema.safeParse({ ...blankPanel, values }).success).toBe(
         false,
       );
+  });
+  test("accepts conditions in place of the former filter fields", () => {
+    expect(
+      panelSchema.safeParse({
+        ...blankPanel,
+        conditions: [{ field: "text", contains: "x" }],
+      }).success,
+    ).toBe(true);
+    expect(
+      panelSchema.safeParse({ ...blankPanel, source: "checkout" }).data,
+    ).not.toHaveProperty("source");
   });
 });
 

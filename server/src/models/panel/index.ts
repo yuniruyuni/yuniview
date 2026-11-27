@@ -1,8 +1,7 @@
 import {
   chartBucketSeconds,
-  cpuPercent,
   type DataKind,
-  defaultTotalSlots,
+  type Filter,
   type FilterField,
   type FilterOptions,
   isTimeField,
@@ -13,6 +12,7 @@ import {
   type ShelfFields,
   setOf,
   shelfFields,
+  type TopValue,
   type Value,
   valueKey,
 } from "../../../../shared/console";
@@ -32,17 +32,19 @@ import { Field } from "../field";
 export {
   conditions,
   dashboard,
+  fieldMeta,
   filter,
   filterField,
   monitor,
   panel,
+  query,
+  scope,
 } from "./schema";
 
 const { group, output } = Aggregate;
-const mib = 1048576;
 
 /** Rows of a kind of data, beyond the window and conditions. */
-function kindOf(data: DataKind): Event.Spec {
+export function kindOf(data: DataKind): Event.Spec {
   switch (data) {
     case "request":
       return and(Event.Kind("span"), Event.Entry());
@@ -58,10 +60,22 @@ function kindOf(data: DataKind): Event.Spec {
 }
 
 /** Rows a value reads: its data, narrowed to its metric. */
-function rowsOf(p: Panel, v: Value): Event.Spec {
+function rowsOf(data: DataKind, v: Value): Event.Spec {
   const metric = metricOf(v.of[0]);
-  if (metric === undefined) return kindOf(p.data);
+  if (metric === undefined) return kindOf(data);
   return and(Event.Kind("metric"), Event.Named([metric]), Event.HasValue());
+}
+
+/** The relation a value reads: rates of a counter, or the rows themselves. */
+function relationOf(
+  p: Filter & { data: DataKind },
+  v: Value,
+  end: Date,
+): Relation {
+  const where = and(Event.matching(p, end), rowsOf(p.data, v));
+  return v.agg === "rate"
+    ? { type: "rates", where }
+    : { type: "events", where };
 }
 
 const fractions = { p50: 0.5, p95: 0.95, p99: 0.99 } as const;
@@ -75,13 +89,15 @@ function measureOf(v: Value): Measure {
       return {
         type: "distinct",
         of: Field.key(
-          v.of.map((f) => Field.ofTelemetry(f as Exclude<FilterField, "log">)),
+          v.of.map((f) => Field.ofTelemetry(f as Exclude<FilterField, "text">)),
         ),
       };
     case "p50":
     case "p95":
     case "p99":
       return { type: "percentile", fraction: fractions[v.agg], of: "value" };
+    case "rate":
+      return { type: "aggregate", fn: "avg", of: "value" };
     case "daily":
       throw Error("daily sets are measured per day");
     default:
@@ -96,13 +112,32 @@ function shelfKey(
   return Field.key(shelfFields(fields).map(field));
 }
 
-function unitKey(v: Value) {
-  const metric = metricOf(v.of[0]);
-  return metric === undefined ? valueKey(v) : "metric/" + metric;
+function wantsUnit(p: Panel, v: Value) {
+  return p.display === "table" || Boolean(p.fieldUnits?.[valueKey(v)]);
 }
 
-function wantsUnit(p: Panel, v: Value) {
-  return p.display === "table" || Boolean(p.fieldUnits?.[unitKey(v)]);
+/** The groups that divide a panel's cells, by how its shelves name them. */
+function divisions(
+  p: Panel,
+  field: (a: ShelfAxis) => Field,
+  bucket: Field,
+): Group[] {
+  const pivot = p.display === "pivot" ? p.pivot : undefined;
+  const by: Group[] = [
+    group("bucket", bucket),
+    group(
+      "series",
+      pivot
+        ? shelfKey(pivot.row, field)
+        : p.group === "all"
+          ? Field.text("all")
+          : field(p.group as ShelfAxis),
+    ),
+  ];
+  if (pivot) by.push(group("column", shelfKey(pivot.column, field)));
+  if (pivot && shelfFields(pivot.series).length)
+    by.push(group("facet", shelfKey(pivot.series, field)));
+  return by;
 }
 
 /** Daily sets: distinct members per service and day, then summed. */
@@ -135,29 +170,16 @@ function dailySeries(
       }),
     ],
   };
-  const by: Group[] = [
-    group(
-      "bucket",
+  const visitors: Measure = { type: "aggregate", fn: "sum", of: "visitors" };
+  return {
+    from: Aggregate.of(perDay),
+    by: divisions(
+      p,
+      field,
       !pivot && buckets
         ? { type: "midnight", column: "day" }
         : Field.instant(end),
     ),
-    group(
-      "series",
-      pivot
-        ? shelfKey(pivot.row, field)
-        : p.group === "all"
-          ? Field.text("all")
-          : Field.column("source"),
-    ),
-  ];
-  if (pivot) by.push(group("column", shelfKey(pivot.column, field)));
-  if (pivot && shelfFields(pivot.series).length)
-    by.push(group("facet", shelfKey(pivot.series, field)));
-  const visitors: Measure = { type: "aggregate", fn: "sum", of: "visitors" };
-  return {
-    from: Aggregate.of(perDay),
-    by,
     measures: [
       output("value", visitors, "float8"),
       output("samples", visitors, "int"),
@@ -166,76 +188,64 @@ function dailySeries(
 }
 
 /**
- * Gauge totals across slots. Agents sample independently, so each slot is
- * averaged within a minute before the slots are added, and only minutes
- * observed in every slot count.
+ * Two-stage values: each `per` group is averaged within a minute, the
+ * averages of a minute are added up, and the sums aggregated over time.
+ * Agents sample independently, so a gauge of several containers is summed
+ * this way rather than as raw readings.
  */
-function slotTotalSeries(
+function perSeries(
   p: Panel,
   v: Value,
   end: Date,
   buckets: boolean,
+  seconds: number,
 ): Aggregate {
-  const slots = p.totalSlots ?? defaultTotalSlots;
-  const perSlot: Aggregate = {
-    from: {
-      type: "events",
-      where: and(
-        Event.matching(p, end),
-        rowsOf(p, v),
-        Event.FieldIn(Field.column("slot"), slots),
-      ),
-    },
+  const pivot = p.display === "pivot" ? p.pivot : undefined;
+  const field = (key: ShelfAxis): Field =>
+    key === "measure" ? Field.text(valueKey(v)) : Field.ofTelemetry(key);
+  const outer = divisions(p, field, Field.text("")).slice(1);
+  const per = v.per ?? [];
+  const perMinute: Aggregate = {
+    from: relationOf(p, v, end),
     by: [
       group("minute", Field.bin(60)),
-      ...["source", "workload", "slot"].map((c) => group(c, Field.column(c))),
+      ...outer.map((g) => group(`g_${g.as}`, g.field)),
+      ...per.map((d, i) => group(`p_${i}`, Field.ofTelemetry(d))),
     ],
     measures: [
       output("reading", { type: "aggregate", fn: "avg", of: "value" }),
       output("unit", { type: "aggregate", fn: "min", of: "unit" }),
     ],
   };
-  const totals: Aggregate = {
-    from: Aggregate.of(perSlot),
-    by: ["minute", "source", "workload"].map((c) => group(c, Field.column(c))),
+  const sums: Aggregate = {
+    from: Aggregate.of(perMinute),
+    by: [
+      group("minute", Field.column("minute")),
+      ...outer.map((g) => group(`g_${g.as}`, Field.column(`g_${g.as}`))),
+    ],
     measures: [
       output("total", { type: "aggregate", fn: "sum", of: "reading" }),
       output("unit", { type: "aggregate", fn: "min", of: "unit" }),
     ],
-    having: { type: "rows", count: slots.length },
   };
+  const fn = v.agg === "min" || v.agg === "max" ? v.agg : "avg";
   const measures: Output[] = [];
-  if (wantsUnit(p, v))
+  if (pivot || wantsUnit(p, v))
     measures.push(
       output("metricUnit", { type: "aggregate", fn: "min", of: "unit" }),
     );
-  const fn = v.agg === "min" || v.agg === "max" ? v.agg : "avg";
   measures.push(
-    output(
-      "value",
-      {
-        type: "scaled",
-        measure: { type: "aggregate", fn, of: "total" },
-        by: p.unit === "MiB" ? mib : 1,
-      },
-      "float8",
-    ),
+    output("value", { type: "aggregate", fn, of: "total" }, "float8"),
     output("samples", { type: "count" }, "int"),
   );
   return {
-    from: Aggregate.of(totals),
+    from: Aggregate.of(sums),
     by: [
       group(
         "bucket",
-        buckets
-          ? Field.bin(Math.ceil(p.minutes / 40) * 60, "minute")
-          : Field.instant(end),
+        buckets && !pivot ? Field.bin(seconds, "minute") : Field.instant(end),
       ),
-      group("series", {
-        type: "concat",
-        parts: [Field.column("source"), Field.column("workload")],
-        separator: "/",
-      }),
+      ...outer.map((g) => group(g.as, Field.column(`g_${g.as}`))),
     ],
     measures,
   };
@@ -247,55 +257,34 @@ function valueSeries(
   v: Value,
   end: Date,
   buckets: boolean,
+  seconds: number,
 ): Aggregate {
   const pivot = p.display === "pivot" ? p.pivot : undefined;
   const field = (key: ShelfAxis): Field =>
     key === "measure" ? Field.text(valueKey(v)) : Field.ofTelemetry(key);
-  const by: Group[] = [
-    group(
-      "bucket",
-      buckets && !pivot
-        ? Field.bin(chartBucketSeconds(p.minutes))
-        : Field.instant(end),
-    ),
-    group(
-      "series",
-      pivot
-        ? shelfKey(pivot.row, field)
-        : p.group === "all"
-          ? Field.text("all")
-          : field(p.group as ShelfAxis),
-    ),
-  ];
-  if (pivot) by.push(group("column", shelfKey(pivot.column, field)));
-  if (pivot && shelfFields(pivot.series).length)
-    by.push(group("facet", shelfKey(pivot.series, field)));
-
+  const by = divisions(
+    p,
+    field,
+    buckets && !pivot ? Field.bin(seconds) : Field.instant(end),
+  );
   const measure = measureOf(v);
-  const events = p.data === "event";
   const measures: Output[] = [];
   if (p.data === "metric" && (pivot || wantsUnit(p, v)))
     measures.push(
       output("metricUnit", { type: "aggregate", fn: "min", of: "unit" }),
     );
   measures.push(
-    output(
-      "value",
-      { type: "scaled", measure, by: p.unit === "MiB" ? mib : 1 },
-      "float8",
-    ),
-    events
+    output("value", measure, "float8"),
+    p.data === "event"
       ? output("samples", { type: "aggregate", fn: "sum", of: "value" })
       : output("samples", { type: "count" }, "int"),
   );
-
-  const where = and(Event.matching(p, end), rowsOf(p, v));
-  const from: Relation = events
-    ? { type: "analysis_events", where }
-    : metricOf(v.of[0]) === cpuPercent
-      ? { type: "cpu_readings", window: Event.matching(p, end), where }
-      : { type: "events", where };
-  return { from, by, measures, having: { type: "present", measure } };
+  return {
+    from: relationOf(p, v, end),
+    by,
+    measures,
+    having: { type: "present", measure },
+  };
 }
 
 /**
@@ -306,13 +295,14 @@ export function seriesAggregates(
   p: Panel,
   end: Date,
   buckets: boolean,
+  seconds = chartBucketSeconds(p.minutes),
 ): Aggregate[] {
-  if (p.group === "slot_total")
-    return [slotTotalSeries(p, p.values[0], end, buckets)];
   return p.values.map((v) =>
     p.data === "daily"
       ? dailySeries(p, v, end, buckets)
-      : valueSeries(p, v, end, buckets),
+      : v.per?.length
+        ? perSeries(p, v, end, buckets, Math.max(60, seconds))
+        : valueSeries(p, v, end, buckets, seconds),
   );
 }
 
@@ -336,10 +326,29 @@ export function toPoint(cell: Cell): Point {
   return point;
 }
 
+/** A query's data, window and conditions, with the metrics its values read. */
+export type Scope = Filter & { data: DataKind; values?: Value[] };
+
+/** The rows a query reads within its window. */
+function scopeOf(q: Scope, end: Date, extra?: Event.Spec): Relation {
+  const metrics = (q.values ?? []).flatMap((v) => {
+    const m = metricOf(v.of[0]);
+    return m === undefined ? [] : [m];
+  });
+  const kind =
+    q.data === "metric" && metrics.length
+      ? and(Event.Kind("metric"), Event.Named(metrics))
+      : kindOf(q.data);
+  return {
+    type: "events",
+    where: and(Event.matching(q, end), kind, ...(extra ? [extra] : [])),
+  };
+}
+
 /** Choices offered for a worksheet filter, ignoring the field's own condition. */
 export function filterChoices(
-  panel: Panel,
-  name: Exclude<FilterField, "log">,
+  panel: Scope,
+  name: Exclude<FilterField, "text">,
   end: Date,
   search: string,
 ):
@@ -355,7 +364,7 @@ export function filterChoices(
   const field = daily
     ? Field.ofDailySet(name as "day" | "source")
     : Field.ofTelemetry(name);
-  const sets = p.values.map((v) => setOf(v.of[0]) ?? "");
+  const sets = (p.values ?? []).map((v) => setOf(v.of[0]) ?? "");
   const scope = (extra?: "search"): Relation => {
     if (daily) {
       const where = DailySet.scope(p, sets, end);
@@ -364,22 +373,11 @@ export function filterChoices(
         where: extra ? and(where, DailySet.FieldMatches(field, search)) : where,
       };
     }
-    const names = p.values.flatMap((v) => {
-      const m = metricOf(v.of[0]);
-      return m === undefined ? [] : [m === cpuPercent ? "cpu.usage" : m];
-    });
-    const kind: Event.Spec =
-      p.data === "metric"
-        ? and(Event.Kind("metric"), Event.Named(names))
-        : kindOf(p.data);
-    const where: Event.Spec = and(
-      Event.matching(p, end),
-      kind,
-      ...(extra ? [Event.FieldMatches(field, search)] : []),
+    return scopeOf(
+      p,
+      end,
+      extra ? Event.FieldMatches(field, search) : undefined,
     );
-    return p.data === "event"
-      ? { type: "analysis_events", where }
-      : { type: "events", where };
   };
   const bounds = [
     output("min", { type: "bound", fn: "min", of: field }, "float8"),
@@ -422,31 +420,41 @@ export const noFilterOptions: FilterOptions = {
   max: null,
 };
 
-/** Attribute keys observed in recent rows of the worksheet's data. */
+/** How many rows of a query have each value of a field. */
+export function topValues(
+  q: Scope,
+  name: Exclude<FilterField, "text">,
+  end: Date,
+): Aggregate {
+  return {
+    from: scopeOf(q, end),
+    by: [group("value", Field.observed(Field.ofTelemetry(name)))],
+    measures: [output("count", { type: "count" }, "int")],
+  };
+}
+export const topValueLimit = 12;
+export function toTopValue(c: Cell): TopValue {
+  return {
+    value: c.value === null || c.value === undefined ? "" : String(c.value),
+    count: Number(c.count),
+  };
+}
+
+/** Attribute keys observed in recent rows of a query's data. */
 export function attributeKeys(input: {
-  source: string;
-  kind: Event.Kind;
-  metric: string;
+  data: DataKind;
+  metric?: string;
+  conditions?: Filter["conditions"];
   end: Date;
   minutes: number;
 }): Aggregate {
   const specs: Event.Spec[] = [
-    Event.Window(
-      new Date(input.end.getTime() - input.minutes * 60000),
-      input.end,
-    ),
-    Event.Kind(input.kind),
+    Event.matching(input, input.end),
+    kindOf(input.data),
   ];
-  if (input.source)
-    specs.push(Event.FieldIn(Field.column("source"), [input.source]));
-  if (input.kind === "metric") specs.push(Event.Named([input.metric]));
+  if (input.metric) specs.push(Event.Named([input.metric]));
   return {
-    from: {
-      type: "attribute_keys",
-      from: input.kind === "event" ? "analysis_events" : "events",
-      where: and(...specs),
-      sample: 512,
-    },
+    from: { type: "attribute_keys", where: and(...specs), sample: 512 },
     by: [group("key", Field.column("key"))],
     measures: [],
   };

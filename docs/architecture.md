@@ -479,3 +479,12 @@ Repository の読み取りは `Lock` (`models/common/pagination.ts`) を受け�
 ### 外部サービス Repository
 
 Webhook (`repositories/webhook`) と利用記録ソケット (`repositories/usage-agent`) は `ServiceCtx` のメソッドを持ち、usecase の post phase から呼ぶ。失敗は例外ではなく `Fail` か結果値で返す。設定値 (Webhook の URL など) は `createRawRepos(config)` で渡す。
+
+### クエリとフィールド辞書
+
+画面・MCP・モニターは同じクエリ（データ、期間、条件、分け方、値）を使う。値は `Value {agg, of, per?}` で、`Aggregate` の Relation と Measure に変換する。
+
+- 累積値の増加率は Relation `rates`（コンテナと名前ごとに前の読み取りとの差を秒で割る）で表す。特定のメトリクス名は持たない。
+- `per` は2段の集計（per の単位ごとに1分平均 → 合計 → 時間方向に集計）で、入れ子の `Aggregate` になる。
+- フィールドの名前・説明・単位・種類・既定の集計は `fields` テーブルの `FieldNote` に、送信元の値（`sender`）と利用者の値（`person`）を分けて持つ。取り込みで送信元の値を書き、利用者の値は画面と API から書く。表示は `describeField` で利用者 → 送信元 → `coreFields` の順に重ねる。
+- 画面とサーバーのコードは特定のメトリクス名や属性名を知らない。yuniview の agent が集める資源と訪問の日次集合は、agent のプロトコルを解く場所（`decode.ts` の `fieldsOf`、`Delivery.of`）で送信元の値として名前と単位を付ける。

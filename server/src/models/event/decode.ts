@@ -1,3 +1,4 @@
+import type { FieldMeta } from "../../../../shared/console";
 import type { Envelope } from "../batch/schema";
 
 // Turns one delivered batch into the rows it contributes. Pure: the same
@@ -213,4 +214,78 @@ export function* decode(b: Envelope) {
       }
     }
   }
+}
+
+/**
+ * The yuniview agent's resource samples, as their sender describes them:
+ * counters are read as rates, and CPU time per second as a share of a core.
+ */
+const resourceFields: [string, FieldMeta][] = [
+  [
+    "metric:memory.current",
+    {
+      label: "メモリ使用量",
+      description: "コンテナが使っているメモリ（cgroup の memory.current）",
+      unit: "B",
+      display: "MiB",
+      kind: "gauge",
+      agg: "avg",
+    },
+  ],
+  [
+    "metric:cpu.usage",
+    {
+      label: "CPU 時間",
+      description:
+        "コンテナが使った CPU 時間の累計（cgroup の cpu.stat usage_usec）。増加率は 1 コアを 100% とした使用率",
+      unit: "µs",
+      display: "%",
+      kind: "counter",
+      agg: "rate",
+    },
+  ],
+];
+
+/** What a batch's sender says about the fields its rows carry. */
+export function* fieldsOf(b: Envelope): Generator<[string, FieldMeta]> {
+  if (b.signal === "resources") {
+    yield* resourceFields;
+    return;
+  }
+  if (b.signal !== "metrics") return;
+  const p = obj(b.payload);
+  for (const r of rows(p.resourceMetrics))
+    for (const s of rows(r.scopeMetrics))
+      for (const m of rows(s.metrics)) {
+        const name = str(m.name);
+        if (!name) continue;
+        const description = str(m.description) || undefined;
+        const unit = str(m.unit) || undefined;
+        const sum = obj(m.sum);
+        const cumulative = (t: unknown) =>
+          t === 2 || t === "AGGREGATION_TEMPORALITY_CUMULATIVE";
+        if (m.gauge !== undefined)
+          yield [`metric:${name}`, { description, unit, kind: "gauge" }];
+        else if (m.sum !== undefined)
+          yield [
+            `metric:${name}`,
+            {
+              description,
+              unit,
+              kind:
+                sum.isMonotonic && cumulative(sum.aggregationTemporality)
+                  ? "counter"
+                  : "gauge",
+            },
+          ];
+        else
+          for (const type of ["histogram", "exponentialHistogram", "summary"]) {
+            if (m[type] === undefined) continue;
+            const counting = cumulative(obj(m[type]).aggregationTemporality)
+              ? "counter"
+              : "gauge";
+            yield [`metric:${name}.count`, { description, kind: counting }];
+            yield [`metric:${name}.sum`, { description, unit, kind: counting }];
+          }
+      }
 }

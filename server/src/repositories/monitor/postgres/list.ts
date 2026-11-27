@@ -7,7 +7,7 @@ import {
   orderBy,
 } from "../../../infra/db/sql-helpers";
 import type { Cursor, Page } from "../../../models/common";
-import { Monitor, type MonitorRecord } from "../../../models/monitor";
+import type { Monitor, MonitorRecord } from "../../../models/monitor";
 import {
   columnName,
   columnType,
@@ -35,9 +35,7 @@ export async function list(
     sql`SELECT ${monitorColumns} FROM monitors WHERE ${compToSQL(spec, monitorSpecToSQL)} AND ${after} ORDER BY ${orderBy(sort.keys, sort.order, columnName)} LIMIT ${cursor.limit + 1}${lockClause(cursor.lock)}`,
   );
   const hasMore = rows.length > cursor.limit;
-  const items = rows
-    .slice(0, cursor.limit)
-    .map((r) => ({ ...r, definition: Monitor.stored(r.definition) }));
+  const items = rows.slice(0, cursor.limit);
   const last = items[items.length - 1];
   return {
     items,

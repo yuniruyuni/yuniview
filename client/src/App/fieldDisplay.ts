@@ -1,51 +1,52 @@
 import {
-  cpuPercent,
+  compatibleUnits,
+  convertUnit,
+  type Dictionary,
+  fieldKey,
+  fieldMeta,
   fieldZone,
   isTimeField,
-  metricOf,
   type Panel,
   type Point,
   type ShelfAxis,
   shelfFields,
-  unitKey,
   type Value,
   valueAt,
+  valueKey,
   valueName,
+  valueUnit,
 } from "../../../shared/console";
 
-const bytes: Record<string, number> = {
-  B: 1,
-  KiB: 1024,
-  MiB: 1024 ** 2,
-  GiB: 1024 ** 3,
-};
-const durations: Record<string, number> = {
-  ns: 1e-9,
-  µs: 1e-6,
-  ms: 0.001,
-  s: 1,
-};
 /** The unit a value's numbers are in before any display conversion. */
-export function nativeUnit(panel: Panel, v: Value = panel.values[0]) {
-  const metric = metricOf(v.of[0]);
-  if (metric !== undefined && v.agg !== "distinct") {
-    if (metric === "memory.current") return panel.unit ?? "B";
-    if (metric === "cpu.usage") return "µs";
-    if (metric === cpuPercent) return "%";
-    return "";
-  }
-  if (v.agg === "ratio") return "%";
-  if (v.of[0] === "value" && panel.data !== "event") return "ms";
-  return "件";
+export function nativeUnit(
+  dict: Dictionary,
+  panel: Panel,
+  v: Value = panel.values[0],
+) {
+  return valueUnit(dict, panel.data, v);
 }
-export function compatibleUnits(unit: string) {
-  return Object.hasOwn(bytes, unit)
-    ? bytes
-    : Object.hasOwn(durations, unit)
-      ? durations
+/**
+ * The unit a value is shown in: the panel's choice, else the field's
+ * preferred unit when it converts, else its own.
+ */
+export function shownUnit(
+  dict: Dictionary,
+  panel: Panel,
+  v: Value,
+  source = nativeUnit(dict, panel, v),
+) {
+  const family = compatibleUnits(source);
+  const fits = (u?: string) => !!u && !!family && Object.hasOwn(family, u);
+  const chosen = panel.fieldUnits?.[valueKey(v)];
+  if (fits(chosen)) return chosen as string;
+  const preferred =
+    v.of.length === 1 && v.agg !== "count" && v.agg !== "distinct"
+      ? fieldMeta(dict, fieldKey(panel.data, v.of[0])).display
       : undefined;
+  return fits(preferred) ? (preferred as string) : source;
 }
-export function displayPoints(panel: Panel, points: Point[]) {
+export { compatibleUnits };
+export function displayPoints(dict: Dictionary, panel: Panel, points: Point[]) {
   const pivot = panel.pivot;
   const row = shelfFields(pivot?.row).indexOf("measure");
   const col = shelfFields(pivot?.column).indexOf("measure");
@@ -57,19 +58,12 @@ export function displayPoints(panel: Panel, points: Point[]) {
           ? (p.columnPath ?? [p.column])[col]
           : undefined;
     const v = valueAt(panel, key);
-    const unit = panel.fieldUnits?.[unitKey(v)];
-    const source = panel.unit ?? p.metricUnit ?? nativeUnit(panel, v);
-    const scale = compatibleUnits(source);
-    if (!unit || !scale || !Object.hasOwn(scale, unit))
-      return source &&
-        source !== p.metricUnit &&
-        (panel.unit || panel.display === "table" || panel.display === "pivot")
-        ? { ...p, metricUnit: source }
-        : p;
+    const source = p.metricUnit || nativeUnit(dict, panel, v);
+    const unit = shownUnit(dict, panel, v, source);
     return {
       ...p,
       metricUnit: unit,
-      value: (p.value * scale[source]) / scale[unit],
+      value: unit === source ? p.value : convertUnit(p.value, source, unit),
     };
   });
 }
@@ -84,8 +78,14 @@ const timeFormat = (timeZone: string) =>
     hourCycle: "h23",
   });
 const dateFormats = { JST: timeFormat("Asia/Tokyo"), UTC: timeFormat("UTC") };
-export function displayField(panel: Panel, field: ShelfAxis, value: string) {
-  if (field === "measure") return valueName(panel.data, valueAt(panel, value));
+export function displayField(
+  dict: Dictionary,
+  panel: Panel,
+  field: ShelfAxis,
+  value: string,
+) {
+  if (field === "measure")
+    return valueName(dict, panel.data, valueAt(panel, value));
   if (isTimeField(field) && Number.isFinite(Date.parse(value))) {
     if (field === "time:86400")
       return new Date(value).toISOString().slice(0, 10);

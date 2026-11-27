@@ -1,4 +1,3 @@
-import { cpuPercent } from "../../../../../shared/console";
 import { type SQLFragment, sql } from "../../../infra/db/sql";
 import { compToSQL } from "../../../infra/db/sql-helpers";
 import type {
@@ -15,10 +14,6 @@ import { eventSpecToSQL } from "../../event/postgres/common";
 
 const events = (spec: Event.Spec) => compToSQL(spec, eventSpecToSQL);
 
-const readingColumns = sql.raw(
-  "at,source,workload,instance,slot,revision,kind,name,body,attrs,value,unit,entry,failed",
-);
-
 /** Rows of a relation: what to read and which of its rows count. */
 export function relationToSQL(r: Relation): {
   from: SQLFragment;
@@ -27,23 +22,17 @@ export function relationToSQL(r: Relation): {
   switch (r.type) {
     case "events":
       return { from: sql`telemetry_events`, where: events(r.where) };
-    case "analysis_events":
-      return { from: sql`analysis_events`, where: events(r.where) };
-    case "cpu_readings": {
+    case "rates":
       // Each container has its own counter: skip its first sample and resets.
-      const window = events(r.window);
-      const where = events(r.where);
       return {
-        from: sql`(SELECT ${readingColumns} FROM telemetry_events WHERE ${where}
-  UNION ALL SELECT at,source,workload,instance,slot,revision,kind,${cpuPercent},body,attrs,
-    (value-prev)/(extract(epoch FROM at-prev_at)*10000),'%',entry,failed
+        from: sql`(SELECT at,source,workload,instance,slot,revision,kind,name,body,attrs,trace,
+    (value-prev)/extract(epoch FROM at-prev_at) AS value,unit||'/s' AS unit,entry,failed
   FROM (SELECT e.*, lag(value) OVER w AS prev, lag(at) OVER w AS prev_at
-    FROM telemetry_events e WHERE ${window} AND kind='metric' AND name='cpu.usage'
-    WINDOW w AS (PARTITION BY source, workload, instance, slot, revision ORDER BY at,batch_id,ordinal)) counters
-  WHERE at>prev_at AND value>=prev) readings`,
-        where,
+    FROM telemetry_events e WHERE ${events(r.where)}
+    WINDOW w AS (PARTITION BY source, workload, instance, slot, revision, name ORDER BY at,batch_id,ordinal)) counters
+  WHERE at>prev_at AND value>=prev) rates`,
+        where: sql`true`,
       };
-    }
     case "daily_sets":
       return {
         from: sql`daily_sets`,
@@ -57,7 +46,7 @@ export function relationToSQL(r: Relation): {
     case "attribute_keys":
       return {
         from: sql`(SELECT a.key FROM (
-      SELECT attrs FROM ${r.from === "events" ? sql`telemetry_events` : sql`analysis_events`} WHERE ${events(r.where)} ORDER BY at DESC LIMIT ${r.sample}::int
+      SELECT attrs FROM telemetry_events WHERE ${events(r.where)} ORDER BY at DESC LIMIT ${r.sample}::int
     ) sample CROSS JOIN LATERAL json_each(sample.attrs) a WHERE json_typeof(a.value) IN ('string','number','boolean') AND length(a.key) BETWEEN 1 AND 256) keys`,
         where: sql`true`,
       };

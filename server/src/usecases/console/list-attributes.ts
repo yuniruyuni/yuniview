@@ -1,14 +1,10 @@
-import type { Event } from "../../models/event";
+import type { DataKind, Filter } from "../../../../shared/console";
 import { attributeKeys } from "../../models/panel";
 import { usecase } from "../runner";
 
-export const listAttributes = (input: {
-  source: string;
-  kind: Event.Kind;
-  metric: string;
-  end: Date;
-  minutes: number;
-}) =>
+export const listAttributes = (
+  input: Filter & { data: DataKind; metric?: string; end: Date },
+) =>
   usecase({
     read: async (ctx) =>
       ctx.repos.cells.list(attributeKeys(input), { limit: 128 }),

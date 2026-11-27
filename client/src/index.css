@@ -221,6 +221,8 @@
 
 body {
   margin: 0;
+  /* yuniview is an administration console used from a PC. */
+  min-width: 1180px;
   color: #192f32;
   background: #f5f7f6;
   font:
@@ -234,12 +236,12 @@ body {
   grid-template-columns: 195px minmax(0, 1fr);
   min-height: 100vh;
 }
-aside {
+.workspace > aside {
   background: #143437;
   color: #e2efed;
   padding: 28px 14px;
 }
-aside h1 {
+.workspace > aside h1 {
   font-size: 27px;
   letter-spacing: -1.5px;
   font-weight: 700;
@@ -493,33 +495,6 @@ summary {
 .state.alert {
   background: #fbe5df;
 }
-@media (max-width: 800px) {
-  .workspace {
-    display: block;
-  }
-  aside {
-    padding: 12px;
-  }
-  aside h1 {
-    margin: 0 0 8px 6px;
-    font-size: 20px;
-  }
-  nav {
-    display: flex;
-    overflow: auto;
-  }
-  nav button {
-    white-space: nowrap;
-    padding: 5px 9px;
-  }
-  main {
-    padding: 16px;
-  }
-  .summary strong {
-    font-size: 22px;
-  }
-}
-
 .studio {
   padding: clamp(14px, 2vw, 28px);
 }
@@ -594,19 +569,6 @@ summary {
 .pivot-scroll a {
   text-decoration: underline;
 }
-@media (max-width: 800px) {
-  .builder {
-    grid-template-columns: 1fr;
-  }
-  .field-catalog button {
-    width: auto;
-    display: inline-block;
-  }
-  .studio-head {
-    flex-wrap: wrap;
-  }
-}
-
 .panel-title {
   font: inherit;
   padding: 0;
@@ -690,11 +652,6 @@ summary {
   color: #557b76;
 }
 
-@media (max-width: 800px) {
-  .editor .canvas-toolbar {
-    position: static;
-  }
-}
 .drag-source {
   cursor: grab;
   touch-action: none;
@@ -971,108 +928,6 @@ main:has(.worksheet) {
 }
 .settings-toggle {
   display: none;
-}
-@media (max-width: 1150px) {
-  .worksheet .builder {
-    grid-template-columns: clamp(150px, 19vw, 210px) minmax(0, 1fr);
-  }
-  .settings-toggle {
-    display: inline-block;
-  }
-  .worksheet-options {
-    display: none;
-  }
-  .worksheet-options[data-open] {
-    display: block;
-    position: absolute;
-    inset: 0 0 0 auto;
-    z-index: 4;
-    width: min(310px, 100%);
-    box-shadow: -6px 2px 20px #14343729;
-  }
-}
-@media (max-width: 800px) {
-  main:has(.worksheet) {
-    padding: 6px 8px;
-  }
-  .worksheet .field-catalog button {
-    display: block;
-    width: 100%;
-  }
-}
-@media (max-width: 640px) {
-  .worksheet-heading {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    padding: 5px 0;
-    gap: 5px;
-  }
-  .worksheet-heading-actions {
-    grid-column: 1 / -1;
-    max-width: 100%;
-    gap: 4px;
-  }
-  .worksheet-heading-actions > button {
-    flex: none;
-  }
-  .worksheet-heading-actions .dashboard-time {
-    min-width: 0;
-  }
-  .worksheet-heading-actions .dashboard-time > button {
-    max-width: 100%;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    overflow: hidden;
-  }
-  .worksheet-heading h2 {
-    font-size: 15px;
-  }
-  .worksheet-heading .sheet-title {
-    flex: 1;
-    font-size: 11px;
-    white-space: nowrap;
-  }
-  .sheet-title input {
-    width: 100%;
-    font-size: 13px;
-  }
-  .worksheet .builder {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 24%) minmax(0, 1fr);
-    gap: 5px;
-  }
-  .worksheet .field-catalog {
-    padding: 5px;
-  }
-  .worksheet .field-catalog > label {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-  }
-  .worksheet .field-catalog .catalog-list button {
-    display: inline-block;
-    width: auto;
-    padding: 4px 7px;
-  }
-  .catalog-list h4 {
-    margin: 3px 0;
-  }
-  .worksheet-shelves {
-    max-height: 19dvh;
-  }
-  .worksheet-shelves > div {
-    padding: 3px;
-  }
-  .worksheet select,
-  .worksheet button {
-    font-size: 12px;
-  }
-  .worksheet .builder-main > .card {
-    padding: 8px;
-  }
-  .worksheet-options[data-open] {
-    width: min(310px, 100%);
-  }
 }
 .shelf-chips {
   display: flex;
@@ -1496,61 +1351,6 @@ main:has(.worksheet) {
   font-size: 13px;
 }
 
-@media (max-width: 1150px) {
-  .worksheet .builder {
-    grid-template-columns: minmax(0, 1fr) minmax(180px, 22%) minmax(145px, 18%);
-  }
-  .worksheet .worksheet-options,
-  .worksheet .worksheet-options[data-open] {
-    display: contents;
-  }
-  .assignment-pane {
-    contain: size;
-    overflow: auto;
-    grid-area: options;
-    min-width: 0;
-    min-height: 0;
-  }
-  .assignment-pane .worksheet-shelves {
-    max-height: none;
-    margin: 0;
-  }
-  .other-settings {
-    display: none;
-  }
-  .other-settings[data-open] {
-    display: block;
-    position: absolute;
-    z-index: 4;
-    inset: 0 0 0 auto;
-    width: min(310px, 100%);
-    background: white;
-    overflow: auto;
-    padding: 10px;
-    border: 1px solid #cededb;
-  }
-}
-@media (max-width: 800px) {
-  .worksheet .builder {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas: "options format" "options catalog" "preview preview";
-    grid-template-rows: auto minmax(0, 30%) minmax(0, 1fr);
-  }
-  .worksheet-format {
-    padding: 4px 6px;
-  }
-  .worksheet-format label {
-    display: flex;
-    align-items: center;
-    white-space: nowrap;
-  }
-  .worksheet .field-catalog > label {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
-
 .inspectable-plot {
   position: relative;
   min-width: 0;
@@ -1619,4 +1419,379 @@ nav .privacy-link {
   color: inherit;
   margin: 12px;
   font-size: 0.875rem;
+}
+
+/* ---- conditions shared by a page ---- */
+.condition-bar {
+  margin: 0 0 14px;
+}
+.condition-bar .filter-shelf {
+  margin: 0;
+  background: white;
+}
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 18px 0 10px;
+}
+.section-head h3 {
+  margin: 0;
+}
+.section-head p,
+.section-head small {
+  margin: 0;
+  color: #617373;
+}
+
+/* ---- home ---- */
+.service-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.service-card {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  padding: 14px 16px;
+  border-radius: 9px;
+  border: 1px solid #d7e1df;
+  background: white;
+}
+.service-card strong {
+  font-size: 16px;
+}
+.service-card small {
+  color: #617373;
+}
+.service-card dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 6px 0 0;
+}
+.service-card dt {
+  font-size: 11px;
+  color: #617373;
+}
+.service-card dd {
+  margin: 0;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- explore ---- */
+.explore {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.explore-fields {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  background: #f1f6f5;
+  border: 1px solid #d7e1df;
+  border-radius: 9px;
+  padding: 12px;
+}
+.explore-fields h4 {
+  margin: 14px 0 6px;
+}
+.explore-fields ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.explore-field {
+  display: flex;
+  align-items: center;
+}
+.explore-field > button:first-child {
+  flex: 1;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 5px 6px;
+}
+.explore-field > button[aria-expanded="true"] {
+  font-weight: 650;
+  color: #145f60;
+}
+.field-edit {
+  border: 0;
+  background: transparent;
+  color: #8aa09c;
+  padding: 2px 6px;
+  visibility: hidden;
+}
+.explore-field:hover .field-edit,
+.field-edit:focus-visible {
+  visibility: visible;
+}
+.top-values {
+  list-style: none;
+  margin: 2px 0 8px 8px;
+  padding: 0;
+}
+.top-values button {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 3px 6px;
+  font-size: 12px;
+  overflow: hidden;
+}
+.top-values button i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: #8eb9b1;
+}
+.top-values button[aria-pressed="true"] {
+  background: #d5eeea;
+  color: #145f60;
+  font-weight: 600;
+}
+.top-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.top-count {
+  color: #617373;
+  font-variant-numeric: tabular-nums;
+}
+.explore-main {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.explore-main > .card {
+  margin: 0;
+}
+.explore-rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+.explore-rows > .card {
+  margin: 0;
+}
+table.rows td {
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+table.rows tbody tr {
+  cursor: pointer;
+}
+table.rows tbody tr:hover {
+  background: #f1f6f5;
+}
+table.rows tr[aria-selected="true"] {
+  background: #d5eeea;
+}
+table.rows tr.failed-row td:first-child {
+  box-shadow: inset 3px 0 #c0392b;
+}
+.column-remove {
+  border: 0;
+  background: transparent;
+  padding: 0 4px;
+  color: #8aa09c;
+}
+.add-column {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.row-detail {
+  width: 380px;
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  background: white;
+  border: 1px solid #8eb9b1;
+  border-radius: 9px;
+  padding: 14px;
+}
+.row-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.row-detail-head button {
+  border: 0;
+  background: transparent;
+}
+.row-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #f5faf9;
+  padding: 8px;
+  border-radius: 6px;
+}
+.row-fields th,
+.row-fields td {
+  padding: 2px 4px;
+  font-size: 12px;
+  vertical-align: top;
+}
+.row-fields button {
+  border: 0;
+  background: transparent;
+  padding: 2px 4px;
+  text-align: left;
+  word-break: break-all;
+}
+.row-fields .field-name {
+  color: #456064;
+}
+.row-fields .field-value:hover {
+  background: #e1f2ef;
+}
+
+/* ---- trace ---- */
+.trace .legend {
+  display: flex;
+  gap: 10px;
+  margin: 6px 0 10px;
+}
+.trace .legend span {
+  border-left: 4px solid;
+  padding-left: 6px;
+}
+.trace-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+.waterfall {
+  margin: 0;
+  display: grid;
+  gap: 2px;
+}
+.span-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 32%) minmax(0, 1fr) 80px;
+  gap: 10px;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 3px 4px;
+}
+.span-row[aria-pressed="true"] {
+  background: #e1f2ef;
+}
+.span-row.failed .span-name {
+  color: #b42318;
+}
+.span-row .track {
+  position: relative;
+  height: 10px;
+  background: #eef3f2;
+  border-radius: 3px;
+}
+.span-row .track i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+}
+.span-row b {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- field dictionary ---- */
+.field-editor {
+  margin: auto;
+  width: 560px;
+  border: 1px solid #a6bfba;
+  border-radius: 10px;
+  padding: 20px;
+}
+.field-editor form {
+  display: grid;
+  gap: 10px;
+}
+.field-editor h3 {
+  margin: 0;
+}
+.field-editor .field-key {
+  margin: 0;
+  color: #617373;
+}
+.field-editor small {
+  color: #8aa09c;
+}
+.field-editor-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+table.dictionary td small {
+  display: block;
+  color: #8aa09c;
+  font-size: 11px;
+}
+table.dictionary .description {
+  max-width: 360px;
+  color: #456064;
+}
+.settings .search {
+  max-width: 320px;
+}
+
+/* ---- monitors ---- */
+.monitor-rule {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #c0392b55;
+  border-radius: 8px;
+  padding: 10px;
+}
+.backtest {
+  margin: 4px 0 0;
+  padding: 8px;
+  background: #f5faf9;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.metric-menu.value-menu:popover-open {
+  width: 210px;
+  max-height: min(60vh, 480px);
+  overflow: auto;
+}
+.metric-menu.value-menu label.inline {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 2px 5px;
+}
+.metric-menu.value-menu label.inline input {
+  width: auto;
+}
+.cards > .card.wide {
+  grid-column: 1 / -1;
 }

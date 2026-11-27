@@ -18,7 +18,11 @@ export const indexPending = () =>
       ).items,
     process: (_ctx, batches) => batches.map(Batch.index),
     write: async (ctx, batches) => {
-      for (const batch of batches) await ctx.repos.batches.upsert(batch);
+      for (const batch of batches) {
+        await ctx.repos.batches.upsert(batch);
+        for (const field of batch.fields)
+          await ctx.repos.fieldNotes.upsert(field);
+      }
       return batches.length;
     },
   });

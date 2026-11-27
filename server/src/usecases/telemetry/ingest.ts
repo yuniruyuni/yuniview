@@ -34,9 +34,15 @@ export const ingest = (token: string, body: unknown) =>
           : null,
     }),
     write: async (ctx, { delivery, batch }) => {
-      if (delivery.type === "member")
+      if (delivery.type === "member") {
         await ctx.repos.dailySets.upsert(delivery.member);
-      if (batch) await ctx.repos.batches.upsert(batch);
+        if (delivery.field) await ctx.repos.fieldNotes.upsert(delivery.field);
+      }
+      if (batch) {
+        await ctx.repos.batches.upsert(batch);
+        for (const field of batch.fields)
+          await ctx.repos.fieldNotes.upsert(field);
+      }
       return true as const;
     },
   });

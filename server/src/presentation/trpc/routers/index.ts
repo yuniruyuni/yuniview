@@ -1,11 +1,14 @@
 import { z } from "zod";
+import type { Scope } from "../../../models/panel";
 import {
-  conditions,
   dashboard,
+  fieldMeta,
   filter,
   filterField,
   monitor,
   panel,
+  query,
+  scope,
 } from "../../../models/panel";
 import { getLibrary } from "../../../usecases/configuration/get-library";
 import { remove } from "../../../usecases/configuration/remove";
@@ -18,12 +21,16 @@ import { listAttributes } from "../../../usecases/console/list-attributes";
 import { listEvents } from "../../../usecases/console/list-events";
 import { listFilterOptions } from "../../../usecases/console/list-filter-options";
 import { listRoutes } from "../../../usecases/console/list-routes";
+import { listTopValues } from "../../../usecases/console/list-top-values";
+import { listFields } from "../../../usecases/dictionary/list-fields";
+import { saveField } from "../../../usecases/dictionary/save-field";
+import { backtest } from "../../../usecases/monitor/backtest";
 import { handleResult } from "../handle-result";
 import { publicProcedure as p, router } from "../init";
 
 const notificationsAvailable = () => Boolean(process.env.MONITOR_WEBHOOK_URL);
-const windowInput = filter.extend({ end: z.iso.datetime() });
-const kind = z.enum(["metric", "log", "span", "event"]);
+const end = z.iso.datetime();
+const windowInput = filter.extend({ end });
 const eventCursor = z.object({
   at: z.string().max(64),
   source: z.string().max(512),
@@ -34,15 +41,15 @@ export const appRouter = router({
   worksheetFilterOptions: p
     .input(
       z.object({
-        panel,
+        panel: scope,
         field: filterField,
-        end: z.iso.datetime(),
+        end,
         search: z.string().max(512),
       }),
     )
     .query(({ ctx, input }) =>
       listFilterOptions(
-        input.panel,
+        input.panel as Scope,
         input.field,
         new Date(input.end),
         input.search,
@@ -50,16 +57,15 @@ export const appRouter = router({
         .run(ctx)
         .then(handleResult),
     ),
+  topValues: p
+    .input(z.object({ query, field: filterField, end }))
+    .query(({ ctx, input }) =>
+      listTopValues(input.query, input.field, new Date(input.end))
+        .run(ctx)
+        .then(handleResult),
+    ),
   worksheetAttributes: p
-    .input(
-      z.object({
-        source: z.string().max(512),
-        kind,
-        metric: z.string().max(512),
-        end: z.iso.datetime(),
-        minutes: z.number().int().min(1).max(43200),
-      }),
-    )
+    .input(query.extend({ metric: z.string().max(512).optional(), end }))
     .query(({ ctx, input }) =>
       listAttributes({ ...input, end: new Date(input.end) })
         .run(ctx)
@@ -72,10 +78,9 @@ export const appRouter = router({
     ),
   events: p
     .input(
-      windowInput.extend({
-        kind,
-        conditions: conditions.optional(),
-        logContains: filter.shape.text.optional(),
+      query.extend({
+        data: z.enum(["request", "span", "log", "event", "metric"]),
+        end,
         after: eventCursor.optional(),
       }),
     )
@@ -93,11 +98,21 @@ export const appRouter = router({
     .input(z.string().regex(/^[a-f0-9]{32}$/))
     .query(({ ctx, input }) => getTrace(input).run(ctx).then(handleResult)),
   series: p
-    .input(z.object({ panel, end: z.iso.datetime(), buckets: z.boolean() }))
+    .input(z.object({ panel, end, buckets: z.boolean() }))
     .query(({ ctx, input }) =>
       getSeries(input.panel, new Date(input.end), input.buckets)
         .run(ctx)
         .then(handleResult),
+    ),
+  fields: p.query(({ ctx }) => listFields().run(ctx).then(handleResult)),
+  saveField: p.input(fieldMeta).mutation(({ ctx, input }) => {
+    const { key, ...patch } = input;
+    return saveField(key, patch).run(ctx).then(handleResult);
+  }),
+  backtest: p
+    .input(z.object({ monitor, end }))
+    .query(({ ctx, input }) =>
+      backtest(input.monitor, new Date(input.end)).run(ctx).then(handleResult),
     ),
   dashboardLibrary: p.query(
     async ({ ctx }) =>

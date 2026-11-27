@@ -51,7 +51,11 @@ export const usageMark = z
   .strict();
 export const dailySet = usageMark
   .omit({ kind: true })
-  .extend({ field: label })
+  .extend({
+    field: label,
+    label: label.optional(),
+    description: z.string().max(2000).optional(),
+  })
   .strict();
 /** A batch as an agent delivers it. */
 export type Envelope = z.infer<typeof batchSchema>;

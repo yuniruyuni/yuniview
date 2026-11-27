@@ -1,7 +1,8 @@
+import type { FieldMeta } from "../../../../shared/console";
 import { type Comp, defineSpecs, type SpecsOf } from "../common";
 import type { DailySet } from "../daily-set";
 import type { Event } from "../event";
-import { decode } from "../event/decode";
+import { decode, fieldsOf } from "../event/decode";
 import {
   batchSchema,
   bufferedEvents,
@@ -20,6 +21,8 @@ export interface Batch extends Envelope {
   receivedAt: Date;
   indexed: boolean;
   events: Event[];
+  /** What the sender says about the fields of its rows, once indexed. */
+  fields: { key: string; sender: FieldMeta }[];
 }
 
 export namespace Batch {
@@ -46,7 +49,13 @@ export namespace Batch {
   export type Spec = Comp<SpecsOf<typeof _specs>>;
 
   export function received(envelope: Envelope, at: Date): Batch {
-    return { ...envelope, receivedAt: at, indexed: false, events: [] };
+    return {
+      ...envelope,
+      receivedAt: at,
+      indexed: false,
+      events: [],
+      fields: [],
+    };
   }
 
   /** The batch with every row it contributes, ready to be stored together. */
@@ -63,7 +72,11 @@ export namespace Batch {
       slot: s.slot ?? "",
       revision: s.revision ?? "",
     }));
-    return { ...batch, indexed: true, events };
+    const fields = [...new Map(fieldsOf(batch))].map(([key, sender]) => ({
+      key,
+      sender: JSON.parse(JSON.stringify(sender)) as FieldMeta,
+    }));
+    return { ...batch, indexed: true, events, fields };
   }
 
   export function key(batch: Batch): Key {
@@ -74,7 +87,25 @@ export namespace Batch {
 /** What one delivery asks to store, once its envelope is accepted. */
 export type Delivery =
   | { type: "batch"; envelope: Envelope }
-  | { type: "member"; member: DailySet };
+  | {
+      type: "member";
+      member: DailySet;
+      /** What the sender says about the set. */
+      field: { key: string; sender: FieldMeta } | null;
+    };
+
+/** The yuniview agent's visit marks, as their sender describes them. */
+const visitSets = {
+  account: {
+    label: "ログイン利用者",
+    description: "その日にログインして確認できたアカウント。1日1件",
+  },
+  browser: {
+    label: "訪問ブラウザー",
+    description:
+      "その日に公開ページを開いた同じブラウザー。1日1件。ブラウザーのデータを消すと別の1件になる",
+  },
+};
 
 export namespace Delivery {
   export function envelope(body: unknown): Envelope | null {
@@ -91,14 +122,21 @@ export namespace Delivery {
               .transform(({ kind, ...mark }) => ({
                 ...mark,
                 field: `visit.${kind}`,
+                ...visitSets[kind],
               }))
               .safeParse(e.payload)
           : dailySet.safeParse(e.payload);
       if (!result.success) return null;
-      const { day, field, digest } = result.data;
+      const { day, field, digest, label, description } = result.data;
+      const sender = JSON.parse(
+        JSON.stringify({ label, description }),
+      ) as FieldMeta;
       return {
         type: "member",
         member: { day, field, digest, source: e.source.service },
+        field: Object.keys(sender).length
+          ? { key: `set:${field}`, sender }
+          : null,
       };
     }
     if (

@@ -53,13 +53,17 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
   await page.getByRole("button", { name: "ダッシュボードを作成" }).click();
   const form = page.locator("form.editor");
   const catalog = form.locator(".field-catalog");
-  const useSet = async (name: string) => {
-    await catalog.getByRole("button", { name, exact: true }).click();
-    for (const other of ["visit.account", "checkout.cart"].filter(
-      (n) => n !== name,
-    )) {
+  // The usage signal names its sets; other sets go by their keys.
+  const sets: Record<string, string> = {
+    "visit.account": "ログイン利用者",
+    "checkout.cart": "checkout.cart",
+  };
+  const useSet = async (key: string) => {
+    await catalog.getByRole("button", { name: sets[key], exact: true }).click();
+    for (const [other, label] of Object.entries(sets)) {
+      if (other === key) continue;
       const chip = form.getByRole("button", {
-        name: `${other} · 日ごとの種類数 を外す`,
+        name: `${label} · 日ごとの種類数 を外す`,
       });
       if (await chip.count()) await chip.click();
     }
@@ -144,11 +148,17 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
   await expect(form.locator(".canvas-grid")).not.toContainText("のコピー");
   await form.getByRole("button", { name: "キャンセル" }).click();
   await page.goto(
-    "/#page=metrics&source=checkout&slot=blue&metric=memory.current",
+    "/#" +
+      new URLSearchParams({
+        page: "explore",
+        data: "metric",
+        conditions: JSON.stringify([
+          { field: "source", values: ["checkout"] },
+          { field: "slot", values: ["blue"] },
+        ]),
+      }),
   );
-  await page
-    .getByRole("button", { name: "この表示をダッシュボードに追加" })
-    .click();
+  await page.getByRole("button", { name: "パネルにする" }).click();
   await page.getByRole("button", { name: "編集して追加" }).click();
   await expect(
     form.getByRole("button", { name: "スロット · blue", exact: true }),
@@ -160,9 +170,9 @@ test("daily visits deduplicate across blue/green and distinguish zero and unmeas
   await form.getByLabel("名前", { exact: true }).fill("Resource pivot");
   await form.getByRole("button", { name: "保存", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Resource pivot" }),
+    page.getByRole("heading", { name: "Resource pivot", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "memory.current を編集" }).click();
+  await page.getByRole("button", { name: "メトリクス を編集" }).click();
   await expect(
     form.getByRole("combobox", { name: "表示形式", exact: true }),
   ).toHaveValue("table");
@@ -211,20 +221,19 @@ test("event panels count occurrences, deduplicate delivery, and open the filtere
   ).toBe(400);
   for (let retry = 0; retry < 2; retry++)
     expect((await ingest(batch)).status()).toBe(204);
+  const scope = [{ field: "instance", values: ["events-test"] }];
   const panel = {
     ...blankPanel,
-    instance: "events-test",
+    data: "event",
+    values: [{ agg: "sum", of: ["value"] }],
+    conditions: scope,
     group: "all",
-    measure: "events",
   };
-  const conditions = [{ field: "attr:feature", values: ["preview"] }];
+  const conditions = [...scope, { field: "attr:feature", values: ["preview"] }];
   for (const [overrides, count] of [
     [{}, 101],
     [{ conditions }, 1],
-    [
-      { measure: "distinct", distinct: { dataset: "event", field: "feature" } },
-      2,
-    ],
+    [{ values: [{ agg: "distinct", of: ["attr:feature"] }] }, 2],
   ] as const) {
     const response = await request.get("/api/trpc/series", {
       params: {
@@ -241,10 +250,10 @@ test("event panels count occurrences, deduplicate delivery, and open the filtere
   await page.goto(
     "/#" +
       new URLSearchParams({
-        page: "events",
-        instance: "events-test",
+        page: "explore",
+        data: "event",
         conditions: JSON.stringify(conditions),
-        end: at,
+        end: new Date(Date.parse(at) + 1000).toISOString(),
       }),
   );
   await expect(page.getByRole("cell", { name: "feature.open" })).toHaveCount(1);

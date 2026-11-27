@@ -1,3 +1,12 @@
+/*
+ * The vocabulary shared by the console and the server: queries, panels,
+ * dashboards, monitors and the field dictionary that names what they show.
+ *
+ * Nothing here knows a particular metric, attribute or daily set. Names,
+ * descriptions and units come from the field dictionary, which senders fill
+ * and people override.
+ */
+
 export type Identifier =
   | "source"
   | "slot"
@@ -5,18 +14,17 @@ export type Identifier =
   | "workload"
   | "instance";
 export type Axis = Identifier | "day";
-export const axes: Record<Axis, string> = {
-  source: "サービス",
-  slot: "スロット",
-  revision: "リビジョン",
-  instance: "インスタンス",
-  workload: "ワークロード",
-  day: "時刻（1日・JST）",
-};
 export type Attribute = `attr:${string}`;
 export const isAttribute = (key: string): key is Attribute =>
   key.startsWith("attr:");
 export type Dimension = Axis | Attribute;
+export const identifiers: Identifier[] = [
+  "source",
+  "slot",
+  "revision",
+  "instance",
+  "workload",
+];
 export const timeBuckets = {
   "time:1": "時刻（1秒）",
   "time:10": "時刻（10秒）",
@@ -36,26 +44,105 @@ export function fieldZone(pivot: Pivot | undefined, field: string): TimeZone {
 }
 export const isTemporalField = (key: string): key is TimeField | "day" =>
   key === "day" || isTimeField(key);
-export const cpuPercent = "derived:cpu.percent";
-export function metricName(name: string) {
-  return name === cpuPercent
-    ? "CPU 使用率 (%)"
-    : name === "memory.current"
-      ? "メモリ使用量"
-      : name === "cpu.usage"
-        ? "CPU 使用時間（累積）"
-        : name;
+
+/* ---------------------------------------------------------------- fields */
+
+/** What a sender or a person says about a field. Every part is optional. */
+export interface FieldMeta {
+  label?: string;
+  description?: string;
+  /** The unit values are stored in, such as `B` or `ms`. */
+  unit?: string;
+  /** The unit people prefer to read, such as `MiB` or `%`. */
+  display?: string;
+  /** A gauge is read as is; a counter only grows and is read as a rate. */
+  kind?: "gauge" | "counter";
+  /** The aggregation a field gets when placed as a value. */
+  agg?: Agg;
 }
+/** A field's effective description: what people set over what senders sent. */
+export interface FieldInfo extends FieldMeta {
+  key: string;
+  label: string;
+  sender: FieldMeta;
+  user: FieldMeta;
+}
+export type Dictionary = Record<string, FieldInfo>;
+
+/**
+ * Fields every row has, described by yuniview itself as their sender. People
+ * may rename them like any other field.
+ */
+export const coreFields: Record<string, FieldMeta> = {
+  source: { label: "サービス" },
+  slot: { label: "スロット" },
+  revision: { label: "リビジョン" },
+  instance: { label: "インスタンス" },
+  workload: { label: "ワークロード" },
+  day: { label: "日付（JST）" },
+  text: { label: "本文・名前", description: "ログの本文、スパンや指標の名前" },
+  failed: { label: "失敗", description: "5xx 応答またはエラー状態のスパン" },
+  "value:request": {
+    label: "所要時間",
+    unit: "ms",
+    agg: "p95",
+    description: "サーバーが要求を処理した時間",
+  },
+  "value:span": { label: "所要時間", unit: "ms", agg: "p95" },
+  "value:event": {
+    label: "実行回数",
+    unit: "件",
+    agg: "sum",
+    description: "イベントが報告した回数",
+  },
+};
+
+/** The dictionary key of a field as a kind of data shows it. */
+export function fieldKey(data: DataKind, field: string) {
+  return field === "value" ? `value:${data}` : field;
+}
+/** The words a key reads as when nobody named it. */
+function bareName(key: string) {
+  if (isAttribute(key)) return key.slice(5);
+  if (key.startsWith("metric:")) return key.slice(7);
+  if (key.startsWith("set:")) return key.slice(4);
+  if (isTimeField(key)) return timeBuckets[key];
+  return key;
+}
+/** A field's effective meta, falling back to the core fields. */
+export function fieldMeta(dict: Dictionary, key: string): FieldMeta {
+  return { ...coreFields[key], ...dict[key] };
+}
+export function fieldName(dict: Dictionary, key: string) {
+  if (isTimeField(key)) return timeBuckets[key];
+  return fieldMeta(dict, key).label || bareName(key);
+}
+/** Merges sender and person meta over the core fields into the dictionary. */
+export function describeField(
+  key: string,
+  sender: FieldMeta,
+  user: FieldMeta,
+): FieldInfo {
+  const pick = <K extends keyof FieldMeta>(k: K) =>
+    user[k] ?? sender[k] ?? coreFields[key]?.[k];
+  const info: FieldInfo = {
+    key,
+    label: pick("label") || bareName(key),
+    sender,
+    user,
+  };
+  for (const k of ["description", "unit", "display", "kind", "agg"] as const) {
+    const v = pick(k);
+    if (v !== undefined) (info as unknown as Record<string, unknown>)[k] = v;
+  }
+  return info;
+}
+
+/* ---------------------------------------------------------------- shelves */
+
 export type ShelfAxis = Dimension | TimeField | "measure";
-export function shelfName(key: ShelfAxis | "log") {
-  if (key === "log") return "ログ";
-  return key === "measure"
-    ? "指標"
-    : isAttribute(key)
-      ? key.slice(5)
-      : isTimeField(key)
-        ? timeBuckets[key]
-        : axes[key];
+export function shelfName(key: ShelfAxis | "text", dict: Dictionary = {}) {
+  return key === "measure" ? "指標" : fieldName(dict, key);
 }
 export type ShelfFields = ShelfAxis | ShelfAxis[];
 export function shelfFields(value?: ShelfFields): ShelfAxis[] {
@@ -92,19 +179,11 @@ export type Pivot = {
   series?: ShelfFields;
   mark?: WorksheetMark;
 };
-export interface Filter {
-  source: string;
-  instance: string;
-  workload: string;
-  slot: string;
-  revision: string;
-  text: string;
-  minutes: number;
-}
-export function usesLogRecords(panel: Pick<Panel, "data">) {
-  return panel.data === "log";
-}
-export type FilterField = Dimension | TimeField | "log";
+
+/* ---------------------------------------------------------------- queries */
+
+/** `text` matches a log body or a span or metric name. */
+export type FilterField = Dimension | TimeField | "text";
 export interface FieldCondition {
   field: FilterField;
   contains?: string;
@@ -119,11 +198,28 @@ export interface FilterOptions {
   min: number | null;
   max: number | null;
 }
+/** A window ending at a given time and the conditions rows must meet. */
+export interface Filter {
+  minutes: number;
+  conditions?: FieldCondition[];
+}
+export const defaults: Filter = { minutes: 60 };
+/** Conditions of a dashboard or the top bar, applied over a panel's own. */
+export function withConditions<T extends Filter>(
+  q: T,
+  extra: FieldCondition[] | undefined,
+): T {
+  if (!extra?.length) return q;
+  const own = (q.conditions ?? []).filter(
+    (c) => !extra.some((e) => e.field === c.field),
+  );
+  return { ...q, conditions: [...own, ...extra] };
+}
+
 export interface Panel extends Filter {
   fieldUnits?: Record<string, string>;
   styleDefaults?: Partial<Record<StyleChannel, number>>;
   fixedStyle?: Partial<Record<StyleChannel, number>>;
-  conditions?: FieldCondition[];
   wide?: boolean;
   id?: string;
   title: string;
@@ -131,31 +227,15 @@ export interface Panel extends Filter {
   data: DataKind;
   /** What is measured over those rows; the measure shelf lists them in order. */
   values: Value[];
-  totalSlots?: string[];
-  group: "all" | "slot_total" | Identifier | Attribute;
+  group: "all" | Identifier | Attribute;
   display: "chart" | "value" | "table" | "pivot";
   pivot?: Pivot;
-  unit?: "MiB";
 }
 export function chartBucketSeconds(minutes: number) {
   return Math.max(1, Math.ceil((minutes * 60) / 40));
 }
-export const defaultTotalSlots = ["blue", "green"];
-export const slotTotalChoice: [string, string] = [
-  "slot_total",
-  "スロット合計（サービス別）",
-];
 export function changeGroup(p: Panel, group: Panel["group"]): Panel {
-  if (group !== "slot_total") return { ...p, group };
-  return {
-    ...p,
-    group,
-    slot: "",
-    instance: "",
-    values: p.values
-      .slice(0, 1)
-      .map((v) => (v.agg === "sum" ? { ...v, agg: "avg" } : v)),
-  };
+  return { ...p, group };
 }
 export interface Monitor {
   id: string;
@@ -171,7 +251,11 @@ export interface Dashboard {
   id: string;
   title: string;
   panels: Panel[];
+  /** Conditions every panel of the dashboard is read with. */
+  conditions?: FieldCondition[];
 }
+/** The dashboard the home page shows, made from a template until saved. */
+export const homeDashboardId = "00000000-0000-4000-8000-000000000001";
 export interface Point {
   column?: string;
   facet?: string;
@@ -215,10 +299,7 @@ export interface Overview {
     latency: number | null;
   }[];
   metrics: string[];
-  metricUnits?: Record<string, string>;
   dailyFields: string[];
-  slots: string[];
-  revisions: string[];
 }
 export interface RouteRow {
   source: string;
@@ -242,15 +323,19 @@ export interface Transition {
   value: number | null;
   delivery: string;
 }
-export const defaults: Filter = {
-  source: "",
-  instance: "",
-  workload: "",
-  slot: "",
-  revision: "",
-  text: "",
-  minutes: 60,
-};
+/** How often a monitor would have changed state over a past period. */
+export interface Backtest {
+  days: number;
+  windows: number;
+  alert: number;
+  ok: number;
+  noData: number;
+}
+/** A count of rows having one value of a field. */
+export interface TopValue {
+  value: string;
+  count: number;
+}
 export const blankPanel: Panel = {
   ...defaults,
   title: "リクエスト数",
@@ -259,6 +344,8 @@ export const blankPanel: Panel = {
   group: "source",
   display: "chart",
 };
+
+/* ----------------------------------------------------------------- values */
 
 /** The rows a panel reads. */
 export type DataKind =
@@ -286,6 +373,7 @@ export type Agg =
   | "p50"
   | "p95"
   | "p99"
+  | "rate"
   | "distinct"
   | "ratio"
   | "daily";
@@ -298,6 +386,7 @@ export const aggNames: Record<Agg, string> = {
   p50: "p50",
   p95: "p95",
   p99: "p99",
+  rate: "増加率",
   distinct: "種類数",
   ratio: "割合",
   daily: "日ごとの種類数",
@@ -317,6 +406,11 @@ export interface Value {
   agg: Agg;
   /** Empty for a row count; several dimensions count distinct combinations. */
   of: ValueField[];
+  /**
+   * Two-stage aggregation: average the field per minute and per these
+   * dimensions, add those averages up, then aggregate the sums with `agg`.
+   */
+  per?: Dimension[];
   mark?: WorksheetMark;
 }
 export type FieldType = "number" | "boolean" | "set" | "dimension";
@@ -329,13 +423,14 @@ export function fieldType(field: ValueField): FieldType {
 const numberAggs: Agg[] = ["avg", "sum", "min", "max", "p50", "p95", "p99"];
 /** The ways a value over `of` can be computed. */
 export function aggsFor(data: DataKind, of: readonly ValueField[]): Agg[] {
-  if (of.length === 0)
-    return data === "metric" || data === "daily" ? [] : ["count"];
+  if (of.length === 0) return data === "daily" ? [] : ["count"];
   if (of.length > 1)
     return of.every((f) => fieldType(f) === "dimension") ? ["distinct"] : [];
   switch (fieldType(of[0])) {
     case "number":
-      return numberAggs;
+      return of[0].startsWith("metric:")
+        ? [...numberAggs, "rate"]
+        : numberAggs;
     case "boolean":
       return ["ratio"];
     case "set":
@@ -344,10 +439,21 @@ export function aggsFor(data: DataKind, of: readonly ValueField[]): Agg[] {
       return data === "daily" || data === "metric" ? [] : ["distinct"];
   }
 }
+/** Aggregations a two-stage value applies to its per-minute sums. */
+export const perAggs: Agg[] = ["avg", "max", "min"];
 /** The aggregation a field gets when first placed as a value. */
-export function defaultAgg(data: DataKind, of: readonly ValueField[]): Agg {
-  if (data === "request" && of[0] === "value") return "p95";
-  return aggsFor(data, of)[0] ?? "count";
+export function defaultAgg(
+  dict: Dictionary,
+  data: DataKind,
+  of: readonly ValueField[],
+): Agg {
+  const allowed = aggsFor(data, of);
+  if (of.length === 1) {
+    const meta = fieldMeta(dict, fieldKey(data, of[0]));
+    if (meta.agg && allowed.includes(meta.agg)) return meta.agg;
+    if (meta.kind === "counter" && allowed.includes("rate")) return "rate";
+  }
+  return allowed[0] ?? "count";
 }
 /** The numeric and flag fields a kind of data carries. */
 export function measurableFields(
@@ -363,13 +469,7 @@ export function measurableFields(
     case "log":
       return [];
     case "metric":
-      return [
-        "metric:memory.current",
-        `metric:${cpuPercent}`,
-        ...meta.metrics
-          .filter((m) => m !== "memory.current")
-          .map((m): ValueField => `metric:${m}`),
-      ];
+      return meta.metrics.map((m): ValueField => `metric:${m}`);
     case "daily":
       return meta.dailyFields.map((f): ValueField => `set:${f}`);
   }
@@ -380,160 +480,61 @@ export function metricOf(field: ValueField | undefined) {
 export function setOf(field: ValueField | undefined) {
   return field?.startsWith("set:") ? field.slice(4) : undefined;
 }
-export function valueFieldName(data: DataKind, field: ValueField) {
-  if (field === "value") return data === "event" ? "実行回数" : "所要時間";
-  if (field === "failed") return "失敗";
-  const metric = metricOf(field);
-  if (metric !== undefined) return metricName(metric);
-  const set = setOf(field);
-  if (set !== undefined) return set;
-  return shelfName(field as Dimension);
+export function valueFieldName(
+  dict: Dictionary,
+  data: DataKind,
+  field: ValueField,
+) {
+  return fieldName(dict, fieldKey(data, field));
 }
 /** The label cells carry for a value on the measure shelf. */
-export function valueKey(v: Pick<Value, "agg" | "of">) {
-  return `${v.agg}(${v.of.join(",")})`;
+export function valueKey(v: Pick<Value, "agg" | "of" | "per">) {
+  const per = v.per?.length ? `/${v.per.join(",")}` : "";
+  return `${v.agg}(${v.of.join(",")})${per}`;
 }
 const countNames: Partial<Record<DataKind, string>> = {
   request: "リクエスト数",
   span: "スパン数",
   log: "ログ件数",
   event: "イベント件数",
+  metric: "計測点数",
 };
-export function valueName(data: DataKind, v: Pick<Value, "agg" | "of">) {
+export function valueName(
+  dict: Dictionary,
+  data: DataKind,
+  v: Pick<Value, "agg" | "of" | "per">,
+) {
   if (v.agg === "count") return countNames[data] ?? "件数";
-  const fields = v.of.map((f) => valueFieldName(data, f)).join(" × ");
+  const fields = v.of.map((f) => valueFieldName(dict, data, f)).join(" × ");
+  if (v.per?.length) {
+    const per = v.per.map((d) => fieldName(dict, d)).join("・");
+    return `${fields}（${per}ごとの合計の${aggNames[v.agg]}）`;
+  }
   if (v.agg === "avg" && metricOf(v.of[0]) !== undefined) return fields;
-  if (v.agg === "ratio") return fields + "率 (%)";
+  if (v.agg === "rate") return fields + "の増加率";
+  if (v.agg === "ratio") return fields + "率";
   if (v.agg === "distinct" && v.of.length > 1) return fields + " の組の種類数";
   return fields + " · " + aggNames[v.agg];
 }
-/** The key display units of a value are stored under. */
-export function unitKey(v: Pick<Value, "agg" | "of">) {
-  const metric = v.of.length === 1 ? metricOf(v.of[0]) : undefined;
-  return metric !== undefined ? "metric/" + metric : valueKey(v);
+/** The key display units of a value are stored under in a panel. */
+export function unitKey(v: Pick<Value, "agg" | "of" | "per">) {
+  return valueKey(v);
+}
+/** The unit a value's numbers are in before any display conversion. */
+export function valueUnit(
+  dict: Dictionary,
+  data: DataKind,
+  v: Pick<Value, "agg" | "of">,
+) {
+  if (v.agg === "count" || v.agg === "distinct" || v.agg === "daily")
+    return "件";
+  if (v.agg === "ratio") return "%";
+  const unit = fieldMeta(dict, fieldKey(data, v.of[0])).unit ?? "";
+  return v.agg === "rate" ? `${unit}/s` : unit;
 }
 /** Whether a value counts things, so axes use whole numbers. */
-export function countsWhole(data: DataKind, v: Pick<Value, "agg" | "of">) {
-  return (
-    v.agg === "count" ||
-    v.agg === "distinct" ||
-    v.agg === "daily" ||
-    (data === "event" && v.agg === "sum" && v.of[0] === "value")
-  );
-}
-
-/** Panels saved before data and values replaced measures. */
-export type LegacyPanel = Omit<Panel, "data" | "values" | "pivot"> & {
-  measure:
-    | "events"
-    | "requests"
-    | "errors"
-    | "latency"
-    | "logs"
-    | "metric"
-    | "distinct";
-  distinct?: { dataset: "event" | "daily" | "log" | "span"; field: string };
-  metric: string;
-  aggregation: "avg" | "max" | "min" | "sum";
-  pivot?: Pivot & {
-    metrics?: string[];
-    metricOptions?: {
-      metric: string;
-      aggregation?: "avg" | "max" | "min" | "sum";
-      mark?: WorksheetMark;
-    }[];
-  };
-};
-/** Rewrites a panel saved with a measure into data and values. */
-export function upgradePanel(raw: unknown): unknown {
-  if (!raw || typeof raw !== "object" || !("measure" in raw)) return raw;
-  const {
-    measure,
-    distinct,
-    metric,
-    aggregation,
-    pivot: legacyPivot,
-    fieldUnits: legacyUnits,
-    ...rest
-  } = raw as LegacyPanel;
-  const { metrics, metricOptions, ...pivotRest } = legacyPivot ?? {
-    row: [],
-    column: [],
-  };
-  let data: DataKind;
-  let values: Value[];
-  let label: (old: string) => string | undefined;
-  switch (measure) {
-    case "requests":
-      data = "request";
-      values = [{ agg: "count", of: [] }];
-      break;
-    case "errors":
-      data = "request";
-      values = [{ agg: "ratio", of: ["failed"] }];
-      break;
-    case "latency":
-      data = "request";
-      values = [{ agg: "p95", of: ["value"] }];
-      break;
-    case "logs":
-      data = "log";
-      values = [{ agg: "count", of: [] }];
-      break;
-    case "events":
-      data = "event";
-      values = [{ agg: "sum", of: ["value"] }];
-      break;
-    case "metric":
-      data = "metric";
-      values = [metric, ...(metrics ?? [])].map((m) => {
-        const o = metricOptions?.find((x) => x.metric === m);
-        const v: Value = {
-          agg: o?.aggregation ?? aggregation ?? "avg",
-          of: [`metric:${m}`],
-        };
-        if (o?.mark) v.mark = o.mark;
-        return v;
-      });
-      break;
-    default:
-      if (distinct?.dataset === "daily") {
-        data = "daily";
-        values = [{ agg: "daily", of: [`set:${distinct.field}`] }];
-      } else {
-        data = distinct?.dataset ?? "span";
-        values = [{ agg: "distinct", of: [`attr:${distinct?.field ?? ""}`] }];
-      }
-  }
-  if (measure === "metric")
-    label = (old) => {
-      const v = values.find((x) => metricOf(x.of[0]) === old);
-      return v && valueKey(v);
-    };
-  else label = () => valueKey(values[0]);
-  const panel: Record<string, unknown> = { ...rest, data, values };
-  if (legacyUnits) {
-    const fieldUnits = { ...legacyUnits };
-    if (measure !== "metric" && fieldUnits[measure] !== undefined) {
-      fieldUnits[unitKey(values[0])] = fieldUnits[measure];
-      delete fieldUnits[measure];
-    }
-    panel.fieldUnits = fieldUnits;
-  }
-  if (legacyPivot) {
-    const pivot: Pivot = { ...pivotRest };
-    const measureChannels = Object.entries(pivot.encoding ?? {})
-      .filter(([, f]) => f === "measure")
-      .map(([ch]) => ch);
-    if (pivot.styleRules && measureChannels.length)
-      pivot.styleRules = pivot.styleRules.flatMap((r) => {
-        if (!measureChannels.includes(r.channel)) return [r];
-        const value = label(r.value);
-        return value ? [{ ...r, value }] : [];
-      });
-    panel.pivot = pivot;
-  }
-  return panel;
+export function countsWhole(dict: Dictionary, data: DataKind, v: Value) {
+  return valueUnit(dict, data, v) === "件";
 }
 /** The value whose cells carry `key` on the measure shelf, else the first. */
 export function valueAt(panel: Pick<Panel, "values">, key?: string): Value {
@@ -541,12 +542,32 @@ export function valueAt(panel: Pick<Panel, "values">, key?: string): Value {
 }
 /** A value a kind of data starts with: its row count or first number. */
 export function initialValue(
+  dict: Dictionary,
   data: DataKind,
   meta: { metrics: string[]; dailyFields: string[] },
 ): Value {
-  if (aggsFor(data, []).length) return { agg: "count", of: [] };
   const field = measurableFields(data, meta)[0];
-  return field
-    ? { agg: defaultAgg(data, [field]), of: [field] }
-    : { agg: "count", of: [] };
+  if (data === "daily" || (data === "metric" && field)) {
+    const of: ValueField[] = field ? [field] : [];
+    return { agg: defaultAgg(dict, data, of), of };
+  }
+  return { agg: "count", of: [] };
+}
+
+/* ------------------------------------------------------------------ units */
+
+/** Units that convert into each other, by their size in the first unit. */
+export const unitFamilies: Record<string, number>[] = [
+  { B: 1, KiB: 1024, MiB: 1024 ** 2, GiB: 1024 ** 3 },
+  { ns: 1e-9, µs: 1e-6, ms: 0.001, s: 1 },
+  { "µs/s": 1e-6, "ms/s": 0.001, "s/s": 1, コア: 1, "%": 0.01 },
+];
+export function compatibleUnits(unit: string) {
+  return unitFamilies.find((f) => Object.hasOwn(f, unit));
+}
+/** Converts `value` from one unit to another of the same family. */
+export function convertUnit(value: number, from: string, to: string) {
+  const family = compatibleUnits(from);
+  if (!family || !Object.hasOwn(family, to)) return value;
+  return (value * family[from]) / family[to];
 }
