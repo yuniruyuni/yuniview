@@ -22,7 +22,8 @@ test("agent records → trace and logs → saved panel → monitor and notificat
   try {
     const trace = Buffer.from("0123456789abcdef").toString("base64");
     const span = Buffer.from("12345678").toString("base64");
-    const time = new Date(Date.now() - 90000);
+    // Old enough for the monitor's window, which ends after rows can arrive.
+    const time = new Date(Date.now() - 180000);
     const start = BigInt(+time) * 1000000n;
     const source = {
       service: "checkout",

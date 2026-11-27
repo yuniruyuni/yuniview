@@ -40,7 +40,18 @@ export const batchSchema = z.object({
     "usage",
     "daily_set",
   ]),
-  payload: z.union([z.record(z.string(), z.unknown()), z.array(z.string())]),
+  payload: z.union([
+    z.record(z.string(), z.unknown()),
+    // stdout lines: bare text, or with the time the agent read each line.
+    z.array(
+      z.union([
+        z.string(),
+        z
+          .object({ at: z.iso.datetime({ offset: true }), line: z.string() })
+          .strict(),
+      ]),
+    ),
+  ]),
 });
 export const usageMark = z
   .object({

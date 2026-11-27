@@ -8,10 +8,17 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"strconv"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
+
+// journalLine is one stdout line with the time journald received it.
+type journalLine struct {
+	At   time.Time `json:"at"`
+	Line string    `json:"line"`
+}
 
 func followJournal(ctx context.Context, q *queue, container string) {
 	for ctx.Err() == nil {
@@ -64,6 +71,8 @@ func readJournal(ctx context.Context, q *queue, container string) error {
 		var entry struct {
 			Cursor  string          `json:"__CURSOR"`
 			Message json.RawMessage `json:"MESSAGE"`
+			// Microseconds since the epoch, as a decimal string.
+			Realtime string `json:"__REALTIME_TIMESTAMP"`
 		}
 		if err = json.Unmarshal(scan.Bytes(), &entry); err != nil {
 			return err
@@ -84,7 +93,13 @@ func readJournal(ctx context.Context, q *queue, container string) error {
 		if len(line) > 256<<10 {
 			line = line[:256<<10] + " [truncated]"
 		}
-		payload, _ := json.Marshal([]string{line})
+		// Each line keeps the time journald received it: lines are sent in
+		// batches, and the batch's own time would put them all at one instant.
+		at := time.Now().UTC()
+		if us, err := strconv.ParseInt(entry.Realtime, 10, 64); err == nil {
+			at = time.UnixMicro(us).UTC()
+		}
+		payload, _ := json.Marshal([]journalLine{{at, line}})
 		cursor, _ := json.Marshal(struct{ Container, Cursor string }{container, entry.Cursor})
 		for {
 			err = q.add("stdout", payload, cursor)

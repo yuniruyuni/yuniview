@@ -131,7 +131,12 @@ func sample(dir string, q *queue) error {
 			if err != nil {
 				return err
 			}
-			b, _ := json.Marshal(map[string]uint64{"cpuUsageUsec": n, "memoryBytes": mem})
+			// The sample keeps its own time: samples are sent in batches.
+			b, _ := json.Marshal(struct {
+				At     time.Time `json:"at"`
+				CPU    uint64    `json:"cpuUsageUsec"`
+				Memory uint64    `json:"memoryBytes"`
+			}{time.Now().UTC(), n, mem})
 			return q.add("resources", b, nil)
 		}
 	}

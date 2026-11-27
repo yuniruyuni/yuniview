@@ -48,6 +48,7 @@ func run() error {
 	logfile := flag.String("log-file", "", "optional target stdout/stderr log path")
 	cgroup := flag.String("cgroup", "", "optional target cgroup v2 directory")
 	interval := flag.Duration("sample-interval", 10*time.Second, "resource sampling period")
+	window := flag.Duration("batch-interval", time.Minute, "how long OTLP exports, stdout lines and resource samples wait to be sent together (zero sends each at once)")
 	flush := flag.Duration("shutdown-timeout", 3*time.Second, "maximum final delivery time (zero leaves queued data on disk)")
 	flag.Parse()
 	if src.Service == "" || src.Instance == "" || src.Workload == "" || *token == "" {
@@ -62,8 +63,8 @@ func run() error {
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil {
 		return fmt.Errorf("invalid endpoint")
 	}
-	if *limit < maxBatch || *interval <= 0 || *flush < 0 {
-		return fmt.Errorf("queue-bytes must be at least %d with a positive sample-interval and nonnegative shutdown-timeout", maxBatch)
+	if *limit < maxBatch || *interval <= 0 || *flush < 0 || *window < 0 {
+		return fmt.Errorf("queue-bytes must be at least %d with a positive sample-interval and nonnegative shutdown-timeout and batch-interval", maxBatch)
 	}
 	if *journal != "" && *logfile != "" {
 		return fmt.Errorf("choose one stdout source")
@@ -76,6 +77,11 @@ func run() error {
 		return err
 	}
 	defer q.db.Close()
+	q.hold = *window > 0
+	// Deliveries staged by an earlier run are sent even if holding is now off.
+	if err = q.seal(); err != nil {
+		return err
+	}
 	g := grpc.NewServer(grpc.MaxRecvMsgSize(4 << 20))
 	defer g.Stop()
 	var listener net.Listener
@@ -128,6 +134,9 @@ func run() error {
 	}
 	delivery := newSender(*endpoint, *token, *socket)
 	wg.Go(func() { delivery.run(ctx, q) })
+	if q.hold {
+		wg.Go(func() { periodic(ctx, *window, "batches", q.seal) })
+	}
 	if *journal != "" {
 		wg.Go(func() { followJournal(ctx, q, *journal) })
 	}
@@ -157,6 +166,9 @@ func run() error {
 		var tailErr error
 		if *logfile != "" {
 			tailErr = t.poll(q)
+		}
+		if sealErr := q.seal(); sealErr != nil {
+			return sealErr
 		}
 		id, data, readErr := q.first()
 		if readErr != nil {

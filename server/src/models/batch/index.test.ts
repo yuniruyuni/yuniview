@@ -90,3 +90,34 @@ test("each resource of a batch is kept once, and rows without one refer to none"
   expect(indexed("stdout", ["line"]).events[0]?.resource).toBeNull();
   expect(indexed("stdout", ["line"]).resources).toEqual([]);
 });
+
+test("batched stdout lines and cgroup samples keep their own times", () => {
+  const lines = indexed("stdout", [
+    { at: "2026-11-28T00:00:01.250Z", line: "first" },
+    { at: "2026-11-28T00:00:09Z", line: "second" },
+    "bare",
+  ]);
+  expect(lines.events.map((e) => [e.at, e.body])).toEqual([
+    ["2026-11-28T00:00:01.250Z", "first"],
+    ["2026-11-28T00:00:09.000Z", "second"],
+    [time, "bare"],
+  ]);
+  const samples = indexed("resources", {
+    samples: [
+      { at: "2026-11-28T00:00:10Z", cpuUsageUsec: 1, memoryBytes: 2 },
+      { at: "2026-11-28T00:00:20Z", cpuUsageUsec: 3, memoryBytes: 4 },
+    ],
+  });
+  expect(samples.events.map((e) => [e.at, e.name, e.value])).toEqual([
+    ["2026-11-28T00:00:10.000Z", "cpu.usage", 1],
+    ["2026-11-28T00:00:10.000Z", "memory.current", 2],
+    ["2026-11-28T00:00:20.000Z", "cpu.usage", 3],
+    ["2026-11-28T00:00:20.000Z", "memory.current", 4],
+  ]);
+  // Agents before batching sent one untimed sample per batch.
+  const single = indexed("resources", { cpuUsageUsec: 5, memoryBytes: 6 });
+  expect(single.events.map((e) => [e.at, e.value])).toEqual([
+    [time, 5],
+    [time, 6],
+  ]);
+});

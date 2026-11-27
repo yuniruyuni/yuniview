@@ -33,9 +33,20 @@ export namespace Monitor {
   export const Due = _specs.Due;
   export type Spec = Comp<SpecsOf<typeof _specs>>;
 
-  /** The minute boundary the latest complete window ends at. */
+  /**
+   * How long after a minute its rows may still be arriving. Agents hold
+   * their deliveries for up to a minute to send them together, and SDKs
+   * hold spans a few seconds before that.
+   */
+  export const arrivalMs = 75000;
+
+  /**
+   * The minute boundary the latest complete window ends at: the latest one
+   * whose rows have all arrived. Judging a minute still in flight would see
+   * too few requests, or none, and raise a false alert or no-data.
+   */
   export function windowEnd(now: Date) {
-    return new Date(Math.floor(now.getTime() / 60000) * 60000);
+    return new Date(Math.floor((now.getTime() - arrivalMs) / 60000) * 60000);
   }
 
   /** Days a backtest replays. */

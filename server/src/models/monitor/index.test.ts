@@ -84,3 +84,9 @@ test("sameJson ignores key order and undefined members like jsonb", () => {
   expect(sameJson({ a: 1, b: undefined }, { a: 1 })).toBe(true);
   expect(sameJson({ a: [1, 2] }, { a: [2, 1] })).toBe(false);
 });
+
+test("a monitor judges the latest minute whose rows have all arrived", () => {
+  const end = (at: string) => Monitor.windowEnd(new Date(at)).toISOString();
+  expect(end("2026-11-28T00:02:14Z")).toBe("2026-11-28T00:00:00.000Z");
+  expect(end("2026-11-28T00:02:15Z")).toBe("2026-11-28T00:01:00.000Z");
+});

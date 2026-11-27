@@ -13,7 +13,7 @@ import (
 func TestJournalResume(t *testing.T) {
 	dir := t.TempDir()
 	testctl := filepath.Join(dir, "journalctl")
-	if err := os.WriteFile(testctl, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CAPTURE_ARGS\"\nprintf '%s\\n' '{\"__CURSOR\":\"cursor1\",\"MESSAGE\":\"hello\"}'\n"), 0700); err != nil {
+	if err := os.WriteFile(testctl, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CAPTURE_ARGS\"\nprintf '%s\\n' '{\"__CURSOR\":\"cursor1\",\"__REALTIME_TIMESTAMP\":\"1764288000123456\",\"MESSAGE\":\"hello\"}'\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
@@ -40,7 +40,8 @@ func TestJournalResume(t *testing.T) {
 			t.Fatal(err)
 		}
 		var batch Batch
-		if err = json.Unmarshal(b, &batch); err != nil || batch.Signal != "stdout" || string(batch.Payload) != "[\"hello\"]" {
+		// The line keeps journald's time, to the microsecond.
+		if err = json.Unmarshal(b, &batch); err != nil || batch.Signal != "stdout" || string(batch.Payload) != `[{"at":"2025-11-28T00:00:00.123456Z","line":"hello"}]` {
 			t.Fatalf("unexpected batch %s: %v", b, err)
 		}
 		if err = q.ack(id); err != nil {

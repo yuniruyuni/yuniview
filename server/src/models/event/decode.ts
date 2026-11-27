@@ -95,11 +95,13 @@ export function* decode(b: Envelope) {
     }
   }
   if (b.signal === "stdout") {
-    for (const text of Array.isArray(b.payload) ? b.payload : []) {
-      const line = str(text);
+    for (const entry of Array.isArray(b.payload) ? b.payload : []) {
+      // Batched lines carry their own time; a bare line has only the batch's.
+      const read = typeof entry === "string" ? seed.at : entry.at;
+      const line = str(typeof entry === "string" ? entry : entry.line);
       const match = line.match(/\btrace_?id[=:"]+\s*"?([0-9a-f]{32})\b/i);
       const cri = line.match(/^(\S+) (stdout|stderr) [FP] (.*)$/s);
-      const stamp = cri ? Date.parse(cri[1]) : NaN;
+      const stamp = cri ? Date.parse(cri[1]) : Date.parse(read);
       yield {
         ...seed,
         at: Number.isFinite(stamp) ? new Date(stamp).toISOString() : seed.at,
@@ -111,12 +113,22 @@ export function* decode(b: Envelope) {
     return;
   }
   if (b.signal === "resources") {
-    for (const [key, name, unit] of [
-      ["cpuUsageUsec", "cpu.usage", "µs"],
-      ["memoryBytes", "memory.current", "B"],
-    ]) {
-      const value = finite(p[key]);
-      if (value !== null) yield { ...seed, kind: "metric", name, value, unit };
+    // A batch holds a list of samples, each with its time; older agents sent
+    // one sample per batch, timed by the batch.
+    const samples = Array.isArray(p.samples) ? rows(p.samples) : [p];
+    for (const sample of samples) {
+      const stamp = Date.parse(str(sample.at));
+      const at = Number.isFinite(stamp)
+        ? new Date(stamp).toISOString()
+        : seed.at;
+      for (const [key, name, unit] of [
+        ["cpuUsageUsec", "cpu.usage", "µs"],
+        ["memoryBytes", "memory.current", "B"],
+      ]) {
+        const value = finite(sample[key]);
+        if (value !== null)
+          yield { ...seed, at, kind: "metric", name, value, unit };
+      }
     }
     return;
   }

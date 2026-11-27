@@ -36,7 +36,7 @@ printf 'hello log\n' > "$tmp/stdout"
 printf 'usage_usec 123\n' > "$tmp/cpu.stat"
 printf '456\n' > "$tmp/memory.current"
 start_agent() {
- "$tmp/agent" -service demo -slot blue -instance first -state "$tmp/state" -endpoint "$url" -token-file "$tmp/token" -listen "127.0.0.1:$grpc" -log-file "$tmp/stdout" -cgroup "$tmp" >"$tmp/agent.log" 2>&1 &
+ "$tmp/agent" -service demo -slot blue -instance first -state "$tmp/state" -endpoint "$url" -token-file "$tmp/token" -listen "127.0.0.1:$grpc" -log-file "$tmp/stdout" -cgroup "$tmp" -batch-interval 2s >"$tmp/agent.log" 2>&1 &
  agent=$!
 }
 start_agent
@@ -54,6 +54,8 @@ done
 for value in 'hello log' 'otlp message' 'cart.items'; do
   [[ $(sql -c "SELECT count(*) FROM telemetry_batches WHERE payload::text LIKE '%$value%'") == 1 ]]
 done
+# Held deliveries go out together: cgroup samples as one list, each with its time.
+[[ $(sql -c "SELECT count(*) FROM telemetry_batches WHERE signal='resources' AND payload::jsonb ? 'samples'") -ge 1 ]]
 body='{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source":{"service":"demo","workload":"app","slot":"blue","instance":"x"},"signal":"stdout","time":"2026-01-01T00:00:00Z","payload":["duplicate"]}'
 post() { curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $1" -H 'Content-Type: application/json' --data "$2" "$url"; }
 [[ $(post bad "$body") == 401 ]]
