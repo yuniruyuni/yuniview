@@ -37,12 +37,18 @@ export function eventSpecToSQL(spec: EventSpecData): SQLFragment {
   }
 }
 
+/**
+ * The table's column, qualified: {@link eventColumns} names its text `at`,
+ * and ORDER BY a bare `at` would sort that text instead of using the index.
+ */
 export function columnName(key: Event.SortKey): SQLFragment {
-  return sql.raw(
-    { at: "at", source: "source", batchId: "batch_id", ordinal: "ordinal" }[
-      key
-    ],
-  );
+  const name = {
+    at: "at",
+    source: "source",
+    batchId: "batch_id",
+    ordinal: "ordinal",
+  }[key];
+  return sql.raw(`telemetry_events.${name}`);
 }
 export function columnType(key: Event.SortKey): SQLFragment {
   return sql.raw(

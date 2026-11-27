@@ -15,6 +15,8 @@ export type Relation =
    * becomes the counter's unit per second.
    */
   | { readonly type: "rates"; readonly where: Event.Spec }
+  /** Every metric name received (column `name`), read from its index. */
+  | { readonly type: "metric_names" }
   | { readonly type: "daily_sets"; readonly where: DailySet.Spec }
   | { readonly type: "batches"; readonly where: Batch.Spec }
   /** Scalar attribute keys (column `key`) of the latest `sample` rows. */

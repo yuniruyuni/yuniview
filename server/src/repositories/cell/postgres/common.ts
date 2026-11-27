@@ -33,6 +33,16 @@ export function relationToSQL(r: Relation): {
   WHERE at>prev_at AND value>=prev) rates`,
         where: sql`true`,
       };
+    case "metric_names":
+      // Skip from name to name over events_metric_name instead of reading every reading.
+      return {
+        from: sql`(WITH RECURSIVE names AS (
+    SELECT min(name) AS name FROM telemetry_events WHERE kind='metric'
+    UNION ALL SELECT (SELECT min(name) FROM telemetry_events WHERE kind='metric' AND name>names.name)
+    FROM names WHERE names.name IS NOT NULL
+  ) SELECT name FROM names WHERE name IS NOT NULL) metric_names`,
+        where: sql`true`,
+      };
     case "daily_sets":
       return {
         from: sql`daily_sets`,

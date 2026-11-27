@@ -10,8 +10,13 @@ CREATE TABLE telemetry_events (
  PRIMARY KEY (source,batch_id,ordinal),
  FOREIGN KEY (source,batch_id) REFERENCES telemetry_batches(source_id,batch_id) ON DELETE CASCADE
 );
-CREATE INDEX events_kind_time ON telemetry_events(kind,at);
+-- Source rides along so per-service counts of a kind read only the index.
+CREATE INDEX events_kind_time ON telemetry_events(kind,at,source);
 CREATE INDEX events_source_time ON telemetry_events(source,at);
+-- Server spans, the rows of request charts and service totals, without reading the wide rows.
+CREATE INDEX events_entry_time ON telemetry_events(at,source,name,value,failed) WHERE kind='span' AND entry;
+-- One metric's readings, and the list of metric names.
+CREATE INDEX events_metric_name ON telemetry_events(name,at) WHERE kind='metric';
 CREATE INDEX events_trace ON telemetry_events(trace,at) WHERE trace <> '';
 CREATE TABLE dashboards (id uuid PRIMARY KEY, definition jsonb NOT NULL);
 CREATE TABLE monitors (

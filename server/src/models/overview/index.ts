@@ -11,21 +11,15 @@ const entry = Event.Entry();
 /** Server-span totals per service within the filter. */
 export function serviceStats(f: Filter, end: Date): Aggregate {
   return {
-    from: { type: "events", where: Event.matching(f, end) },
+    from: {
+      type: "events",
+      where: and(Event.matching(f, end), Event.Kind("span"), entry),
+    },
     by: [group("source", Field.column("source"))],
     measures: [
-      output("requests", { type: "count", where: entry }, "int"),
-      output(
-        "errors",
-        { type: "count", where: and(entry, Event.Failed()) },
-        "int",
-      ),
-      output("latency", {
-        type: "percentile",
-        fraction: 0.95,
-        of: "value",
-        where: entry,
-      }),
+      output("requests", { type: "count" }, "int"),
+      output("errors", { type: "count", where: Event.Failed() }, "int"),
+      output("latency", { type: "percentile", fraction: 0.95, of: "value" }),
     ],
   };
 }
@@ -33,7 +27,7 @@ export function serviceStats(f: Filter, end: Date): Aggregate {
 /** Metric names and daily sets that have been received. */
 export const choices = {
   metrics: {
-    from: { type: "events", where: Event.Kind("metric") },
+    from: { type: "metric_names" },
     by: [group("item", Field.column("name"))],
     measures: [],
   },

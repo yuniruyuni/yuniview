@@ -55,6 +55,10 @@ export async function initDatabase(logger: ILogger): Promise<PgDatabase> {
     //
     // 代償は保ちっぱなしの 1 接続。実測で 1 本あたりの実消費 (PSS) は約 1MB。
     min: 1,
+
+    // JIT をやめる。集計は行数の見積もりが大きく JIT が毎回走るが、
+    // 実測でコンパイルだけで 170〜220ms かかり、短い集計ではそれが大半になる。
+    options: "-c jit=off",
   });
 
   // 起動時に 1 回 `SELECT 1` を叩いて接続を実検証する。pg pool は lazy connect
