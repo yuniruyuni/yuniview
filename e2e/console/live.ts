@@ -255,6 +255,13 @@ test("agent records → trace and logs → saved panel → monitor and notificat
       .toBe(true);
     await page.getByRole("button", { name: "更新", exact: true }).click();
     await expect(page.locator(".state")).toHaveText("正常");
+    // A week's window charts the most the console reads, 30 days, instead
+    // of twelve windows the server would refuse.
+    await page.getByRole("button", { name: "編集", exact: true }).click();
+    await form.getByLabel("評価窓（分）").fill("10080");
+    await expect(form.locator("line.threshold")).toBeAttached();
+    await expect(form).not.toContainText("too_big");
+    await form.getByRole("button", { name: "キャンセル" }).click();
     await page.getByRole("button", { name: "編集", exact: true }).click();
     await form.getByLabel("最低サンプル数").fill("100");
     await form.getByRole("button", { name: "セーブ" }).click();

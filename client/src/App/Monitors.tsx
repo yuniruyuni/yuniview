@@ -133,7 +133,7 @@ function MonitorEditor({
           required
           type="number"
           min={1}
-          max={1440}
+          max={43200}
           value={monitor.panel.minutes}
           onChange={(e) =>
             setMonitor({
@@ -187,7 +187,8 @@ function MonitorEditor({
           set={(panel) => setMonitor({ ...monitor, panel })}
           meta={meta}
           end={end}
-          minutes={Math.max(60, monitor.panel.minutes * 12)}
+          // Twelve windows, within the 30 days the server reads at most.
+          minutes={Math.min(43200, Math.max(60, monitor.panel.minutes * 12))}
           timeControl={timeControl}
           savePanel={() => void save()}
           cancelPanel={() => close(false)}
