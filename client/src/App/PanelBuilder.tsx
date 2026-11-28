@@ -118,10 +118,12 @@ type Props = {
   end: string;
   minutes: number;
   timeControl: React.ReactNode;
-  /** Extra settings shown beside the shelves, such as a monitor's rule. */
+  /** Extra settings shown above the preview, such as a monitor's rule. */
   rule?: React.ReactNode;
   /** A monitor's threshold, drawn on the preview. */
   threshold?: number;
+  /** Lets the threshold be dragged on the preview. */
+  changeThreshold?: (value: number) => void;
 };
 const dimensions: Axis[] = [...identifiers, "day"];
 function styleTargets(format: string, pivot?: Pivot) {
@@ -158,6 +160,7 @@ export function PanelBuilder({
   directSave,
   rule,
   threshold,
+  changeThreshold,
 }: Props) {
   const dict = useDictionary();
   const editField = useFieldEditor();
@@ -1056,6 +1059,7 @@ export function PanelBuilder({
           </span>
         )}
         <div className="builder-main">
+          {rule}
           <div className="preview-head">
             {hovered ? (
               <h4>
@@ -1089,6 +1093,7 @@ export function PanelBuilder({
           </div>
           <PanelView
             threshold={threshold}
+            changeThreshold={changeThreshold}
             renderStyleDialog={
               channels.length && (p.display === "chart" || !!valueSide)
                 ? (points, close) => (
@@ -1513,7 +1518,6 @@ export function PanelBuilder({
                 ))}
               </fieldset>
             )}
-            {rule}
           </div>
         </section>
         <div className="worksheet-format">

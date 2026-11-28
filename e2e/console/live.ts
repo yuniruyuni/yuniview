@@ -239,6 +239,32 @@ test("agent records → trace and logs → saved panel → monitor and notificat
     await form.getByLabel("パネル名").fill("Checkout failures");
     await expect(form.locator("line.threshold")).toBeAttached();
     await expect(form.locator(".backtest")).toContainText("発報");
+    // The rule sits above the preview, and dragging the threshold up on
+    // the chart raises it.
+    const ruleBox = await form
+      .getByRole("group", { name: "判定" })
+      .boundingBox();
+    const plotBox = await form
+      .locator(".inspectable-plot")
+      .first()
+      .boundingBox();
+    expect(ruleBox!.y + ruleBox!.height).toBeLessThanOrEqual(plotBox!.y);
+    const handle = await form.locator(".threshold-handle").boundingBox();
+    const middle = {
+      x: handle!.x + handle!.width / 2,
+      y: handle!.y + handle!.height / 2,
+    };
+    await page.mouse.move(middle.x, middle.y);
+    await page.mouse.down();
+    await page.mouse.move(middle.x, middle.y - 30, { steps: 5 });
+    await page.mouse.up();
+    await expect
+      .poll(async () =>
+        Number(
+          await form.getByRole("spinbutton", { name: /^閾値/ }).inputValue(),
+        ),
+      )
+      .toBeGreaterThan(1);
     await form.getByRole("spinbutton", { name: /^閾値/ }).fill("50");
     await form.getByLabel("Webhook 通知").check();
     await form.getByRole("button", { name: "セーブ" }).click();

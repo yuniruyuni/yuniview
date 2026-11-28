@@ -19,6 +19,7 @@ import { useDictionary } from "./dictionary";
 import { displayField, displayPoints, nativeUnit } from "./fieldDisplay";
 import { InspectablePlot } from "./InspectablePlot";
 import { dashPatterns, lineWidths, PointSymbol, palette } from "./SeriesStyle";
+import { ThresholdLine } from "./ThresholdLine";
 import { WorksheetPlot } from "./WorksheetPlot";
 
 export function Select({
@@ -58,6 +59,7 @@ const colors = palette;
 export function Chart({
   whole,
   threshold,
+  changeThreshold,
   unit,
   fixedStyle,
   legendAction,
@@ -72,6 +74,8 @@ export function Chart({
   whole: boolean;
   /** A monitor's threshold, drawn across the chart. */
   threshold?: number;
+  /** Makes the threshold draggable. */
+  changeThreshold?: (value: number) => void;
   unit?: string;
   fixedStyle?: Panel["fixedStyle"];
   legendAction?: React.ReactNode;
@@ -175,18 +179,17 @@ export function Chart({
             </g>
           ))}
           {threshold !== undefined && (
-            <line
-              className="threshold"
-              x1={left}
-              x2={right}
-              y1={valueY(threshold)}
-              y2={valueY(threshold)}
-              stroke="#d97706"
-              strokeWidth={1.25}
-              strokeDasharray="5 4"
-            >
-              <title>閾値 {number(threshold)}</title>
-            </line>
+            <ThresholdLine
+              value={threshold}
+              top={23}
+              bottom={135}
+              left={left}
+              right={right}
+              toY={valueY}
+              fromY={(y) => low + ((135 - y) * (high - low)) / 112}
+              whole={whole}
+              change={changeThreshold}
+            />
           )}
           {groups.map((g, i) => {
             const ps = shown.filter((p) => p.series === g);
@@ -322,12 +325,15 @@ export function PanelView({
   onEdit,
   choose,
   threshold,
+  changeThreshold,
   wide,
   renderStyleDialog,
 }: {
   panel: Panel;
   end: string;
   threshold?: number;
+  /** Makes the threshold draggable on the plot. */
+  changeThreshold?: (value: number) => void;
   /** Spans the whole row of a card grid. */
   wide?: boolean;
   actions?: React.ReactNode;
@@ -450,6 +456,7 @@ export function PanelView({
         <Chart
           whole={countsWhole(dict, panel.data, panel.values[0])}
           threshold={threshold}
+          changeThreshold={changeThreshold}
           unit={unit ?? nativeUnit(dict, panel)}
           legendAction={legendAction}
           fixedStyle={{ ...panel.fixedStyle, ...panel.styleDefaults }}

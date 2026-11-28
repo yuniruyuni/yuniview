@@ -59,7 +59,7 @@ function BacktestNote({ monitor, end }: { monitor: Monitor; end: string }) {
   );
 }
 
-/** A monitor's query in the panel editor, with its rule beside the shelves. */
+/** A monitor's query in the panel editor, with its rule above the preview. */
 function MonitorEditor({
   initial,
   meta,
@@ -196,6 +196,9 @@ function MonitorEditor({
           actions={null}
           rule={rule}
           threshold={monitor.threshold}
+          changeThreshold={(threshold) =>
+            setMonitor((m) => ({ ...m, threshold }))
+          }
         />
       </section>
     </form>
