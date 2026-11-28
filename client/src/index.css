@@ -785,6 +785,18 @@ summary {
   overflow: auto;
 }
 
+.canvas-cell[data-drop] > .card {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.canvas-cell[data-drop] > .card:hover {
+  outline: 2px dashed var(--border-strong);
+  outline-offset: -2px;
+}
+.canvas-cell[data-drop] > .card:active {
+  cursor: grabbing;
+}
 .canvas-cell[data-preview] > .card {
   outline: 3px solid var(--accent);
   background: var(--accent-faint);
@@ -865,11 +877,16 @@ main:has(.worksheet) > .page {
   padding: 12px clamp(12px, 1.5vw, 24px);
 }
 .dashboard-page:has(.worksheet),
+.editor:has(> .worksheet),
 .worksheet {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+/* A monitor's editor fills the page like a dashboard's panel editor. */
+.editor:has(> .worksheet) {
+  margin: 0;
 }
 .worksheet-heading,
 .options-heading {

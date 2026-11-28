@@ -612,7 +612,9 @@ test("drag previews, cancellation, field shelves and saved panel order", async (
   await page.keyboard.press("Escape");
   await page.mouse.up();
   await expect(titles).toHaveText(["First", "Second"]);
-  await tiles.first().dragTo(tiles.last());
+  // While editing, a panel is grabbed anywhere but its controls.
+  const cards = form.locator(".canvas-grid article");
+  await cards.first().dragTo(cards.last());
   await expect(titles).toHaveText(["Second", "First"]);
   await expect(form.getByLabel("パネル名")).toHaveCount(0);
   await form.getByRole("button", { name: "First の設定" }).click();
@@ -2244,4 +2246,30 @@ test("a retention rule deletes the rows it picks out once its period passes, and
   page.once("dialog", (d) => d.accept());
   await row.getByRole("button", { name: "削除" }).click();
   await expect(row).toHaveCount(0);
+});
+
+test("a monitor's editor fits the window, and its field list scrolls in place", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await page.goto("/#page=monitors");
+  await page.getByRole("button", { name: "モニターを作成" }).click();
+  const form = page.locator("form.editor");
+  for (const element of [
+    form.getByRole("button", { name: "セーブ", exact: true }),
+    form.locator(".field-catalog"),
+    // Its shelves scroll inside it when they run past the window.
+    form.locator(".worksheet-options"),
+    form.locator(".builder-main > .card"),
+  ])
+    await expect(element).toBeInViewport({ ratio: 1 });
+  // The fields run past the window, so their list scrolls under the wheel.
+  const list = form.locator(".catalog-list");
+  const box = await list.boundingBox();
+  if (!box) throw Error("Missing field list");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, 400);
+  await expect
+    .poll(() => list.evaluate((el) => el.scrollTop))
+    .toBeGreaterThan(0);
 });

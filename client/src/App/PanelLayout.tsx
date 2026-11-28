@@ -89,6 +89,21 @@ export function PanelLayout({
               data-wide={p.wide || undefined}
               data-drop={editing ? i : undefined}
               data-preview={(editing && to === i) || undefined}
+              // While editing, the whole panel but its controls moves it.
+              onPointerDown={
+                editing
+                  ? (e) => {
+                      const control = (e.target as Element).closest(
+                        "button, a, input, select, textarea, [role='button'], [popover]",
+                      );
+                      if (
+                        !control ||
+                        control.classList.contains("panel-handle")
+                      )
+                        drag.start(e, i);
+                    }
+                  : undefined
+              }
             >
               <PanelView
                 panel={{ ...p, minutes }}
@@ -101,7 +116,6 @@ export function PanelLayout({
                       className="panel-handle drag-source"
                       aria-label={`${p.title} を移動`}
                       title="ドラッグまたは Alt＋矢印で移動"
-                      onPointerDown={(e) => drag.start(e, i)}
                       onKeyDown={(e) => {
                         if (!e.altKey) return;
                         const offset = ["ArrowLeft", "ArrowUp"].includes(e.key)

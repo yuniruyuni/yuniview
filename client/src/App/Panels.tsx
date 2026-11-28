@@ -29,17 +29,20 @@ export function Select({
   onDrop,
   dropTarget,
   change,
+  hideLabel,
 }: {
   label: string;
   value: string;
   choices: [string, string][];
+  /** Keeps the label for assistive technology only, beside other controls. */
+  hideLabel?: boolean;
   dropTarget?: string;
   onDrop?: React.DragEventHandler<HTMLSelectElement>;
   change: (v: string) => void;
 }) {
   return (
     <label data-drop={dropTarget}>
-      {label}
+      {hideLabel ? <span className="sr-only">{label}</span> : label}
       <select
         onDrop={onDrop}
         onDragOver={onDrop ? (e) => e.preventDefault() : undefined}

@@ -379,7 +379,7 @@ export function DashboardWorkspace({
         }
       />
       <label className="board-name">
-        名前
+        <span className="sr-only">名前</span>
         <input
           required
           maxLength={512}
@@ -415,6 +415,7 @@ export function DashboardWorkspace({
         <>
           <Select
             label="ダッシュボード"
+            hideLabel
             value={active.definition.id}
             choices={data.map((d) => [d.definition.id, d.definition.title])}
             change={(id) => {
