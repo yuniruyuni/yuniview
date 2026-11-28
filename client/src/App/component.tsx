@@ -114,11 +114,6 @@ function Console() {
     window.addEventListener("hashchange", change);
     return () => window.removeEventListener("hashchange", change);
   }, []);
-  useEffect(() => {
-    if (!auto) return;
-    const timer = setInterval(() => setNow(new Date().toISOString()), 30000);
-    return () => clearInterval(timer);
-  }, [auto]);
   const key = url.get("page") ?? "";
   const page: Page =
     key === "service" || Object.hasOwn(pages, key) ? (key as Page) : "home";
@@ -163,6 +158,15 @@ function Console() {
     />
   );
   const shared = page === "home" || page === "service" || page === "explore";
+  // Pages over a period of rows choose it here; monitors only refresh their
+  // states, and the configuration pages read no period at all.
+  const ranged = !!trace || shared || page === "dashboards";
+  const refreshing = ranged || page === "monitors";
+  useEffect(() => {
+    if (!auto || !refreshing) return;
+    const timer = setInterval(() => setNow(new Date().toISOString()), 30000);
+    return () => clearInterval(timer);
+  }, [auto, refreshing]);
   return (
     <div className="workspace">
       <aside>
@@ -234,47 +238,51 @@ function Console() {
               />
             </>
           )}
-          <div className="tools">
-            <DashboardTime
-              minutes={minutes}
-              end={end}
-              fixed={!!fixed}
-              change={changeTime}
-              quick
-            />
-            <label className="inline">
-              <input
-                type="checkbox"
-                checked={auto && !fixed}
-                onChange={(e) => {
-                  setAuto(e.target.checked);
-                  if (fixed) refresh();
-                }}
-              />
-              自動更新
-            </label>
-            <button
-              type="button"
-              className="icon"
-              aria-label="更新"
-              title="更新"
-              onClick={refresh}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                aria-hidden="true"
+          {refreshing && (
+            <div className="tools">
+              {ranged && (
+                <DashboardTime
+                  minutes={minutes}
+                  end={end}
+                  fixed={!!fixed}
+                  change={changeTime}
+                  quick
+                />
+              )}
+              <label className="inline">
+                <input
+                  type="checkbox"
+                  checked={auto && !fixed}
+                  onChange={(e) => {
+                    setAuto(e.target.checked);
+                    if (fixed) refresh();
+                  }}
+                />
+                自動更新
+              </label>
+              <button
+                type="button"
+                className="icon"
+                aria-label="更新"
+                title="更新"
+                onClick={refresh}
               >
-                <path d="M20 11a8 8 0 1 0-2.3 5.7" />
-                <path d="M20 4v7h-7" />
-              </svg>
-            </button>
-          </div>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+                  <path d="M20 4v7h-7" />
+                </svg>
+              </button>
+            </div>
+          )}
         </header>
         <div className="page">
           {query.error && (

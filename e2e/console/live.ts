@@ -2106,6 +2106,30 @@ test("a retention rule deletes the rows it picks out once its period passes, and
   await page.goto("/#page=retention");
   const rules = page.getByRole("region", { name: "保持期間" });
   await expect(rules).toContainText("どのルールにも当てはまらない行");
+  // Configuration reads no period, so the header offers no time or refresh.
+  const header = page.locator("main > header");
+  await expect(header.getByLabel("自動更新")).toHaveCount(0);
+  await expect(header.getByRole("group", { name: "よく使う期間" })).toHaveCount(
+    0,
+  );
+  await page.goto("/#page=settings");
+  await expect(
+    header.getByRole("button", { name: "更新", exact: true }),
+  ).toHaveCount(0);
+  // Monitors refresh their states but read no period from the header.
+  await page.goto("/#page=monitors");
+  await expect(
+    header.getByRole("button", { name: "更新", exact: true }),
+  ).toBeVisible();
+  await expect(header.getByLabel("自動更新")).toBeVisible();
+  await expect(header.getByRole("group", { name: "よく使う期間" })).toHaveCount(
+    0,
+  );
+  await page.goto("/#page=explore");
+  await expect(
+    header.getByRole("group", { name: "よく使う期間" }),
+  ).toBeVisible();
+  await page.goto("/#page=retention");
   await page.getByRole("button", { name: "ルールを追加" }).click();
   const editor = page.getByRole("region", { name: "保持ルールの編集" });
   await editor
