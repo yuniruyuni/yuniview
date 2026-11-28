@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { Panel, Point } from "../../../shared/console";
 import {
   chartBucketSeconds,
@@ -14,12 +14,12 @@ import {
   valueName,
 } from "../../../shared/console";
 import { clock, Feedback, number, useQuery } from "../api";
-import { countAxis } from "./countAxis";
 import { useDictionary } from "./dictionary";
 import { displayField, displayPoints, nativeUnit } from "./fieldDisplay";
 import { InspectablePlot } from "./InspectablePlot";
 import { dashPatterns, lineWidths, PointSymbol, palette } from "./SeriesStyle";
 import { ThresholdLine } from "./ThresholdLine";
+import { AxisBound, type Bounds, valueAxis, withBound } from "./valueAxis";
 import { WorksheetPlot } from "./WorksheetPlot";
 
 export function Select({
@@ -60,6 +60,8 @@ export function Chart({
   whole,
   threshold,
   changeThreshold,
+  yAxis,
+  changeYAxis,
   unit,
   fixedStyle,
   legendAction,
@@ -76,6 +78,10 @@ export function Chart({
   threshold?: number;
   /** Makes the threshold draggable. */
   changeThreshold?: (value: number) => void;
+  /** The panel's fixed ends of the value axis. */
+  yAxis?: Bounds;
+  /** Makes the ends of the value axis editable from their labels. */
+  changeYAxis?: (yAxis: Bounds | undefined) => void;
   unit?: string;
   fixedStyle?: Panel["fixedStyle"];
   legendAction?: React.ReactNode;
@@ -110,17 +116,44 @@ export function Chart({
     active && groups.includes(active)
       ? points.filter((p) => p.series === active)
       : points;
-  const low = shown.reduce(
+  const [reach, setReach] = useState<number>();
+  const clip = useId().replace(/:/g, "") + "-plot";
+  const roomy = (t: number) => (t > 0 ? t * 1.1 : t);
+  const seenLow = shown.reduce(
     (v, p) => Math.min(v, p.value),
     Math.min(0, threshold ?? 0),
   );
   const maximum = shown.reduce(
     (v, p) => Math.max(v, p.value),
-    Math.max(low + 1, (threshold ?? low) * 1.1),
+    Math.max(seenLow + 1, (threshold ?? seenLow) * 1.1),
   );
-  const counts = countAxis(whole, maximum);
-  const high = counts?.maximum ?? maximum;
-  const labels = counts?.ticks ?? [low, (low + high) / 2, high];
+  // Fixed ends still keep the threshold in view.
+  const axis = valueAxis(
+    whole,
+    seenLow,
+    maximum,
+    yAxis && {
+      min:
+        yAxis.min === undefined
+          ? undefined
+          : Math.min(yAxis.min, threshold ?? Infinity),
+      max:
+        yAxis.max === undefined
+          ? undefined
+          : Math.max(
+              yAxis.max,
+              threshold === undefined ? -Infinity : roomy(threshold),
+            ),
+    },
+  );
+  // Dragging the threshold past an end widens the axis to show it.
+  const low = reach !== undefined && reach < axis.low ? reach : axis.low;
+  const high =
+    reach !== undefined && roomy(reach) > axis.high ? roomy(reach) : axis.high;
+  const labels =
+    low === axis.low && high === axis.high
+      ? axis.ticks
+      : [0, 0.25, 0.5, 0.75, 1].map((t) => low + t * (high - low));
   const valueY = (value: number) => 135 - (112 * (value - low)) / (high - low);
   const left = Math.max(...labels.map((n) => number(n).length)) * 6 + 8;
   const right = Math.max(left + 1, width - 5);
@@ -164,20 +197,126 @@ export function Chart({
             })
           }
         >
-          {labels.map((n) => (
-            <g key={n}>
-              <line
-                x1={left}
-                x2={right}
-                y1={valueY(n)}
-                y2={valueY(n)}
-                stroke="#eef2f6"
-              />
-              <text x={left - 5} y={valueY(n) + 3} textAnchor="end">
-                {number(n)}
-              </text>
-            </g>
-          ))}
+          <defs>
+            <clipPath id={clip}>
+              {/* A path, not a rect, so plots' rects stay their bars. */}
+              <path d={`M${left - 4} 19H${right + 4}V139H${left - 4}Z`} />
+            </clipPath>
+          </defs>
+          {labels.map((n, i) => {
+            const end = !changeYAxis
+              ? undefined
+              : i === 0
+                ? "min"
+                : i === labels.length - 1
+                  ? "max"
+                  : undefined;
+            return (
+              <g key={n}>
+                <line
+                  x1={left}
+                  x2={right}
+                  y1={valueY(n)}
+                  y2={valueY(n)}
+                  stroke="#eef2f6"
+                />
+                {end && changeYAxis ? (
+                  <AxisBound
+                    x={left - 5}
+                    y={valueY(n) + 3}
+                    value={n}
+                    end={end}
+                    fixed={yAxis?.[end] !== undefined}
+                    commit={(v) => {
+                      const next = withBound(yAxis, end, v);
+                      if (next !== null) changeYAxis(next);
+                    }}
+                  />
+                ) : (
+                  <text x={left - 5} y={valueY(n) + 3} textAnchor="end">
+                    {number(n)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+          <g clipPath={`url(#${clip})`}>
+            {groups.map((g, i) => {
+              const ps = shown.filter((p) => p.series === g);
+              // Marks only where someone asked for them or points are sparse.
+              const marked =
+                fixedStyle?.shape !== undefined || !!choose || ps.length <= 16;
+              const filled = groups.length === 1 || (active === g && !!active);
+              const base = valueY(Math.max(low, Math.min(0, high)));
+              return (
+                <g key={g} stroke={color(i)} fill={color(i)}>
+                  {filled && ps.length > 1 && (
+                    <path
+                      stroke="none"
+                      fillOpacity={0.1}
+                      d={ps
+                        .map((p, j) => {
+                          const move =
+                            !j ||
+                            Date.parse(p.bucket) -
+                              Date.parse(ps[j - 1].bucket) >
+                              gapMs;
+                          const head = move
+                            ? `${j ? `L${x(ps[j - 1])},${base} ` : ""}M${x(p)},${base} L`
+                            : "L";
+                          return `${head}${x(p)},${y(p)}`;
+                        })
+                        .concat(`L${x(ps[ps.length - 1])},${base} Z`)
+                        .join(" ")}
+                    />
+                  )}
+                  <path
+                    fill="none"
+                    strokeWidth={strokeWidth}
+                    strokeDasharray={dash}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d={ps
+                      .map((p, i) => {
+                        const move =
+                          !i ||
+                          Date.parse(p.bucket) - Date.parse(ps[i - 1].bucket) >
+                            gapMs;
+                        return `${move ? "M" : "L"}${x(p)},${y(p)}`;
+                      })
+                      .join(" ")}
+                  />
+                  {ps.map((p) => {
+                    if (!marked) return null;
+                    const mark = (
+                      <PointSymbol
+                        key={p.bucket}
+                        shape={shape}
+                        x={x(p)}
+                        y={y(p)}
+                        r={3}
+                      >
+                        <title>
+                          {formatTime(p.bucket)} · {g} · {number(p.value)}
+                        </title>
+                      </PointSymbol>
+                    );
+                    return choose ? (
+                      <a
+                        key={p.bucket}
+                        href={choose(p)}
+                        aria-label={`${formatTime(p.bucket)} のログ`}
+                      >
+                        {mark}
+                      </a>
+                    ) : (
+                      mark
+                    );
+                  })}
+                </g>
+              );
+            })}
+          </g>
           {threshold !== undefined && (
             <ThresholdLine
               value={threshold}
@@ -189,82 +328,9 @@ export function Chart({
               fromY={(y) => low + ((135 - y) * (high - low)) / 112}
               whole={whole}
               change={changeThreshold}
+              drag={setReach}
             />
           )}
-          {groups.map((g, i) => {
-            const ps = shown.filter((p) => p.series === g);
-            // Marks only where someone asked for them or points are sparse.
-            const marked =
-              fixedStyle?.shape !== undefined || !!choose || ps.length <= 16;
-            const filled = groups.length === 1 || (active === g && !!active);
-            const base = valueY(Math.max(low, Math.min(0, high)));
-            return (
-              <g key={g} stroke={color(i)} fill={color(i)}>
-                {filled && ps.length > 1 && (
-                  <path
-                    stroke="none"
-                    fillOpacity={0.1}
-                    d={ps
-                      .map((p, j) => {
-                        const move =
-                          !j ||
-                          Date.parse(p.bucket) - Date.parse(ps[j - 1].bucket) >
-                            gapMs;
-                        const head = move
-                          ? `${j ? `L${x(ps[j - 1])},${base} ` : ""}M${x(p)},${base} L`
-                          : "L";
-                        return `${head}${x(p)},${y(p)}`;
-                      })
-                      .concat(`L${x(ps[ps.length - 1])},${base} Z`)
-                      .join(" ")}
-                  />
-                )}
-                <path
-                  fill="none"
-                  strokeWidth={strokeWidth}
-                  strokeDasharray={dash}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d={ps
-                    .map((p, i) => {
-                      const move =
-                        !i ||
-                        Date.parse(p.bucket) - Date.parse(ps[i - 1].bucket) >
-                          gapMs;
-                      return `${move ? "M" : "L"}${x(p)},${y(p)}`;
-                    })
-                    .join(" ")}
-                />
-                {ps.map((p) => {
-                  if (!marked) return null;
-                  const mark = (
-                    <PointSymbol
-                      key={p.bucket}
-                      shape={shape}
-                      x={x(p)}
-                      y={y(p)}
-                      r={3}
-                    >
-                      <title>
-                        {formatTime(p.bucket)} · {g} · {number(p.value)}
-                      </title>
-                    </PointSymbol>
-                  );
-                  return choose ? (
-                    <a
-                      key={p.bucket}
-                      href={choose(p)}
-                      aria-label={`${formatTime(p.bucket)} のログ`}
-                    >
-                      {mark}
-                    </a>
-                  ) : (
-                    mark
-                  );
-                })}
-              </g>
-            );
-          })}
         </InspectablePlot>
         <div className="range">
           <span>{formatTime(new Date(start).toISOString())}</span>
@@ -326,6 +392,7 @@ export function PanelView({
   choose,
   threshold,
   changeThreshold,
+  changeYAxis,
   wide,
   renderStyleDialog,
 }: {
@@ -334,6 +401,8 @@ export function PanelView({
   threshold?: number;
   /** Makes the threshold draggable on the plot. */
   changeThreshold?: (value: number) => void;
+  /** Makes the ends of the value axis editable from their labels. */
+  changeYAxis?: (yAxis: Panel["yAxis"]) => void;
   /** Spans the whole row of a card grid. */
   wide?: boolean;
   actions?: React.ReactNode;
@@ -360,6 +429,7 @@ export function PanelView({
       ...panel,
       fixedStyle: undefined,
       styleDefaults: undefined,
+      yAxis: undefined,
       pivot: panel.pivot
         ? {
             ...panel.pivot,
@@ -451,12 +521,15 @@ export function PanelView({
           points={data}
           end={end}
           legendAction={legendAction}
+          changeYAxis={changeYAxis}
         />
       ) : panel.display === "chart" ? (
         <Chart
           whole={countsWhole(dict, panel.data, panel.values[0])}
           threshold={threshold}
           changeThreshold={changeThreshold}
+          yAxis={panel.yAxis}
+          changeYAxis={changeYAxis}
           unit={unit ?? nativeUnit(dict, panel)}
           legendAction={legendAction}
           fixedStyle={{ ...panel.fixedStyle, ...panel.styleDefaults }}
@@ -523,11 +596,13 @@ function PivotView({
   points,
   end,
   legendAction,
+  changeYAxis,
 }: {
   panel: Panel;
   points: Point[];
   end: string;
   legendAction?: React.ReactNode;
+  changeYAxis?: (yAxis: Panel["yAxis"]) => void;
 }) {
   const pivot = panel.pivot!;
   const row = shelfFields(pivot.row),
@@ -554,6 +629,7 @@ function PivotView({
             panel={panel}
             points={plot}
             legendAction={legendAction}
+            changeYAxis={changeYAxis}
           />
         )}
         {!!table.length && (

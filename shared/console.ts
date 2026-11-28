@@ -230,6 +230,8 @@ export interface Panel extends Filter {
   group: "all" | Identifier | Attribute;
   display: "chart" | "value" | "table" | "pivot";
   pivot?: Pivot;
+  /** Fixed ends of the value axis; an end left out follows the values. */
+  yAxis?: { min?: number; max?: number };
 }
 export function chartBucketSeconds(minutes: number) {
   return Math.max(1, Math.ceil((minutes * 60) / 40));

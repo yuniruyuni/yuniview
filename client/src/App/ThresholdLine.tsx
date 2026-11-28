@@ -10,10 +10,15 @@ function round(value: number, span: number, whole: boolean) {
   return Number((Math.round(value / step) * step).toPrecision(12));
 }
 
+/** How far past the top of the axis, in plot units, doubles the value. */
+const doubling = 40;
+
 /**
  * A monitor's threshold across a chart. With `change`, it can be dragged up
- * and down; the value moves only here until the pointer is released, so the
- * chart's scale holds still under the pointer.
+ * and down. While dragging, the pointer reads values on the axis as it was
+ * when the drag began, so the chart's scale holds still under it; above the
+ * top the value keeps growing, doubling every {@link doubling} units, and
+ * `drag` lets the chart widen its axis to show it.
  */
 export function ThresholdLine({
   value,
@@ -25,6 +30,7 @@ export function ThresholdLine({
   fromY,
   whole,
   change,
+  drag,
 }: {
   value: number;
   /** Where the value axis ends and starts, in plot units. */
@@ -38,19 +44,32 @@ export function ThresholdLine({
   /** Whether the values count things, so the threshold stays whole. */
   whole: boolean;
   change?: (value: number) => void;
+  /** The value being dragged to, or undefined when the drag ends. */
+  drag?: (value: number | undefined) => void;
 }) {
   const [draft, setDraft] = useState<number>();
+  /** The axis's values at its top and bottom when the drag began. */
+  const [axis, holdAxis] = useState<{ top: number; bottom: number }>();
   const shown = draft ?? value;
   const y = toY(shown);
+  function move(next: number | undefined) {
+    setDraft(next);
+    drag?.(next);
+  }
   function at(e: React.PointerEvent<SVGLineElement>) {
     const matrix = e.currentTarget.ownerSVGElement?.getScreenCTM()?.inverse();
-    if (!matrix) return value;
+    if (!matrix || !axis) return value;
     const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(matrix);
-    return round(
-      fromY(Math.max(top, Math.min(bottom, p.y))),
-      fromY(top) - fromY(bottom),
-      whole,
-    );
+    const span = axis.top - axis.bottom;
+    const past = top - p.y;
+    const raw =
+      past <= 0
+        ? axis.bottom +
+          (span * (bottom - Math.min(bottom, p.y))) / (bottom - top)
+        : axis.top > 0
+          ? axis.top * 2 ** (past / doubling)
+          : axis.top + (span * past) / (bottom - top);
+    return round(raw, Math.max(span, raw - axis.bottom), whole);
   }
   return (
     <g>
@@ -89,21 +108,26 @@ export function ThresholdLine({
             e.stopPropagation();
             e.preventDefault();
             e.currentTarget.setPointerCapture(e.pointerId);
-            setDraft(value);
+            holdAxis({ top: fromY(top), bottom: fromY(bottom) });
+            move(value);
           }}
           onPointerMove={(e) => {
             if (draft === undefined) return;
             e.stopPropagation();
-            setDraft(at(e));
+            move(at(e));
           }}
           onPointerUp={(e) => {
             if (draft === undefined) return;
             e.stopPropagation();
             const next = at(e);
-            setDraft(undefined);
+            move(undefined);
+            holdAxis(undefined);
             if (next !== value) change(next);
           }}
-          onPointerCancel={() => setDraft(undefined)}
+          onPointerCancel={() => {
+            move(undefined);
+            holdAxis(undefined);
+          }}
         >
           <title>ドラッグして閾値を変更（{number(shown)}）</title>
         </line>

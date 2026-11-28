@@ -265,6 +265,28 @@ test("agent records → trace and logs → saved panel → monitor and notificat
         ),
       )
       .toBeGreaterThan(1);
+    // Dragging well past the top of the axis takes the threshold beyond it.
+    const raised = await form.locator(".threshold-handle").boundingBox();
+    await page.mouse.move(middle.x, raised!.y + raised!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(middle.x, raised!.y - 150, { steps: 10 });
+    await page.mouse.up();
+    await expect
+      .poll(async () =>
+        Number(
+          await form.getByRole("spinbutton", { name: /^閾値/ }).inputValue(),
+        ),
+      )
+      .toBeGreaterThan(100);
+    // The top of the axis is typed in from its label and saved with the
+    // panel.
+    await form.getByRole("button", { name: /^縦軸の上端 .*（自動）/ }).click();
+    const top = form.getByLabel("縦軸の上端", { exact: true });
+    await top.fill("500");
+    await top.press("Enter");
+    await expect(
+      form.getByRole("button", { name: /^縦軸の上端 500（固定）/ }),
+    ).toBeVisible();
     await form.getByRole("spinbutton", { name: /^閾値/ }).fill("50");
     await form.getByLabel("Webhook 通知").check();
     await form.getByRole("button", { name: "セーブ" }).click();
@@ -274,6 +296,18 @@ test("agent records → trace and logs → saved panel → monitor and notificat
     await page.getByRole("button", { name: "更新", exact: true }).click();
     await expect(page.locator(".state")).toHaveText("発報");
     await page.getByRole("button", { name: "編集", exact: true }).click();
+    await expect(
+      form.getByRole("button", { name: /^縦軸の上端 500（固定）/ }),
+    ).toBeVisible();
+    // 自動 gives the top back to the values.
+    await form.getByRole("button", { name: /^縦軸の上端 500/ }).click();
+    await form.getByRole("button", { name: "自動", exact: true }).click();
+    await expect(
+      form.getByRole("button", { name: /^縦軸の上端 .*（自動）/ }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: "/tmp/claude-1000/-home-yuniruyuni-src-github-com-yuniruyuni-yuniview/2ea59e64-a381-4014-a1fe-4214e0fe6766/scratchpad/axis.png",
+    });
     await form.getByRole("spinbutton", { name: /^閾値/ }).fill("101");
     await form.getByRole("button", { name: "セーブ" }).click();
     await expect

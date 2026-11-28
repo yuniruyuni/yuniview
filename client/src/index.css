@@ -2158,6 +2158,33 @@ table.dictionary .description {
 .threshold-handle {
   cursor: ns-resize;
 }
+.axis-bound {
+  cursor: pointer;
+}
+.axis-bound:hover,
+.axis-bound:focus-visible {
+  text-decoration: underline;
+  fill: var(--accent, #0284c7);
+  outline: none;
+}
+.axis-bound.fixed {
+  font-weight: 700;
+  fill: #b45309;
+}
+.axis-bound-editor {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.axis-bound-editor input {
+  width: 100px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.axis-bound-editor button {
+  padding: 2px 6px;
+  font-size: 12px;
+}
 .threshold-value {
   fill: #b45309;
   font-size: 11px;

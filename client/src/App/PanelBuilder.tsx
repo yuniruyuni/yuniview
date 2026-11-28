@@ -1094,6 +1094,7 @@ export function PanelBuilder({
           <PanelView
             threshold={threshold}
             changeThreshold={changeThreshold}
+            changeYAxis={(yAxis) => change({ ...p, yAxis })}
             renderStyleDialog={
               channels.length && (p.display === "chart" || !!valueSide)
                 ? (points, close) => (

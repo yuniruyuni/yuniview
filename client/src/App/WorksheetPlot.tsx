@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   countsWhole,
   fieldZone,
@@ -13,11 +13,11 @@ import {
   valueName,
 } from "../../../shared/console";
 import { number } from "../api";
-import { countAxis } from "./countAxis";
 import { useDictionary } from "./dictionary";
 import { displayField, nativeUnit } from "./fieldDisplay";
 import { InspectablePlot } from "./InspectablePlot";
 import { dashPatterns, lineWidths, PointSymbol, palette } from "./SeriesStyle";
+import { AxisBound, valueAxis, withBound } from "./valueAxis";
 
 const ticks = [0, 0.25, 0.5, 0.75, 1];
 const isStacked = (format: string) =>
@@ -26,13 +26,17 @@ export function WorksheetPlot({
   panel,
   points,
   legendAction,
+  changeYAxis,
 }: {
   panel: Panel;
   points: Point[];
   legendAction?: React.ReactNode;
+  /** Makes the ends of the value axis editable from their labels. */
+  changeYAxis?: (yAxis: Panel["yAxis"]) => void;
 }) {
   const dict = useDictionary();
   const [focused, focus] = useState("");
+  const clip = useId().replace(/:/g, "") + "-plot";
   const pivot = panel.pivot!;
   const rows = shelfFields(pivot.row),
     columns = shelfFields(pivot.column),
@@ -216,17 +220,21 @@ export function WorksheetPlot({
         には同じ単位の指標を配置してください。
       </p>
     );
-  const [low, maximum] = domains.values().next().value ?? [0, 1];
-  const counts = !mixed
-    ? countAxis(
+  const [seenLow, maximum] = domains.values().next().value ?? [0, 1];
+  // Units normalized to their own ranges have no one axis to fix.
+  const axis = mixed
+    ? undefined
+    : valueAxis(
         panel.values.every((v) => countsWhole(dict, panel.data, v)),
+        seenLow,
         maximum,
-      )
-    : undefined;
-  const high = counts?.maximum ?? maximum;
-  const tickValues =
-    counts?.ticks ??
-    ticks.map((t) => (mixed ? t * 100 : low + t * (high - low || 1)));
+        panel.yAxis,
+        ticks,
+      );
+  const low = axis?.low ?? seenLow;
+  const high = axis?.high ?? maximum;
+  const tickValues = axis?.ticks ?? ticks.map((t) => t * 100);
+  const editable = !!changeYAxis && !mixed && !horizontal;
   const xy = (c: number, v: number) =>
     horizontal ? [68 + 490 * v, 155 - 125 * c] : [68 + 490 * c, 155 - 125 * v];
   const tickKeys = ordered.filter(
@@ -298,21 +306,48 @@ export function WorksheetPlot({
                     : "系列別の折れ線グラフ"
           }
         >
-          {tickValues.map((value) => {
+          <defs>
+            <clipPath id={clip}>
+              {/* A path, not a rect, so the plot's rects stay its bars. */}
+              <path d="M64 26H562V159H64Z" />
+            </clipPath>
+          </defs>
+          {tickValues.map((value, i) => {
             const t = mixed ? value / 100 : (value - low) / (high - low || 1);
             const [x, y] = xy(0, t),
               [x2, y2] = xy(1, t);
+            const end = !editable
+              ? undefined
+              : i === 0
+                ? "min"
+                : i === tickValues.length - 1
+                  ? "max"
+                  : undefined;
             return (
               <g key={t}>
                 <line x1={x} y1={y} x2={x2} y2={y2} stroke="#dae5e3" />
-                <text
-                  x={horizontal ? x : x - 5}
-                  y={horizontal ? 173 : y + 3}
-                  textAnchor={horizontal ? "middle" : "end"}
-                >
-                  {number(value)}
-                  {mixed && "%"}
-                </text>
+                {end && changeYAxis ? (
+                  <AxisBound
+                    x={x - 5}
+                    y={y + 3}
+                    value={value}
+                    end={end}
+                    fixed={panel.yAxis?.[end] !== undefined}
+                    commit={(v) => {
+                      const next = withBound(panel.yAxis, end, v);
+                      if (next !== null) changeYAxis(next);
+                    }}
+                  />
+                ) : (
+                  <text
+                    x={horizontal ? x : x - 5}
+                    y={horizontal ? 173 : y + 3}
+                    textAnchor={horizontal ? "middle" : "end"}
+                  >
+                    {number(value)}
+                    {mixed && "%"}
+                  </text>
+                )}
               </g>
             );
           })}
@@ -333,185 +368,189 @@ export function WorksheetPlot({
               </text>
             );
           })}
-          {[...visible]
-            .sort(
-              ([, a], [, b]) =>
-                Number(a.format === "line") - Number(b.format === "line") ||
-                Number(isStacked(b.format)) - Number(isStacked(a.format)),
-            )
-            .map(([key, g]) => {
-              const index = barGroups.findIndex(([k]) => k === key);
-              const bars = g.format === "bar",
-                stacked = isStacked(g.format);
-              const {
-                color,
-                dash,
-                width: strokeWidth,
-                shape,
-              } = styles.get(key)!;
-              const [min, observedMax] = domains.get(g.unit)!;
-              const max = counts?.maximum ?? observedMax;
-              const scale = (v: number) => (v - min) / (max - min || 1);
-              const marks = g.marks.sort(
-                (a, b) => coord(a.category) - coord(b.category),
-              );
-              const runs: Mark[][] = [];
-              if (g.format === "area") {
-                for (const mark of marks) {
-                  const run = runs.at(-1);
-                  const prev = run?.at(-1);
-                  const adjacent =
-                    prev &&
-                    (temporal
-                      ? time(mark.category) - time(prev.category) === bucketMs
-                      : positions.get(mark.category)! -
-                          positions.get(prev.category)! ===
-                        1);
-                  if (
-                    run &&
-                    prev &&
-                    adjacent &&
-                    prev.value < 0 === mark.value < 0
-                  )
-                    run.push(mark);
-                  else runs.push([mark]);
-                }
-              }
-              const width =
-                ((horizontal ? 125 : 490) * band * 0.78) /
-                Math.max(1, barGroups.length);
-              return (
-                <g
-                  key={key}
-                  fill={color}
-                  opacity={
-                    stacked && groups.has(focused) && focused !== key ? 0.3 : 1
+          <g clipPath={`url(#${clip})`}>
+            {[...visible]
+              .sort(
+                ([, a], [, b]) =>
+                  Number(a.format === "line") - Number(b.format === "line") ||
+                  Number(isStacked(b.format)) - Number(isStacked(a.format)),
+              )
+              .map(([key, g]) => {
+                const index = barGroups.findIndex(([k]) => k === key);
+                const bars = g.format === "bar",
+                  stacked = isStacked(g.format);
+                const {
+                  color,
+                  dash,
+                  width: strokeWidth,
+                  shape,
+                } = styles.get(key)!;
+                const [min, max] = mixed ? domains.get(g.unit)! : [low, high];
+                const scale = (v: number) => (v - min) / (max - min || 1);
+                const marks = g.marks.sort(
+                  (a, b) => coord(a.category) - coord(b.category),
+                );
+                const runs: Mark[][] = [];
+                if (g.format === "area") {
+                  for (const mark of marks) {
+                    const run = runs.at(-1);
+                    const prev = run?.at(-1);
+                    const adjacent =
+                      prev &&
+                      (temporal
+                        ? time(mark.category) - time(prev.category) === bucketMs
+                        : positions.get(mark.category)! -
+                            positions.get(prev.category)! ===
+                          1);
+                    if (
+                      run &&
+                      prev &&
+                      adjacent &&
+                      prev.value < 0 === mark.value < 0
+                    )
+                      run.push(mark);
+                    else runs.push([mark]);
                   }
-                >
-                  {runs.map((run) => {
-                    const edge = (m: Mark, upper: boolean) =>
-                      xy(
-                        coord(m.category),
-                        scale(baselines.get(m)! + (upper ? m.value : 0)),
-                      ).join(",");
-                    const top = run.map((m) => edge(m, true)).join(" ");
-                    const bottom = run
-                      .map((m) => edge(m, false))
-                      .reverse()
-                      .join(" ");
-                    return (
-                      <g key={run[0].category}>
-                        <polygon
-                          points={top + " " + bottom}
-                          fillOpacity={0.25}
-                        />
-                        <polyline
-                          points={top}
-                          fill="none"
-                          stroke={color}
-                          strokeWidth={strokeWidth}
-                          strokeDasharray={dash}
-                          strokeLinejoin="round"
-                          strokeLinecap="round"
-                        />
-                      </g>
-                    );
-                  })}
-                  {!bars && !stacked && (
-                    <path
-                      fill="none"
-                      stroke={color}
-                      strokeWidth={strokeWidth}
-                      strokeDasharray={dash}
-                      strokeLinecap="round"
-                      d={marks
-                        .map((m, i) => {
-                          return (
-                            (i ? "L" : "M") +
-                            xy(coord(m.category), scale(m.value)).join(",")
-                          );
-                        })
-                        .join(" ")}
-                    />
-                  )}
-                  {marks.map((m) => {
-                    const [x, y] = xy(coord(m.category), scale(m.value)),
-                      [x0, y0] = xy(coord(m.category), scale(0));
-                    const offset = (index - barGroups.length / 2) * width;
-                    const title = (
-                      <title key={m.category}>
-                        {formatCategory(m.category)} ·{" "}
-                        {g.labelParts.join(" · ")} · {number(m.value)} {g.unit}
-                      </title>
-                    );
-                    if (stacked) {
-                      const base = baselines.get(m) ?? 0;
-                      const total = totals.get(m.category)!;
-                      const observed = (
+                }
+                const width =
+                  ((horizontal ? 125 : 490) * band * 0.78) /
+                  Math.max(1, barGroups.length);
+                return (
+                  <g
+                    key={key}
+                    fill={color}
+                    opacity={
+                      stacked && groups.has(focused) && focused !== key
+                        ? 0.3
+                        : 1
+                    }
+                  >
+                    {runs.map((run) => {
+                      const edge = (m: Mark, upper: boolean) =>
+                        xy(
+                          coord(m.category),
+                          scale(baselines.get(m)! + (upper ? m.value : 0)),
+                        ).join(",");
+                      const top = run.map((m) => edge(m, true)).join(" ");
+                      const bottom = run
+                        .map((m) => edge(m, false))
+                        .reverse()
+                        .join(" ");
+                      return (
+                        <g key={run[0].category}>
+                          <polygon
+                            points={top + " " + bottom}
+                            fillOpacity={0.25}
+                          />
+                          <polyline
+                            points={top}
+                            fill="none"
+                            stroke={color}
+                            strokeWidth={strokeWidth}
+                            strokeDasharray={dash}
+                            strokeLinejoin="round"
+                            strokeLinecap="round"
+                          />
+                        </g>
+                      );
+                    })}
+                    {!bars && !stacked && (
+                      <path
+                        fill="none"
+                        stroke={color}
+                        strokeWidth={strokeWidth}
+                        strokeDasharray={dash}
+                        strokeLinecap="round"
+                        d={marks
+                          .map((m, i) => {
+                            return (
+                              (i ? "L" : "M") +
+                              xy(coord(m.category), scale(m.value)).join(",")
+                            );
+                          })
+                          .join(" ")}
+                      />
+                    )}
+                    {marks.map((m) => {
+                      const [x, y] = xy(coord(m.category), scale(m.value)),
+                        [x0, y0] = xy(coord(m.category), scale(0));
+                      const offset = (index - barGroups.length / 2) * width;
+                      const title = (
                         <title key={m.category}>
                           {formatCategory(m.category)} ·{" "}
                           {g.labelParts.join(" · ")} · {number(m.value)}{" "}
-                          {g.unit} ／ 観測合計{" "}
-                          {number(total.positive + total.negative)} {g.unit}
+                          {g.unit}
                         </title>
                       );
-                      const c = coord(m.category);
-                      if (g.format === "area") {
-                        const [x, y] = xy(c, scale(base + m.value));
+                      if (stacked) {
+                        const base = baselines.get(m) ?? 0;
+                        const total = totals.get(m.category)!;
+                        const observed = (
+                          <title key={m.category}>
+                            {formatCategory(m.category)} ·{" "}
+                            {g.labelParts.join(" · ")} · {number(m.value)}{" "}
+                            {g.unit} ／ 観測合計{" "}
+                            {number(total.positive + total.negative)} {g.unit}
+                          </title>
+                        );
+                        const c = coord(m.category);
+                        if (g.format === "area") {
+                          const [x, y] = xy(c, scale(base + m.value));
+                          return (
+                            <PointSymbol
+                              key={m.category}
+                              shape={shape}
+                              x={x}
+                              y={y}
+                              r={marks.length > 200 ? 1 : 2.5}
+                            >
+                              {observed}
+                            </PointSymbol>
+                          );
+                        }
+                        const start = c - band / 2,
+                          end = c + band / 2;
+                        const polygon = [
+                          xy(start, scale(base)),
+                          xy(start, scale(base + m.value)),
+                          xy(end, scale(base + m.value)),
+                          xy(end, scale(base)),
+                        ];
                         return (
-                          <PointSymbol
+                          <polygon
                             key={m.category}
-                            shape={shape}
-                            x={x}
-                            y={y}
-                            r={marks.length > 200 ? 1 : 2.5}
+                            points={polygon.map((p) => p.join(",")).join(" ")}
                           >
                             {observed}
-                          </PointSymbol>
+                          </polygon>
                         );
                       }
-                      const start = c - band / 2,
-                        end = c + band / 2;
-                      const polygon = [
-                        xy(start, scale(base)),
-                        xy(start, scale(base + m.value)),
-                        xy(end, scale(base + m.value)),
-                        xy(end, scale(base)),
-                      ];
-                      return (
-                        <polygon
+                      return bars ? (
+                        <rect
                           key={m.category}
-                          points={polygon.map((p) => p.join(",")).join(" ")}
+                          x={horizontal ? Math.min(x, x0) : x + offset}
+                          y={horizontal ? y + offset : Math.min(y, y0)}
+                          width={horizontal ? Math.abs(x - x0) : width}
+                          height={horizontal ? width : Math.abs(y - y0)}
                         >
-                          {observed}
-                        </polygon>
+                          {title}
+                        </rect>
+                      ) : (
+                        <PointSymbol
+                          shape={shape}
+                          key={m.category}
+                          x={x}
+                          y={y}
+                          r={marks.length > 200 ? 1 : 2.5}
+                        >
+                          {title}
+                        </PointSymbol>
                       );
-                    }
-                    return bars ? (
-                      <rect
-                        key={m.category}
-                        x={horizontal ? Math.min(x, x0) : x + offset}
-                        y={horizontal ? y + offset : Math.min(y, y0)}
-                        width={horizontal ? Math.abs(x - x0) : width}
-                        height={horizontal ? width : Math.abs(y - y0)}
-                      >
-                        {title}
-                      </rect>
-                    ) : (
-                      <PointSymbol
-                        shape={shape}
-                        key={m.category}
-                        x={x}
-                        y={y}
-                        r={marks.length > 200 ? 1 : 2.5}
-                      >
-                        {title}
-                      </PointSymbol>
-                    );
-                  })}
-                </g>
-              );
-            })}
+                    })}
+                  </g>
+                );
+              })}
+          </g>
         </InspectablePlot>
         <div className="legend">
           {legendAction}

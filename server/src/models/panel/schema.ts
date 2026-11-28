@@ -151,6 +151,13 @@ export const panel = query
     fieldUnits: z.record(label, z.string().trim().min(1).max(32)).optional(),
     fixedStyle: styles,
     styleDefaults: styles,
+    yAxis: z
+      .object({ min: z.number().optional(), max: z.number().optional() })
+      .refine(
+        (a) => a.min === undefined || a.max === undefined || a.min < a.max,
+        "縦軸の下端は上端より小さくしてください",
+      )
+      .optional(),
     title: label.pipe(z.string().trim().min(1)),
     values: z.array(value).min(1).max(12),
     group: z
