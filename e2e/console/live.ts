@@ -305,9 +305,6 @@ test("agent records → trace and logs → saved panel → monitor and notificat
     await expect(
       form.getByRole("button", { name: /^縦軸の上端 .*（自動）/ }),
     ).toBeVisible();
-    await page.screenshot({
-      path: "/tmp/claude-1000/-home-yuniruyuni-src-github-com-yuniruyuni-yuniview/2ea59e64-a381-4014-a1fe-4214e0fe6766/scratchpad/axis.png",
-    });
     await form.getByRole("spinbutton", { name: /^閾値/ }).fill("101");
     await form.getByRole("button", { name: "セーブ" }).click();
     await expect
