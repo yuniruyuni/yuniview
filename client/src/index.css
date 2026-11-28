@@ -1998,6 +1998,24 @@ table.rows tr.failed-row td:first-child {
   padding: 8px;
   border-radius: 6px;
 }
+.raw-data {
+  margin-top: 12px;
+}
+.raw-json {
+  max-height: 360px;
+  overflow: auto;
+  font-size: 12px;
+  background: var(--bg);
+  padding: 8px;
+  border-radius: 6px;
+}
+.raw-expired {
+  color: var(--subtle);
+  font-size: 12px;
+}
+.trace-log.failed > p {
+  color: var(--danger);
+}
 .row-fields th,
 .row-fields td {
   padding: 3px 4px;

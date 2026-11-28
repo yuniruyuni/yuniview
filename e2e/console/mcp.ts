@@ -103,7 +103,27 @@ test("MCP edits share console storage and reject stale versions", async ({
   };
   // Exploring what is stored, as the explore page does.
   const query = { ...defaults, data: "log" };
-  expect(await read("search_telemetry", { query })).toHaveProperty("items");
+  const found = await read("search_telemetry", { query });
+  expect(found).toHaveProperty("items");
+  // A row opens what it was decoded from.
+  const [row] = found.items;
+  if (row) {
+    const raw = await read("get_raw_row", {
+      source: row.source,
+      batchId: row.batchId,
+      ordinal: row.ordinal,
+    });
+    expect(raw).toHaveProperty("receivedAt");
+  }
+  expect(
+    (
+      await call("get_raw_row", {
+        source: "checkout",
+        batchId: "missing",
+        ordinal: 0,
+      })
+    ).isError,
+  ).toBe(true);
   await read("top_values", { query, field: "source" });
   await read("list_attributes", { query });
   await read("list_routes", { filter: defaults });

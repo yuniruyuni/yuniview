@@ -13,4 +13,6 @@ export interface IBatchRepository {
   upsert(ctx: DbWriteCtx, batch: Batch): Promise<void>;
   /** Deletes batches together with their rows. */
   delete(ctx: DbWriteCtx, spec: Batch.Spec): Promise<number>;
+  /** Drops the payload of batches, keeping them and their rows. */
+  dropPayloads(ctx: DbWriteCtx, spec: Batch.Spec): Promise<number>;
 }

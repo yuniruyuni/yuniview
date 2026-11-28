@@ -175,11 +175,24 @@ export function managementMcp(ctx: Context) {
       "get_trace",
       {
         description:
-          "Read every span and log of one trace across services, in time order. Span attrs include the sending process under attrs.resource.",
+          "Read every span and log of one trace across services, in time order. Span attrs include the sending process under attrs.resource. Exceptions recorded on a span are logs of the trace.",
         inputSchema: z.object({ trace: z.string().regex(/^[a-f0-9]{32}$/) }),
         annotations: readOnly,
       },
       ({ trace }) => attempt(() => api.trace(trace)),
+    );
+    server.registerTool(
+      "get_raw_row",
+      {
+        description: `Read what one row (from search_telemetry or get_trace: its source, batchId and ordinal) was decoded from, as delivered: for a span, the OTLP span with its resource and scope, including what rows do not carry (links, status, flags). Payloads are kept for some days after delivery; after that, expired is true.`,
+        inputSchema: z.object({
+          source: z.string(),
+          batchId: z.string(),
+          ordinal: z.number().int().min(0),
+        }),
+        annotations: readOnly,
+      },
+      (row) => attempt(() => api.rawRow(row)),
     );
     server.registerTool(
       "top_values",

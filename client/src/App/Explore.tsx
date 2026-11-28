@@ -12,6 +12,7 @@ import {
   isAttribute,
   type Overview,
   type Panel,
+  type RawRow,
   type RouteRow,
   shelfName,
   type TopValue,
@@ -545,8 +546,41 @@ function RowDetail({
           ))}
         </tbody>
       </table>
+      <RawData key={row.id} row={row} />
     </aside>
   );
+}
+
+/**
+ * The part of the delivered payload a row was decoded from, read only when
+ * opened. Payloads are dropped some days after delivery.
+ */
+function RawData({ row }: { row: EventRow }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="raw-data">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? "元データを閉じる" : "元データを見る"}
+      </button>
+      {open && <RawDataBody row={row} />}
+    </div>
+  );
+}
+function RawDataBody({ row }: { row: EventRow }) {
+  const { data, error } = useQuery<RawRow>("rawRow", {
+    source: row.source,
+    batchId: row.batchId,
+    ordinal: row.ordinal,
+  });
+  if (!data) return <Feedback error={error} />;
+  if (data.expired)
+    return (
+      <p className="raw-expired">
+        元データは保存期間を過ぎたため削除されました（受信:{" "}
+        {clock(data.receivedAt)}）。
+      </p>
+    );
+  return <pre className="raw-json">{JSON.stringify(data.raw, null, 2)}</pre>;
 }
 
 /** Shows an attribute as a column of the row table, or takes it away. */
@@ -914,19 +948,35 @@ export function Trace({ id }: { id: string }) {
             <small>
               span {span.span} / parent {span.parent || "root"}
             </small>
+            <RawData key={span.id} row={span} />
           </aside>
         )}
       </div>
       <h3>同じトレースのログ ({traced.length})</h3>
       <div className="card">
-        {traced.map((r) => (
-          <p key={r.id}>
-            <small>
-              {clock(r.at)} · {r.source}
-            </small>{" "}
-            {r.body}
-          </p>
-        ))}
+        {traced.map((r) => {
+          const stack = r.attrs["exception.stacktrace"];
+          return (
+            <div
+              key={r.id}
+              className={r.failed ? "trace-log failed" : "trace-log"}
+            >
+              <p>
+                <small>
+                  {clock(r.at)} · {r.source}
+                  {r.name && ` · ${r.name}`}
+                </small>{" "}
+                {r.body}
+              </p>
+              {typeof stack === "string" && stack && (
+                <details>
+                  <summary>スタックトレース</summary>
+                  <pre className="raw-json">{stack}</pre>
+                </details>
+              )}
+            </div>
+          );
+        })}
         {!traced.length && <p>trace ID の付いたログはありません。</p>}
       </div>
       <h3>同じインスタンスの前後のログ ({around.length})</h3>

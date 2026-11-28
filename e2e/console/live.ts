@@ -1767,6 +1767,110 @@ test("explore narrows by observed values and leads from a row to its trace and n
   await expect(page.locator(".trace")).toContainText("plain line one");
 });
 
+test("a span's exception shows in its trace, and rows open what they were decoded from", async ({
+  page,
+  request,
+}) => {
+  const source = {
+    service: "checkout",
+    workload: "app",
+    slot: "blue",
+    instance: "raw-test",
+    revision: "raw",
+  };
+  const start = BigInt(Date.now() - 60000) * 1000000n;
+  const trace = Buffer.from("raw-trace-000001");
+  await deliver(request, source, "traces", {
+    resourceSpans: [
+      {
+        scopeSpans: [
+          {
+            scope: { name: "raw-instrumentation", version: "9.9.9" },
+            spans: [
+              {
+                name: "GET /raw",
+                kind: 2,
+                traceId: trace.toString("base64"),
+                spanId: Buffer.from("rawspan1").toString("base64"),
+                startTimeUnixNano: String(start),
+                endTimeUnixNano: String(start + 20000000n),
+                flags: 257,
+                attributes: [
+                  { key: "http.route", value: { stringValue: "/raw" } },
+                ],
+                events: [
+                  {
+                    name: "exception",
+                    timeUnixNano: String(start + 10000000n),
+                    attributes: [
+                      {
+                        key: "exception.message",
+                        value: { stringValue: "raw boom" },
+                      },
+                      {
+                        key: "exception.stacktrace",
+                        value: {
+                          stringValue: "Error: raw boom\n    at handler",
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+  await page.goto(
+    "/#" +
+      new URLSearchParams({ page: "explore", trace: trace.toString("hex") }),
+  );
+  await expect(
+    page.getByRole("heading", { name: "同じトレースのログ (1)" }),
+  ).toBeVisible();
+  const thrown = page.locator(".trace-log.failed");
+  await expect(thrown).toContainText("raw boom");
+  await thrown.getByText("スタックトレース").click();
+  await expect(thrown).toContainText("at handler");
+  await page.locator(".span-row").filter({ hasText: "GET /raw" }).click();
+  const detail = page.getByRole("complementary", { name: "スパンの詳細" });
+  // What OTLP says outside the attributes comes as attributes by convention.
+  await expect(detail).toContainText(
+    '"otel.scope.name": "raw-instrumentation"',
+  );
+  await expect(detail).toContainText('"span.kind": "server"');
+  await detail.getByRole("button", { name: "元データを見る" }).click();
+  await expect(detail.locator(".raw-json")).toContainText('"flags": 257');
+  await expect(detail.locator(".raw-json")).toContainText('"version": "9.9.9"');
+});
+
+test("a row whose payload was dropped says so instead of showing it", async ({
+  page,
+}) => {
+  // bin/test-console.sh stores this batch as received long ago.
+  await page.goto(
+    "/#" +
+      new URLSearchParams({
+        page: "explore",
+        data: "log",
+        conditions: JSON.stringify([
+          { field: "instance", values: ["expired-test"] },
+        ]),
+      }),
+  );
+  await page
+    .locator("table.rows tbody tr")
+    .filter({ hasText: "expired payload line" })
+    .click();
+  const detail = page.getByRole("complementary", { name: "行の詳細" });
+  await detail.getByRole("button", { name: "元データを見る" }).click();
+  await expect(detail).toContainText(
+    "元データは保存期間を過ぎたため削除されました",
+  );
+});
+
 test("home cards lead to a service page with revisions compared and routes to explore", async ({
   page,
   request,

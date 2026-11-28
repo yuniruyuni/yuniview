@@ -4,6 +4,7 @@ import type { DbReadCtx, DbWriteCtx } from "../../common/capability";
 import type { IBatchRepository } from "../repository";
 import { count } from "./count";
 import { remove } from "./delete";
+import { dropPayloads } from "./drop-payloads";
 import { list } from "./list";
 import { upsert } from "./upsert";
 
@@ -23,5 +24,8 @@ export class BatchRepository implements IBatchRepository {
   }
   async delete(ctx: DbWriteCtx, spec: Batch.Spec): Promise<number> {
     return remove(ctx.db, spec);
+  }
+  async dropPayloads(ctx: DbWriteCtx, spec: Batch.Spec): Promise<number> {
+    return dropPayloads(ctx.db, spec);
   }
 }

@@ -1,5 +1,7 @@
 CREATE INDEX telemetry_pending ON telemetry_batches(received_at) WHERE NOT indexed;
-GRANT UPDATE (indexed) ON telemetry_batches TO yuniview_app;
+GRANT UPDATE (indexed,payload) ON telemetry_batches TO yuniview_app;
+-- Payloads left to drop, oldest first; dropped ones leave the index.
+CREATE INDEX batches_payload_received_at ON telemetry_batches(received_at) WHERE payload IS NOT NULL;
 -- OTLP resource attributes, stored once per distinct content; rows refer to them by digest.
 CREATE TABLE telemetry_resources (
  digest bytea PRIMARY KEY, attrs json NOT NULL,

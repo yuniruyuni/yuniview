@@ -16,7 +16,7 @@ CREATE TABLE telemetry_batches (
     signal text NOT NULL,
     observed_at timestamptz NOT NULL,
     received_at timestamptz NOT NULL DEFAULT now(),
-    payload json NOT NULL,
+    payload json,  -- null once dropped, some days after indexing
     indexed boolean NOT NULL DEFAULT false,
     PRIMARY KEY (source_id, batch_id)
 );

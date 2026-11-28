@@ -79,6 +79,7 @@ YUNIVIEW_ACCESS_TOKEN="$(cloudflared access token --app=https://yuniview.yuniruy
 
 - `MONITOR_WEBHOOK_URL` を設定して中央サーバーを起動すると、モニター単位で Webhook 通知を選択できます。通知には状態、時刻、値、イベント ID が入り、送信失敗時は再試行します。受信側は Idempotency-Key で重複排除できます。
 - `TELEMETRY_RETENTION_DAYS` は受信日を基準にした保持日数です。1〜3650 を指定すると古いバッチと索引を段階的に削除します。既定の 0 は自動削除を無効にします。
+- `TELEMETRY_PAYLOAD_DAYS` は、届いた元データ（バッチの payload）を行に展開した後も残す日数です。既定は 7 で、過ぎると元データだけを段階的に削除します。行とバッチは残ります。0 は削除しません。
 
 ## 開発・検証
 

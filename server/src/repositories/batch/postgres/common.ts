@@ -23,6 +23,8 @@ export function batchSpecToSQL(spec: BatchSpecData): SQLFragment {
       return sql`slot=${spec.slot}`;
     case "Revision":
       return sql`revision=${spec.revision}`;
+    case "PayloadBefore":
+      return sql`(source_id,batch_id) IN (SELECT source_id,batch_id FROM telemetry_batches WHERE payload IS NOT NULL AND indexed AND received_at<${spec.at} ORDER BY received_at LIMIT ${spec.count}::int FOR UPDATE SKIP LOCKED)`;
     case "Emptied":
       return sql`indexed AND NOT EXISTS (SELECT 1 FROM telemetry_events e WHERE e.source=telemetry_batches.source_id AND e.batch_id=telemetry_batches.batch_id)`;
   }

@@ -121,3 +121,201 @@ test("batched stdout lines and cgroup samples keep their own times", () => {
     [time, 6],
   ]);
 });
+
+test("spans carry their scope, kind and status message as attributes", () => {
+  const b = indexed("traces", {
+    resourceSpans: [
+      {
+        resource,
+        scopeSpans: [
+          {
+            scope: { name: "http", version: "1.2.0" },
+            spans: [
+              {
+                ...span("/a"),
+                kind: "SPAN_KIND_CLIENT",
+                status: { code: "STATUS_CODE_ERROR", message: "timeout" },
+              },
+              {
+                ...span("/b"),
+                kind: 2,
+                attributes: [
+                  { key: "span.kind", value: { stringValue: "sender's" } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+  expect(b.events[0]?.attrs).toEqual({
+    "http.route": "/a",
+    "otel.scope.name": "http",
+    "otel.scope.version": "1.2.0",
+    "span.kind": "client",
+    "otel.status_description": "timeout",
+  });
+  // The sender's attribute wins; empty values are left out.
+  expect(b.events[1]?.attrs).toEqual({
+    "otel.scope.name": "http",
+    "otel.scope.version": "1.2.0",
+    "span.kind": "sender's",
+  });
+});
+
+test("span events become logs of the span, after every span", () => {
+  const traceId = "ab".repeat(16);
+  const b = indexed("traces", {
+    resourceSpans: [
+      {
+        resource,
+        scopeSpans: [
+          {
+            spans: [
+              {
+                ...span("/a"),
+                traceId,
+                startTimeUnixNano: "1795824000000000000",
+                events: [
+                  {
+                    name: "exception",
+                    timeUnixNano: "1795824000500000000",
+                    attributes: [
+                      {
+                        key: "exception.message",
+                        value: { stringValue: "boom" },
+                      },
+                      {
+                        key: "exception.stacktrace",
+                        value: { stringValue: "Error: boom\n  at f" },
+                      },
+                    ],
+                  },
+                  { name: "retry" },
+                ],
+              },
+              span("/b"),
+            ],
+          },
+        ],
+      },
+    ],
+  });
+  expect(b.events.map((e) => [e.kind, e.body, e.failed])).toEqual([
+    ["span", "/a", false],
+    ["span", "/b", false],
+    ["log", "boom", true],
+    ["log", "retry", false],
+  ]);
+  const thrown = b.events[2];
+  expect(thrown?.trace).toBe(traceId);
+  expect(thrown?.span).toBe("1".repeat(16));
+  expect(thrown?.at).toBe("2026-11-28T00:00:00.500Z");
+  expect(thrown?.name).toBe("exception");
+  expect(thrown?.attrs["exception.stacktrace"]).toBe("Error: boom\n  at f");
+  expect(thrown?.resource).toBe(b.resources[0]?.digest as string);
+  // A span event without its own time is timed by its span.
+  expect(b.events[3]?.at).toBe("2026-11-28T00:00:00.000Z");
+});
+
+test("a row's raw is the part of the payload it came from", () => {
+  const delivered = (
+    signal: Envelope["signal"],
+    payload: Envelope["payload"],
+  ) =>
+    Batch.received(
+      { id: "a".repeat(32), source, time, signal, payload },
+      new Date(time),
+    );
+  const scope = { name: "app" };
+  const traces = delivered("traces", {
+    resourceSpans: [
+      {
+        resource,
+        scopeSpans: [
+          {
+            scope,
+            spans: [{ ...span("/a"), events: [{ name: "e" }] }, span("/b")],
+          },
+        ],
+      },
+    ],
+  });
+  expect(Batch.raw(traces, 1)).toEqual({
+    expired: false,
+    raw: { resource, scope, span: span("/b") },
+  });
+  expect(Batch.raw(traces, 2)).toEqual({
+    expired: false,
+    raw: {
+      resource,
+      scope,
+      span: { ...span("/a"), events: [{ name: "e" }] },
+      event: { name: "e" },
+    },
+  });
+  expect(Batch.raw(traces, 3)).toBeNull();
+
+  const metrics = delivered("metrics", {
+    resourceMetrics: [
+      {
+        resource,
+        scopeMetrics: [
+          {
+            scope,
+            metrics: [
+              {
+                name: "m",
+                unit: "s",
+                histogram: {
+                  aggregationTemporality: 2,
+                  dataPoints: [{ count: 2, sum: 3, bucketCounts: [1, 1] }],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+  // Each reading of a data point refers to the whole point.
+  expect(Batch.raw(metrics, 1)).toEqual({
+    expired: false,
+    raw: {
+      resource,
+      scope,
+      metric: {
+        name: "m",
+        unit: "s",
+        histogram: { aggregationTemporality: 2 },
+      },
+      dataPoint: { count: 2, sum: 3, bucketCounts: [1, 1] },
+    },
+  });
+
+  const line = { at: time, line: "hello" };
+  expect(Batch.raw(delivered("stdout", ["old", line]), 1)).toEqual({
+    expired: false,
+    raw: line,
+  });
+  const sample = { at: time, memoryBytes: 1 };
+  expect(Batch.raw(delivered("resources", { samples: [sample] }), 0)).toEqual({
+    expired: false,
+    raw: sample,
+  });
+  expect(Batch.raw({ ...traces, payload: null }, 0)).toEqual({
+    expired: true,
+  });
+});
+
+test("a batch whose payload is dropped yields no rows", () => {
+  const b = Batch.index({
+    ...Batch.received(
+      { id: "a".repeat(32), source, time, signal: "stdout", payload: ["x"] },
+      new Date(time),
+    ),
+    payload: null,
+  });
+  expect(b.events).toEqual([]);
+});

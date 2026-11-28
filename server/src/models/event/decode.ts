@@ -3,7 +3,13 @@ import type { Envelope } from "../batch/schema";
 import { Resource } from "../resource";
 
 // Turns one delivered batch into the rows it contributes. Pure: the same
-// batch always yields the same rows in the same order.
+// batch always yields the same rows in the same order, so a row's ordinal
+// finds it again; rows added later come after the ones decoded before.
+
+/** A batch as stored; its payload is null once it has been dropped. */
+export type Stored = Omit<Envelope, "payload"> & {
+  payload: Envelope["payload"] | null;
+};
 
 type Obj = Record<string, unknown>;
 function obj(x: unknown): Obj {
@@ -50,7 +56,30 @@ function attrs(x: unknown): Obj {
 function body(x: unknown) {
   return typeof x === "string" ? str(x) : str(JSON.stringify(x));
 }
-function base(b: Envelope) {
+/** OTLP span kinds, as the `span.kind` attribute names them. */
+const spanKinds: Record<string, string> = {
+  1: "internal",
+  2: "server",
+  3: "client",
+  4: "producer",
+  5: "consumer",
+  SPAN_KIND_INTERNAL: "internal",
+  SPAN_KIND_SERVER: "server",
+  SPAN_KIND_CLIENT: "client",
+  SPAN_KIND_PRODUCER: "producer",
+  SPAN_KIND_CONSUMER: "consumer",
+};
+/** What OTLP says about a span outside its attributes, by convention's names. */
+function spanContext(scope: Obj, span: Obj): Obj {
+  const extra: Obj = {
+    "otel.scope.name": str(scope.name),
+    "otel.scope.version": str(scope.version),
+    "span.kind": spanKinds[str(span.kind)] ?? "",
+    "otel.status_description": str(obj(span.status).message),
+  };
+  return Object.fromEntries(Object.entries(extra).filter(([, v]) => v !== ""));
+}
+function base(b: Stored) {
   return {
     at: b.time,
     kind: "log",
@@ -68,7 +97,11 @@ function base(b: Envelope) {
     resource: null as Resource | null,
   };
 }
-export function* decode(b: Envelope) {
+/**
+ * Each row with `raw`, the part of the payload it was decoded from (with the
+ * resource and scope it sits under), which is not stored.
+ */
+export function* decode(b: Stored) {
   const p = obj(b.payload),
     seed = base(b);
   if (b.signal === "logs") {
@@ -91,6 +124,7 @@ export function* decode(b: Envelope) {
         value: e.count,
         unit: "件",
         attrs: { ...obj(e.attrs), "event.name": e.name },
+        raw: e as unknown,
       };
     }
   }
@@ -108,6 +142,7 @@ export function* decode(b: Envelope) {
         body: cri?.[3] ?? line,
         name: cri?.[2] ?? "",
         trace: match?.[1].toLowerCase() ?? "",
+        raw: entry as unknown,
       };
     }
     return;
@@ -127,7 +162,15 @@ export function* decode(b: Envelope) {
       ]) {
         const value = finite(sample[key]);
         if (value !== null)
-          yield { ...seed, at, kind: "metric", name, value, unit };
+          yield {
+            ...seed,
+            at,
+            kind: "metric",
+            name,
+            value,
+            unit,
+            raw: sample as unknown,
+          };
       }
     }
     return;
@@ -138,9 +181,14 @@ export function* decode(b: Envelope) {
       : b.signal === "logs"
         ? p.resourceLogs
         : p.resourceMetrics;
+  // Span events come after every span, so the spans keep the ordinals they
+  // had before events were decoded.
+  const events: (ReturnType<typeof base> & { raw: unknown })[] = [];
   for (const r of rows(groups)) {
     const resource = Resource.of(attrs(obj(r.resource).attributes));
     for (const s of rows(r.scopeSpans ?? r.scopeLogs ?? r.scopeMetrics)) {
+      const scope = obj(s.scope);
+      const under = { resource: r.resource, scope: s.scope };
       for (const a of rows(s.spans)) {
         const tags = attrs(a.attributes),
           start = finite(a.startTimeUnixNano),
@@ -148,14 +196,33 @@ export function* decode(b: Envelope) {
         const status = Number(
           tags["http.response.status_code"] ?? tags["http.status_code"],
         );
+        const at = instant(a.startTimeUnixNano, b.time),
+          trace = identifier(a.traceId, 16),
+          span = identifier(a.spanId, 8);
+        for (const ev of rows(a.events)) {
+          const tags = attrs(ev.attributes),
+            name = str(ev.name);
+          events.push({
+            ...seed,
+            at: instant(ev.timeUnixNano, at),
+            name,
+            body: str(tags["exception.message"] ?? name),
+            trace,
+            span,
+            failed: name === "exception",
+            attrs: tags,
+            resource,
+            raw: { ...under, span: a, event: ev } as unknown,
+          });
+        }
         yield {
           ...seed,
           kind: "span",
-          at: instant(a.startTimeUnixNano, b.time),
+          at,
           name: str(tags["http.route"] ?? a.name),
           body: str(a.name),
-          trace: identifier(a.traceId, 16),
-          span: identifier(a.spanId, 8),
+          trace,
+          span,
           parent: identifier(a.parentSpanId, 8),
           entry: a.kind === "SPAN_KIND_SERVER" || a.kind === 2,
           failed:
@@ -167,8 +234,9 @@ export function* decode(b: Envelope) {
               ? (end - start) / 1e6
               : null,
           unit: "ms",
-          attrs: tags,
+          attrs: { ...spanContext(scope, a), ...tags },
           resource,
+          raw: { ...under, span: a } as unknown,
         };
       }
       for (const l of rows(s.logRecords))
@@ -181,6 +249,7 @@ export function* decode(b: Envelope) {
           span: identifier(l.spanId, 8),
           attrs: attrs(l.attributes),
           resource,
+          raw: { ...under, logRecord: l } as unknown,
         };
       for (const m of rows(s.metrics)) {
         for (const type of [
@@ -191,7 +260,13 @@ export function* decode(b: Envelope) {
           "summary",
         ]) {
           const metric = obj(m[type]);
+          const { dataPoints: _, ...about } = metric;
           for (const pt of rows(metric.dataPoints)) {
+            const raw = {
+              ...under,
+              metric: { ...m, [type]: about },
+              dataPoint: pt,
+            } as unknown;
             const point = {
               ...seed,
               kind: "metric",
@@ -206,6 +281,7 @@ export function* decode(b: Envelope) {
                 startTimeUnixNano: pt.startTimeUnixNano,
               },
               resource,
+              raw,
             };
             if (pt.asDouble !== undefined || pt.asInt !== undefined) {
               yield { ...point, value: finite(pt.asDouble ?? pt.asInt) };
@@ -231,6 +307,14 @@ export function* decode(b: Envelope) {
       }
     }
   }
+  yield* events;
+}
+
+/** The part of the payload the batch's `ordinal`-th row came from. */
+export function rawOf(b: Stored, ordinal: number): unknown {
+  let i = 0;
+  for (const row of decode(b)) if (i++ === ordinal) return row.raw;
+  return undefined;
 }
 
 /**
@@ -264,7 +348,7 @@ const resourceFields: [string, FieldMeta][] = [
 ];
 
 /** What a batch's sender says about the fields its rows carry. */
-export function* fieldsOf(b: Envelope): Generator<[string, FieldMeta]> {
+export function* fieldsOf(b: Stored): Generator<[string, FieldMeta]> {
   if (b.signal === "resources") {
     yield* resourceFields;
     return;

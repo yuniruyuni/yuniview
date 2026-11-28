@@ -290,6 +290,11 @@ export interface EventRow {
   entry: boolean;
   attrs: Record<string, unknown>;
 }
+/** What one row was decoded from, while the delivered payload is kept. */
+export type RawRow = { receivedAt: string } & (
+  | { expired: false; raw: unknown }
+  | { expired: true }
+);
 export interface Overview {
   services: {
     source: string;

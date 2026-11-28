@@ -2,7 +2,7 @@ import type { FieldMeta } from "../../../../shared/console";
 import { type Comp, defineSpecs, type SpecsOf } from "../common";
 import type { DailySet } from "../daily-set";
 import type { Event } from "../event";
-import { decode, fieldsOf } from "../event/decode";
+import { decode, fieldsOf, rawOf, type Stored } from "../event/decode";
 import type { Resource } from "../resource";
 import {
   batchSchema,
@@ -16,9 +16,10 @@ export type { Envelope } from "./schema";
 
 /**
  * A delivered batch and the rows indexed from it. Batches are immutable once
- * stored; only `indexed` changes, when its rows are written.
+ * stored; only `indexed` changes, when its rows are written, and `payload`,
+ * which is dropped (null) some days after.
  */
-export interface Batch extends Envelope {
+export interface Batch extends Stored {
   receivedAt: Date;
   indexed: boolean;
   /** Rows, each referring to its resource by digest instead of carrying it. */
@@ -46,6 +47,11 @@ export namespace Batch {
     Revision: (revision: string) => ({ revision }),
     /** Indexed, with every row since deleted (by retention rules). */
     Emptied: () => ({}),
+    /**
+     * The `count` earliest received before `at` that are indexed and still
+     * hold their payload, so dropping payloads proceeds in bounded steps.
+     */
+    PayloadBefore: (at: Date, count: number) => ({ at, count }),
   });
   export const ByKeys = _specs.ByKeys;
   export const Pending = _specs.Pending;
@@ -53,6 +59,7 @@ export namespace Batch {
   export const Slot = _specs.Slot;
   export const Revision = _specs.Revision;
   export const Emptied = _specs.Emptied;
+  export const PayloadBefore = _specs.PayloadBefore;
   export type Spec = Comp<SpecsOf<typeof _specs>>;
 
   export function received(envelope: Envelope, at: Date): Batch {
@@ -72,7 +79,7 @@ export namespace Batch {
     const resources = new Map<string, Resource>();
     const events = Array.from(
       decode(batch),
-      ({ resource, ...row }, ordinal) => {
+      ({ resource, raw: _, ...row }, ordinal) => {
         if (resource) resources.set(resource.digest, resource);
         return {
           ...row,
@@ -99,6 +106,19 @@ export namespace Batch {
       resources: [...resources.values()],
       fields,
     };
+  }
+
+  /**
+   * What the batch's `ordinal`-th row was decoded from: `expired` once the
+   * payload is dropped, or null when the batch has no such row.
+   */
+  export function raw(
+    batch: Batch,
+    ordinal: number,
+  ): { expired: false; raw: unknown } | { expired: true } | null {
+    if (batch.payload === null) return { expired: true };
+    const raw = rawOf(batch, ordinal);
+    return raw === undefined ? null : { expired: false, raw };
   }
 
   export function key(batch: Batch): Key {

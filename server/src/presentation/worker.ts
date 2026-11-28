@@ -19,6 +19,9 @@ export function startWorker(ctx: Context) {
   const days = Number(process.env.TELEMETRY_RETENTION_DAYS ?? 0);
   if (!Number.isInteger(days) || days < 0 || days > 3650)
     throw Error("TELEMETRY_RETENTION_DAYS must be 0–3650");
+  const payloadDays = Number(process.env.TELEMETRY_PAYLOAD_DAYS ?? 7);
+  if (!Number.isInteger(payloadDays) || payloadDays < 0 || payloadDays > 3650)
+    throw Error("TELEMETRY_PAYLOAD_DAYS must be 0–3650");
   const notifications = Boolean(process.env.MONITOR_WEBHOOK_URL);
   let nextExpiry = 0;
   let stopped = false;
@@ -38,7 +41,7 @@ export function startWorker(ctx: Context) {
       }
       await run(evaluateMonitors());
       if (Date.now() >= nextExpiry) {
-        await run(expire(days));
+        await run(expire(days, payloadDays));
         nextExpiry = Date.now() + expiryMs;
       }
       // Planning runs every tick, so it is not traced; a sweep that has rows

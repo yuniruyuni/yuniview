@@ -14,6 +14,8 @@ export CONSOLE_TOKEN=$(openssl rand -hex 32)
 digest=$(printf '%s' "$CONSOLE_TOKEN" | sha256sum | cut -d' ' -f1)
 psql -c "INSERT INTO sources(id) VALUES ('checkout'); INSERT INTO agent_credentials VALUES ('$digest','checkout','app','blue');"
 psql -c "INSERT INTO telemetry_batches(source_id,batch_id,workload,instance,slot,revision,signal,observed_at,payload) VALUES ('checkout','old','app','prior','green','v0','stdout',now(),'[\"previous deployment\"]');"
+# Received long ago, so the worker drops its payload once it is indexed.
+psql -c "INSERT INTO telemetry_batches(source_id,batch_id,workload,instance,slot,revision,signal,observed_at,received_at,payload) VALUES ('checkout','expired','app','expired-test','blue','v0','stdout',now()-interval '2 minutes',now()-interval '30 days','[\"expired payload line\"]');"
 export GREEN_TEST_TOKEN=$(openssl rand -hex 32)
 green_digest=$(printf '%s' "$GREEN_TEST_TOKEN" | sha256sum | cut -d' ' -f1)
 psql -c "INSERT INTO agent_credentials VALUES ('$green_digest','checkout','app','green');"
@@ -35,3 +37,7 @@ for _ in {1..40};do curl -fsS "$CONSOLE_URL/health" >/dev/null 2>&1 && break;sle
 # The retention rule took the old container samples together with their batch, and left the rest.
 [[ $(psql -Atc "SELECT count(*) FROM telemetry_batches WHERE instance='retention-test'") == 3 ]]
 [[ $(psql -Atc "SELECT count(*) FROM retention_rules") == 0 ]]
+# The old batch kept its row and lost only its payload; recent batches keep theirs.
+[[ $(psql -Atc "SELECT count(*) FROM telemetry_batches WHERE batch_id='expired' AND payload IS NULL AND indexed") == 1 ]]
+[[ $(psql -Atc "SELECT count(*) FROM telemetry_events WHERE body='expired payload line'") == 1 ]]
+[[ $(psql -Atc "SELECT count(*) FROM telemetry_batches WHERE payload IS NULL AND received_at > now()-interval '7 days'") == 0 ]]

@@ -16,6 +16,7 @@ import { remove } from "../../../usecases/configuration/remove";
 import { saveDashboard } from "../../../usecases/configuration/save-dashboard";
 import { saveMonitor } from "../../../usecases/configuration/save-monitor";
 import { getOverview } from "../../../usecases/console/get-overview";
+import { getRaw } from "../../../usecases/console/get-raw";
 import { getSeries } from "../../../usecases/console/get-series";
 import { getTrace } from "../../../usecases/console/get-trace";
 import { listAttributes } from "../../../usecases/console/list-attributes";
@@ -105,6 +106,19 @@ export const appRouter = router({
   trace: p
     .input(z.string().regex(/^[a-f0-9]{32}$/))
     .query(({ ctx, input }) => getTrace(input).run(ctx).then(handleResult)),
+  rawRow: p
+    .input(
+      z.object({
+        source: z.string().max(512),
+        batchId: z.string().max(512),
+        ordinal: z.number().int().min(0).max(1e9),
+      }),
+    )
+    .query(({ ctx, input }) =>
+      getRaw({ source: input.source, id: input.batchId }, input.ordinal)
+        .run(ctx)
+        .then(handleResult),
+    ),
   series: p
     .input(z.object({ panel, end, buckets: z.boolean() }))
     .query(({ ctx, input }) =>
