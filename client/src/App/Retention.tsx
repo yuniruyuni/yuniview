@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   dataKinds,
   type RetentionRule,
-  type RetentionRuleView,
+  type RetentionRules,
   type RowKind,
   shelfName,
 } from "../../../shared/console";
@@ -226,7 +226,7 @@ function RuleEditor({
 /** Rules for how long rows of each kind are kept. */
 export function Retention({ end }: { end: string }) {
   const [revision, refresh] = useState(0);
-  const result = useQuery<RetentionRuleView[]>(
+  const result = useQuery<RetentionRules>(
     "retentionRules",
     undefined,
     revision,
@@ -246,7 +246,7 @@ export function Retention({ end }: { end: string }) {
         }}
       />
     );
-  const views = result.data;
+  const views = result.data?.rules;
   async function write(name: string, input: unknown) {
     try {
       await rpc(name, input, true);
@@ -349,7 +349,7 @@ export function Retention({ end }: { end: string }) {
                   どのルールにも当てはまらない行
                 </td>
                 <td>無期限</td>
-                <td />
+                <td>約 {about(result.data?.unclaimedPerDay ?? 0)} 行</td>
                 <td />
               </tr>
             </tbody>

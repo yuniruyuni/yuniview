@@ -37,6 +37,14 @@ test("rows an earlier rule matches are left to it, even where its condition is u
   expect(q.params).toContain("checkout");
 });
 
+test("rows no rule matches are the rest, kept forever", () => {
+  const q = claimToSQL(RetentionRule.unclaimed([forever, samples]));
+  expect(q.query).toBe(
+    "(true AND NOT (coalesce(source IN (?),false) OR coalesce((kind=? AND name IN (?, ?)),false)))",
+  );
+  expect(claimToSQL(RetentionRule.unclaimed([])).query).toBe("true");
+});
+
 test("a sweep starts just before the oldest row and goes an hour at a time", () => {
   const earliest = new Date(now.getTime() - 7 * 86400000 - 2.5 * hour);
   const steps = RetentionRule.plan([record(samples, 0)], now, earliest);

@@ -172,7 +172,7 @@ test("MCP edits share console storage and reject stale versions", async ({
       perDay: 0,
     });
   const titles = async () =>
-    (await read("list_retention_rules")).map(
+    (await read("list_retention_rules")).rules.map(
       (r: { rule: { title: string } }) => r.rule.title,
     );
   expect(await titles()).toEqual(["MCP rule one", "MCP rule two"]);

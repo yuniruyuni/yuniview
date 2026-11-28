@@ -69,6 +69,11 @@ export namespace RetentionRule {
     };
   }
 
+  /** The rows no rule decides, kept forever. */
+  export function unclaimed(ordered: readonly RetentionRule[]): Claim {
+    return { matches: and(), earlier: ordered.map(matches) };
+  }
+
   /** Records in the order rules are read. */
   export function ordered(records: readonly RetentionRecord[]) {
     return [...records].sort((a, b) => a.position - b.position);

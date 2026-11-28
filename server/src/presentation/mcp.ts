@@ -272,7 +272,7 @@ export function managementMcp(ctx: Context) {
     server.registerTool(
       "list_retention_rules",
       {
-        description: `Read the retention rules in order, each with about how many rows per day it decides (over the last 24 hours, after earlier rules; estimated from 1% of the stored rows, within about a tenth for rules deciding many rows). ${ruleHelp}`,
+        description: `Read the retention rules in order, each with about how many rows per day it decides (over the last 24 hours, after earlier rules; estimated from 1% of the stored rows, within about a tenth for rules deciding many rows), and about how many rows per day no rule decides (unclaimedPerDay, kept forever). ${ruleHelp}`,
         inputSchema: z.object({}),
         annotations: readOnly,
       },

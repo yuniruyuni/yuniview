@@ -597,8 +597,14 @@ export interface RetentionRule {
 /** A saved rule with how many rows it took over the last day. */
 export interface RetentionRuleView {
   rule: RetentionRule;
-  /** Rows of the last 24 hours this rule decides, after earlier rules. */
+  /** About how many rows of the last 24 hours this rule decides, after earlier rules. */
   perDay: number;
   /** Rows before this time have been swept; null until the first sweep. */
   sweptUntil: string | null;
+}
+/** The saved rules in order, and the rows none of them decides. */
+export interface RetentionRules {
+  rules: RetentionRuleView[];
+  /** Rows of the last 24 hours no rule decides, kept forever. */
+  unclaimedPerDay: number;
 }

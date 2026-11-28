@@ -1,32 +1,42 @@
-import type { RetentionRuleView } from "../../../../shared/console";
-import { RetentionRule } from "../../models/retention";
+import type { RetentionRules } from "../../../../shared/console";
+import { type Claim, RetentionRule } from "../../models/retention";
 import type { ReadContext } from "../context";
 import { usecase } from "../runner";
 
 const dayMs = 86400000;
 
-/** About how many rows of the last day the rule at `index` of `rules` decides. */
-function perDay(ctx: ReadContext, rules: RetentionRule[], index: number) {
-  return ctx.repos.events.estimate(
-    RetentionRule.claim(rules, index),
+const lastDay = (ctx: ReadContext, claim: Claim) =>
+  ctx.repos.events.estimate(
+    claim,
     new Date(ctx.now.getTime() - dayMs),
     ctx.now,
   );
+
+/** About how many rows of the last day the rule at `index` of `rules` decides. */
+function perDay(ctx: ReadContext, rules: RetentionRule[], index: number) {
+  return lastDay(ctx, RetentionRule.claim(rules, index));
 }
 
-/** The rules in order, each with about how many rows it decided over the last day. */
+/**
+ * The rules in order, each with about how many rows it decided over the last
+ * day, and about how many rows of that day none decided.
+ */
 export const listRules = () =>
   usecase({
-    read: async (ctx): Promise<RetentionRuleView[]> => {
+    read: async (ctx): Promise<RetentionRules> => {
       const records = await ctx.repos.retentionRules.list();
       const rules = records.map((r) => r.rule);
-      return Promise.all(
-        records.map(async (r, i) => ({
-          rule: r.rule,
-          perDay: await perDay(ctx, rules, i),
-          sweptUntil: r.sweptUntil?.toISOString() ?? null,
-        })),
-      );
+      const [views, unclaimedPerDay] = await Promise.all([
+        Promise.all(
+          records.map(async (r, i) => ({
+            rule: r.rule,
+            perDay: await perDay(ctx, rules, i),
+            sweptUntil: r.sweptUntil?.toISOString() ?? null,
+          })),
+        ),
+        lastDay(ctx, RetentionRule.unclaimed(rules)),
+      ]);
+      return { rules: views, unclaimedPerDay };
     },
   });
 

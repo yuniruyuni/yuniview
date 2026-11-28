@@ -2113,6 +2113,9 @@ test("a retention rule deletes the rows it picks out once its period passes, and
   await page.goto("/#page=retention");
   const rules = page.getByRole("region", { name: "保持期間" });
   await expect(rules).toContainText("どのルールにも当てはまらない行");
+  await expect(rules.locator(".retention-default")).toContainText(
+    /約 [\d,]+ 行/,
+  );
   // Configuration reads no period, so the header offers no time or refresh.
   const header = page.locator("main > header");
   await expect(header.getByLabel("自動更新")).toHaveCount(0);
