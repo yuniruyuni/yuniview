@@ -51,6 +51,9 @@ export function useQuery<T>(name: string, input: unknown, version = 0) {
 }
 export const number = (n: number | null) =>
   n === null ? "—" : n.toLocaleString("ja-JP", { maximumFractionDigits: 2 });
+/** A count rounded to two significant digits, as 280,000 for 276,348. */
+export const about = (n: number) =>
+  n.toLocaleString("ja-JP", { maximumSignificantDigits: 2 });
 export const clock = (s: string) =>
   new Date(s).toLocaleString("ja-JP", {
     month: "2-digit",

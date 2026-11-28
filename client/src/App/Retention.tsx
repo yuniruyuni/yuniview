@@ -6,7 +6,7 @@ import {
   type RowKind,
   shelfName,
 } from "../../../shared/console";
-import { Feedback, number, rpc, useQuery } from "../api";
+import { about, Feedback, rpc, useQuery } from "../api";
 import { ConditionBar } from "./ConditionBar";
 import { useDictionary } from "./dictionary";
 import { rowData } from "./Explore";
@@ -206,7 +206,7 @@ function RuleEditor({
       </div>
       <p className="retention-preview" aria-live="polite">
         {preview.data !== undefined
-          ? `このルールが決める行: 1日あたり約 ${number(preview.data)} 行（直近 24 時間）`
+          ? `このルールが決める行: 1日あたり約 ${about(preview.data)} 行（直近 24 時間からの見積もり）`
           : preview.error
             ? preview.error
             : "数えています…"}
@@ -304,7 +304,7 @@ export function Retention({ end }: { end: string }) {
                   <th>{v.rule.title}</th>
                   <td className="retention-target">{target(v.rule)}</td>
                   <td>{period(v.rule.keep)}</td>
-                  <td>約 {number(v.perDay)} 行</td>
+                  <td>約 {about(v.perDay)} 行</td>
                   <td className="retention-row-actions">
                     <button
                       type="button"

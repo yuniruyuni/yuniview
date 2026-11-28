@@ -4,15 +4,20 @@ import type { Batch } from "../../../models/batch";
 import type { Claim } from "../../../models/retention";
 import { claimToSQL } from "./common";
 
-/** Rows of `(from, to]` the claim decides. */
-export async function count(
+/**
+ * About how many rows of `(from, to]` the claim decides, from the rows on a
+ * random 1% of the table's pages. Counting them all reads every row the
+ * claim decides, a second or more for a million rows; this reads a fixed
+ * part of the table instead, within about a tenth over a day of rows.
+ */
+export async function estimate(
   db: Database,
   claim: Claim,
   from: Date,
   to: Date,
 ): Promise<number> {
   const [row] = await db.queryAll<{ n: number }>(
-    sql`SELECT count(*)::int AS n FROM telemetry_events WHERE at > ${from} AND at <= ${to} AND ${claimToSQL(claim)}`,
+    sql`SELECT (count(*)*100)::int AS n FROM telemetry_events TABLESAMPLE SYSTEM (1) WHERE at > ${from} AND at <= ${to} AND ${claimToSQL(claim)}`,
   );
   return row?.n ?? 0;
 }

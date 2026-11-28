@@ -5,16 +5,16 @@ import { usecase } from "../runner";
 
 const dayMs = 86400000;
 
-/** Rows of the last day the rule at `index` of `rules` decides. */
+/** About how many rows of the last day the rule at `index` of `rules` decides. */
 function perDay(ctx: ReadContext, rules: RetentionRule[], index: number) {
-  return ctx.repos.events.count(
+  return ctx.repos.events.estimate(
     RetentionRule.claim(rules, index),
     new Date(ctx.now.getTime() - dayMs),
     ctx.now,
   );
 }
 
-/** The rules in order, each with the rows it decided over the last day. */
+/** The rules in order, each with about how many rows it decided over the last day. */
 export const listRules = () =>
   usecase({
     read: async (ctx): Promise<RetentionRuleView[]> => {
@@ -31,7 +31,7 @@ export const listRules = () =>
   });
 
 /**
- * Rows of the last day a rule would decide in its place, or last when new,
+ * About how many rows of the last day a rule would decide in its place, or last when new,
  * before it is saved.
  */
 export const previewRule = (rule: RetentionRule) =>

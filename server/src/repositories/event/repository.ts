@@ -14,8 +14,8 @@ export interface IEventRepository {
     spec: Event.Spec,
     cursor: Cursor<Event.SortKey>,
   ): Promise<Page<Event>>;
-  /** Rows of `(from, to]` a retention rule decides. */
-  count(ctx: DbReadCtx, claim: Claim, from: Date, to: Date): Promise<number>;
+  /** About how many rows of `(from, to]` a retention rule decides. */
+  estimate(ctx: DbReadCtx, claim: Claim, from: Date, to: Date): Promise<number>;
   /** Deletes rows of `(from, to]` a retention rule decides. */
   sweep(
     ctx: DbWriteCtx,
