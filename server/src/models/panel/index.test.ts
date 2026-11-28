@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { blankPanel, type Panel } from "../../../../shared/console";
-import { panel as panelSchema, seriesAggregates, toPoint } from ".";
+import { asChart, blankPanel, type Panel } from "../../../../shared/console";
+import {
+  monitor as monitorSchema,
+  panel as panelSchema,
+  seriesAggregates,
+  toPoint,
+} from ".";
 
 const end = new Date("2026-11-24T00:00:00Z");
 const only = (p: Panel, buckets = true) => {
@@ -138,6 +143,58 @@ describe("panel schema", () => {
   });
 });
 
+describe("monitor panels", () => {
+  const line = (pivot: NonNullable<Panel["pivot"]>): Panel => ({
+    ...blankPanel,
+    data: "request",
+    values: [{ agg: "count", of: [] }],
+    display: "pivot",
+    pivot,
+  });
+  const monitor = (panel: Panel) => ({
+    id: crypto.randomUUID(),
+    title: "m",
+    panel,
+    threshold: 1,
+    operator: "above",
+    minimum: 1,
+    missing: "no_data",
+    notify: false,
+  });
+  test("a worksheet line of one value over time is a chart", () => {
+    const p = line({
+      row: ["measure"],
+      column: ["time:60"],
+      series: [],
+      mark: "line",
+      encoding: { color: "source" },
+    });
+    expect(asChart(p)).toMatchObject({ display: "chart", group: "source" });
+    expect(asChart(p)).not.toHaveProperty("pivot");
+    expect(asChart({ ...p, pivot: { ...p.pivot!, encoding: {} } })?.group).toBe(
+      "all",
+    );
+    const parsed = monitorSchema.safeParse(monitor(p));
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.panel).toMatchObject({
+      display: "chart",
+      group: "source",
+    });
+  });
+  test("bars, two splits or time off the column stay pivots", () => {
+    const pivots: NonNullable<Panel["pivot"]>[] = [
+      { row: ["measure"], column: ["time:60"], mark: "bar" },
+      { row: ["measure"], column: ["time:60"], series: ["source", "slot"] },
+      { row: ["time:60"], column: ["measure"] },
+      { row: ["measure"], column: ["source"] },
+    ];
+    for (const pivot of pivots) {
+      const p = line(pivot);
+      expect(asChart(p)).toBeUndefined();
+      expect(monitorSchema.safeParse(monitor(p)).success).toBe(false);
+    }
+  });
+});
 test("toPoint turns compound keys into JSON and paths", () => {
   expect(
     toPoint({

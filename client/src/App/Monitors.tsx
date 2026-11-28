@@ -1,11 +1,13 @@
 import { useState } from "react";
-import type {
-  Backtest,
-  Monitor,
-  MonitorRow,
-  Overview,
-  Panel,
-  Transition,
+import {
+  asChart,
+  type Backtest,
+  type Monitor,
+  type MonitorRow,
+  type Overview,
+  type Panel,
+  type Transition,
+  valueKey,
 } from "../../../shared/console";
 import { clock, Feedback, number, rpc, useQuery } from "../api";
 import { useDictionary } from "./dictionary";
@@ -40,6 +42,20 @@ export function makeMonitor(p: Panel): Monitor {
     notify: false,
     missing: "no_data",
   };
+}
+
+/**
+ * A worksheet's panel as a monitor watches it: a value placed beside the
+ * one it has takes its place, and a line over time becomes a chart.
+ */
+function watchable(before: Panel, after: Panel): Panel {
+  let next = after;
+  if (after.values.length > 1) {
+    const kept = new Set(before.values.map(valueKey));
+    const added = after.values.filter((v) => !kept.has(valueKey(v)));
+    next = { ...after, values: [added.at(-1) ?? after.values[0]] };
+  }
+  return asChart(next) ?? next;
 }
 
 function BacktestNote({ monitor, end }: { monitor: Monitor; end: string }) {
@@ -184,7 +200,9 @@ function MonitorEditor({
       <section className="worksheet" aria-label="ワークシート">
         <PanelBuilder
           p={monitor.panel}
-          set={(panel) => setMonitor({ ...monitor, panel })}
+          set={(panel) =>
+            setMonitor({ ...monitor, panel: watchable(monitor.panel, panel) })
+          }
           meta={meta}
           end={end}
           // Twelve windows, within the 30 days the server reads at most.

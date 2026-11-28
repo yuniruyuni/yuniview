@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   aggsFor,
+  asChart,
   type DataKind,
   fieldType,
   perAggs,
@@ -254,10 +255,13 @@ export const dashboard = z.object({
 export const monitor = z.object({
   id: z.uuid(),
   title: label.pipe(z.string().trim().min(1)),
-  panel: panel.refine(
-    (p) => p.display !== "pivot" && p.data !== "daily" && p.values.length === 1,
-    "モニターには単一系列の集計を指定してください",
-  ),
+  panel: panel
+    .transform((p) => asChart(p) ?? p)
+    .refine(
+      (p) =>
+        p.display !== "pivot" && p.data !== "daily" && p.values.length === 1,
+      "モニターには、横軸に時刻・縦軸に値 1 つを置いた折れ線を指定してください（色分けは 1 項目まで）",
+    ),
   threshold: z.number(),
   operator: z.enum(["above", "below"]),
   minimum: z.number().int().min(1),

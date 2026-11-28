@@ -2273,3 +2273,29 @@ test("a monitor's editor fits the window, and its field list scrolls in place", 
     .poll(() => list.evaluate((el) => el.scrollTop))
     .toBeGreaterThan(0);
 });
+
+test("a monitor takes the worksheet's line of one value over time", async ({
+  page,
+}) => {
+  await page.goto("/#page=monitors");
+  await page.getByRole("button", { name: "モニターを作成" }).click();
+  const form = page.locator("form.editor");
+  const place = (label: string, shelf: string) =>
+    form
+      .locator(".field-catalog")
+      .getByRole("button", { name: label, exact: true })
+      .dragTo(form.locator('.worksheet-shelves [data-drop="' + shelf + '"]'));
+  await place("時刻", "column");
+  // The count takes the failure rate's place: a monitor watches one value.
+  await place("リクエスト数", "row");
+  await expect(
+    form.locator('.worksheet-shelves [data-drop="row"] .shelf-chip'),
+  ).toHaveText(["リクエスト数"]);
+  await expect(form.locator("line.threshold")).toBeAttached();
+  await form.getByLabel("パネル名").fill("リクエスト数の監視");
+  await form.getByRole("button", { name: "セーブ", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  await expect(
+    page.locator("tbody tr").filter({ hasText: "リクエスト数の監視" }),
+  ).toHaveCount(1);
+});

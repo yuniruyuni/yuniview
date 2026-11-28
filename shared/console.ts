@@ -236,6 +236,41 @@ export interface Panel extends Filter {
 export function chartBucketSeconds(minutes: number) {
   return Math.max(1, Math.ceil((minutes * 60) / 40));
 }
+/**
+ * A worksheet line of one value over time, split by at most one field, as
+ * the chart it amounts to, so a monitor can watch it; the panel itself when
+ * it is already a chart, and undefined when it is neither.
+ */
+export function asChart(p: Panel): Panel | undefined {
+  if (p.display === "chart") return p;
+  if (p.display !== "pivot" || !p.pivot) return undefined;
+  if (p.data === "daily" || p.values.length !== 1) return undefined;
+  const { row, column, series, encoding, mark } = p.pivot;
+  if (mark && mark !== "line" && mark !== "auto") return undefined;
+  const rows = shelfFields(row),
+    columns = shelfFields(column);
+  if (rows.length !== 1 || rows[0] !== "measure") return undefined;
+  if (columns.length !== 1 || !isTimeField(columns[0])) return undefined;
+  const splits = new Set(
+    [...shelfFields(series), ...Object.values(encoding ?? {})].filter(
+      (f) => f !== "measure",
+    ),
+  );
+  if (splits.size > 1) return undefined;
+  const [split] = splits;
+  if (
+    split !== undefined &&
+    !identifiers.includes(split as Identifier) &&
+    !isAttribute(split)
+  )
+    return undefined;
+  const { pivot: _, ...rest } = p;
+  return {
+    ...rest,
+    display: "chart",
+    group: (split as Panel["group"] | undefined) ?? "all",
+  };
+}
 export function changeGroup(p: Panel, group: Panel["group"]): Panel {
   return { ...p, group };
 }
